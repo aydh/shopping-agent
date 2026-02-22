@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Shopping Agent{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        [hx-indicator] .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-request.htmx-indicator { display: inline-block; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center space-x-8">
+                    <a href="/" class="text-xl font-bold text-gray-900">Shopping Agent</a>
+                    <div class="hidden md:flex space-x-4">
+                        <a href="/" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'dashboard' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Dashboard</a>
+                        <a href="/orders" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'orders' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Orders</a>
+                        <a href="/predictions" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'predictions' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Predictions</a>
+                        <a href="/shopping-list" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'shopping_list' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Shopping List</a>
+                        <a href="/prices" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'prices' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Prices</a>
+                        <a href="/settings" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'settings' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Settings</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

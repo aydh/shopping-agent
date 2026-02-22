@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Price Comparison - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-900">Price Comparison</h1>
+        <button hx-post="/api/prices/refresh" hx-target="#prices-table-body" hx-indicator="#price-spinner"
+                class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+            Refresh Prices
+        </button>
+        <span id="price-spinner" class="htmx-indicator text-gray-400">refreshing...</span>
+    </div>
+
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Coles</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Woolworths</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Match</th>
+                    <th class="px-6 py-3"></th>
+                </tr>
+            </thead>
+            <tbody id="prices-table-body" class="divide-y divide-gray-200">
+                {% for comp in comparisons %}
+                <tr>
+                    <td class="px-6 py-4">
+                        <p class="text-sm font-medium text-gray-900">{{ comp.product_name }}</p>
+                        <p class="text-xs text-gray-400">{{ comp.unit_size or '' }}</p>
+                    </td>
+                    <td class="px-6 py-4 text-sm {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600 font-medium{% else %}text-gray-500{% endif %}">
+                        {% if comp.coles_price is not none %}${{ "%.2f" | format(comp.coles_price) }}{% else %}-{% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-sm {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600 font-medium{% else %}text-gray-500{% endif %}">
+                        {% if comp.woolworths_price is not none %}${{ "%.2f" | format(comp.woolworths_price) }}{% else %}-{% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-sm">
+                        {% if comp.cheaper_store %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if comp.cheaper_store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                            {{ comp.cheaper_store.value | title }}
+                        </span>
+                        {% if comp.savings > 0 %}
+                        <span class="text-xs text-gray-400 ml-1">save ${{ "%.2f" | format(comp.savings) }}</span>
+                        {% endif %}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if comp.match_confidence is not none %}
+                        <div class="flex items-center space-x-1">
+                            <div class="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full {% if comp.match_confidence >= 0.8 %}bg-green-500{% elif comp.match_confidence >= 0.6 %}bg-yellow-500{% else %}bg-red-400{% endif %}"
+                                     style="width: {{ (comp.match_confidence * 100) | int }}%"></div>
+                            </div>
+                            {% if comp.is_confirmed %}
+                            <span class="text-xs text-green-600">Confirmed</span>
+                            {% endif %}
+                        </div>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-right">
+                        {% if comp.match_confidence is not none and not comp.is_confirmed %}
+                        <button hx-post="/api/prices/confirm-match/{{ comp.match_id }}"
+                                hx-target="closest tr" hx-swap="outerHTML"
+                                class="text-blue-600 hover:text-blue-800 text-xs">Confirm</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                        No price comparisons yet. Sync orders and refresh prices.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
