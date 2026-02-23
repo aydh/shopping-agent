@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -6,6 +7,9 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import init_db
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("shopping_agent").setLevel(logging.DEBUG)
 
 BASE_DIR = Path(__file__).resolve().parent
 

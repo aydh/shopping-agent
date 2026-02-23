@@ -3,6 +3,7 @@ from .order import Order, OrderItem
 from .prediction import ConsumptionPrediction
 from .product import Product, ProductMatch, Store
 from .shopping_list import ListStatus, ShoppingList, ShoppingListItem
+from .store_cookies import StoreCookies
 
 __all__ = [
     "Base",
@@ -15,4 +16,5 @@ __all__ = [
     "ShoppingList",
     "ShoppingListItem",
     "ListStatus",
+    "StoreCookies",
 ]

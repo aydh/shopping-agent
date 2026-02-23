@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from ..database import get_session
 from ..models import Order, OrderItem, Store
@@ -33,6 +33,34 @@ async def sync_store_orders(store: str, session: AsyncSession = Depends(get_sess
         return HTMLResponse(
             f'<div class="text-red-600 text-sm mt-2">Sync failed: {e}</div>'
         )
+
+
+@router.delete("/purge/{store}")
+async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)):
+    store_enum = Store(store)
+
+    # Fetch order IDs for this store so we can delete items first
+    result = await session.execute(
+        select(Order.id).where(Order.store == store_enum)
+    )
+    order_ids = [row[0] for row in result.all()]
+
+    if order_ids:
+        await session.execute(
+            delete(OrderItem).where(OrderItem.order_id.in_(order_ids))
+        )
+        await session.execute(
+            delete(Order).where(Order.store == store_enum)
+        )
+        await session.commit()
+        count = len(order_ids)
+    else:
+        count = 0
+
+    label = store_enum.value.capitalize()
+    return HTMLResponse(
+        f'<div class="text-orange-600 text-sm mt-2">Purged {count} {label} orders from the database.</div>'
+    )
 
 
 @router.get("/{order_id}/items")

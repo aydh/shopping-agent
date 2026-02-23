@@ -12,13 +12,8 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
 
-    @property
-    def cookies_dir(self) -> Path:
-        return self.data_dir / "cookies"
-
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.cookies_dir.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

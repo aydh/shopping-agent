@@ -1,145 +1,553 @@
+import base64
+import json
 import logging
-import re
+import time
 from datetime import datetime
 
-from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
-from .browser_manager import browser_manager
+import httpx
+from sqlalchemy import select
+
+from ..database import async_session
 from ..models.product import Store
+from ..models.store_cookies import StoreCookies
+from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
 
 logger = logging.getLogger(__name__)
 
 WOOLWORTHS_BASE = "https://www.woolworths.com.au"
+MOBILE_API_BASE = "https://prod.mobile-api.woolworths.com.au"
+MOBILE_API_KEY = "s7iXf5Rixn4XxFrsYh4HKkriVp8hlnec"
+
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+DEFAULT_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-AU,en;q=0.9",
+    "Origin": WOOLWORTHS_BASE,
+    "Referer": f"{WOOLWORTHS_BASE}/",
+    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
 
 
 class WoolworthsScraper(BaseScraper):
     store = Store.WOOLWORTHS
 
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+
+    async def _load_cookies(self) -> httpx.Cookies:
+        """Load cookies from the database into httpx.Cookies."""
+        jar = httpx.Cookies()
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                try:
+                    raw_cookies = json.loads(row.cookies_json)
+                    for c in raw_cookies:
+                        jar.set(
+                            c["name"],
+                            c["value"],
+                            domain=c.get("domain", ".woolworths.com.au"),
+                            path=c.get("path", "/"),
+                        )
+                    logger.info("Loaded %d cookies for woolworths", len(raw_cookies))
+                except Exception:
+                    logger.warning("Failed to load Woolworths cookies", exc_info=True)
+        return jar
+
+    async def _save_cookies_from_client(self) -> None:
+        """Upsert current client cookies into the database."""
+        if not self._client:
+            return
+        cookie_list = []
+        for cookie in self._client.cookies.jar:
+            cookie_list.append(
+                {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain or ".woolworths.com.au",
+                    "path": cookie.path or "/",
+                    "secure": cookie.secure,
+                    "httpOnly": False,
+                }
+            )
+        cookies_json = json.dumps(cookie_list, indent=2)
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                row.cookies_json = cookies_json
+            else:
+                session.add(StoreCookies(store=Store.WOOLWORTHS, cookies_json=cookies_json))
+            await session.commit()
+        logger.info("Saved %d cookies for woolworths", len(cookie_list))
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the httpx client with current cookies."""
+        if self._client is None or self._client.is_closed:
+            cookies = await self._load_cookies()
+            self._client = httpx.AsyncClient(
+                base_url=WOOLWORTHS_BASE,
+                cookies=cookies,
+                headers={
+                    "User-Agent": DEFAULT_USER_AGENT,
+                    **DEFAULT_HEADERS,
+                },
+                follow_redirects=True,
+                timeout=30.0,
+            )
+        return self._client
+
+    async def _request(
+        self, method: str, path: str, **kwargs
+    ) -> httpx.Response | None:
+        """Make a request to woolworths.com.au, handling auth failures gracefully."""
+        client = await self._get_client()
+        params = kwargs.get("params", {})
+        params_str = f" {params}" if params else ""
+        logger.info("[Woolworths] → %s %s%s", method, path, params_str)
+        t0 = time.perf_counter()
+        try:
+            resp = await client.request(method, path, **kwargs)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.info(
+                "[Woolworths] ← %d %s %s (%.0f ms)",
+                resp.status_code, method, path, elapsed_ms,
+            )
+            if resp.status_code in (401, 403):
+                logger.warning(
+                    "[Woolworths] Auth failure (%d) on %s %s",
+                    resp.status_code,
+                    method,
+                    path,
+                )
+                return None
+            return resp
+        except httpx.HTTPError:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.exception(
+                "[Woolworths] HTTP error on %s %s (%.0f ms)", method, path, elapsed_ms
+            )
+            return None
+
+    def _decode_jwt_claims(self, token: str) -> dict:
+        """Decode the payload claims from a JWT without verifying signature."""
+        try:
+            payload = token.split(".")[1]
+            payload += "=" * (4 - len(payload) % 4)
+            return json.loads(base64.b64decode(payload))
+        except Exception:
+            return {}
+
+    async def _get_auth_token(self) -> str:
+        """Get the wow-auth-token value from stored cookies in the database."""
+        try:
+            async with async_session() as session:
+                result = await session.execute(
+                    select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+                )
+                row = result.scalar_one_or_none()
+                if not row:
+                    return ""
+                cookie_dict = {c["name"]: c["value"] for c in json.loads(row.cookies_json)}
+                return cookie_dict.get("wow-auth-token") or cookie_dict.get("prodwow-auth-token", "")
+        except Exception:
+            return ""
+
+    def _is_token_expired(self, token: str) -> bool:
+        """Return True if the JWT is expired or expiring within 60 seconds."""
+        import time
+        claims = self._decode_jwt_claims(token)
+        exp = claims.get("exp", 0)
+        return time.time() > (exp - 60)
+
+    async def _get_shopper_id(self) -> str | None:
+        """Decode the shopper ID from the wow-auth-token JWT."""
+        try:
+            token = await self._get_auth_token()
+            if not token:
+                return None
+            claims = self._decode_jwt_claims(token)
+            return str(claims.get("sid") or claims.get("aub") or "")
+        except Exception:
+            logger.debug("Failed to decode shopper ID from JWT", exc_info=True)
+            return None
+
+    async def _refresh_auth_token(self) -> str:
+        """Use the site cookies to get a fresh JWT from the token refresh endpoint."""
+        client = await self._get_client()
+        try:
+            resp = await client.post("/api/ui/v2/token/refresh")
+            if resp.status_code == 200:
+                new_token = resp.cookies.get("wow-auth-token") or resp.cookies.get("prodwow-auth-token")
+                if new_token:
+                    logger.info("Refreshed Woolworths auth token")
+                    # Persist the updated cookies (includes the new token cookie)
+                    await self._save_cookies_from_client()
+                    return new_token
+        except httpx.HTTPError:
+            logger.warning("Token refresh request failed", exc_info=True)
+        return ""
+
+    async def _get_valid_auth_token(self) -> str:
+        """Return a valid (non-expired) JWT, refreshing if needed."""
+        token = await self._get_auth_token()
+        if not token or self._is_token_expired(token):
+            logger.info("Woolworths auth token expired, refreshing...")
+            token = await self._refresh_auth_token()
+        return token
+
+    async def _mobile_request(
+        self, method: str, path: str, **kwargs
+    ) -> httpx.Response | None:
+        """Make a request to the Woolworths mobile API, auto-refreshing the JWT."""
+        auth_token = await self._get_valid_auth_token()
+        if not auth_token:
+            logger.warning("[Woolworths Mobile] No valid auth token")
+            return None
+
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-AU,en;q=0.9",
+            "Authorization": f"Bearer {auth_token}",
+            "X-Api-Key": MOBILE_API_KEY,
+            "Origin": WOOLWORTHS_BASE,
+            "Referer": f"{WOOLWORTHS_BASE}/",
+        }
+        params = kwargs.get("params", {})
+        params_str = f" {params}" if params else ""
+        logger.info("[Woolworths Mobile] → %s %s%s", method, path, params_str)
+        t0 = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                base_url=MOBILE_API_BASE,
+                headers=headers,
+                follow_redirects=True,
+                timeout=30.0,
+            ) as client:
+                resp = await client.request(method, path, **kwargs)
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+                logger.info(
+                    "[Woolworths Mobile] ← %d %s %s (%.0f ms)",
+                    resp.status_code, method, path, elapsed_ms,
+                )
+                if resp.status_code in (401, 403):
+                    logger.warning(
+                        "[Woolworths Mobile] Auth failure (%d) on %s %s",
+                        resp.status_code, method, path,
+                    )
+                    return None
+                return resp
+        except httpx.HTTPError:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.exception(
+                "[Woolworths Mobile] HTTP error on %s %s (%.0f ms)", method, path, elapsed_ms
+            )
+            return None
+
+    # ── Auth ─────────────────────────────────────────────────────────
+
     async def is_authenticated(self) -> bool:
-        return await browser_manager.is_authenticated(Store.WOOLWORTHS)
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+            )
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            try:
+                return len(json.loads(row.cookies_json)) > 0
+            except Exception:
+                return False
+
+    async def import_cookies(self, cookie_json: str) -> bool:
+        """Import cookies from a JSON string (e.g. from Cookie-Editor extension)."""
+        try:
+            raw_cookies = json.loads(cookie_json)
+            if not isinstance(raw_cookies, list) or not raw_cookies:
+                return False
+
+            # Normalise to Playwright-compatible format
+            normalised = []
+            for c in raw_cookies:
+                normalised.append(
+                    {
+                        "name": c["name"],
+                        "value": c["value"],
+                        "domain": c.get("domain", ".woolworths.com.au"),
+                        "path": c.get("path", "/"),
+                        "secure": c.get("secure", False),
+                        "httpOnly": c.get("httpOnly", False),
+                    }
+                )
+
+            cookies_json = json.dumps(normalised, indent=2)
+            async with async_session() as session:
+                result = await session.execute(
+                    select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+                )
+                row = result.scalar_one_or_none()
+                if row:
+                    row.cookies_json = cookies_json
+                else:
+                    session.add(StoreCookies(store=Store.WOOLWORTHS, cookies_json=cookies_json))
+                await session.commit()
+            logger.info("Imported %d cookies for woolworths", len(normalised))
+
+            # Reset client so it picks up new cookies
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+                self._client = None
+
+            return True
+        except Exception:
+            logger.exception("Failed to import Woolworths cookies")
+            return False
 
     async def login_interactive(self) -> bool:
-        return await browser_manager.login_interactive(Store.WOOLWORTHS)
+        """Not supported for httpx-based scraper. Use import_cookies instead."""
+        logger.info(
+            "Interactive login not available for Woolworths httpx scraper. "
+            "Use cookie import instead."
+        )
+        return False
+
+    async def logout(self) -> None:
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                await session.delete(row)
+                await session.commit()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    # ── Order History ────────────────────────────────────────────────
 
     async def get_order_history(self, limit: int = 50) -> list[ScrapedOrder]:
-        page = await browser_manager.get_page(Store.WOOLWORTHS)
         orders: list[ScrapedOrder] = []
-
         try:
-            # First try the internal API for past shops
-            orders = await self._fetch_via_api(page, limit)
+            shopper_id = await self._get_shopper_id()
+            if not shopper_id:
+                logger.warning("Could not determine Woolworths shopper ID from token")
+                return orders
 
-            if not orders:
-                # Fallback to page scraping
-                await page.goto(
-                    f"{WOOLWORTHS_BASE}/shop/myaccount/myorders", wait_until="networkidle"
-                )
-                await page.wait_for_timeout(3000)
-                orders = await self._scrape_orders_page(page, limit)
-
-            await browser_manager.save_all_cookies()
-        except Exception:
-            logger.exception("Failed to fetch Woolworths order history")
-        finally:
-            await page.close()
-
-        return orders
-
-    async def _fetch_via_api(self, page, limit: int) -> list[ScrapedOrder]:
-        """Fetch past orders via Woolworths internal API."""
-        orders = []
-        try:
-            # Navigate to woolworths first to get proper context
-            await page.goto(WOOLWORTHS_BASE, wait_until="domcontentloaded")
-            await page.wait_for_timeout(2000)
-
-            result = await page.evaluate(
-                """
-                async (limit) => {
-                    try {
-                        // Try the past shops API
-                        let resp = await fetch('/apis/ui/PastOrder/Orders?pageNumber=1&pageSize=' + limit, {
-                            credentials: 'include',
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (resp.ok) return await resp.json();
-
-                        // Try alternate endpoint
-                        resp = await fetch('/api/v3/ui/orders?page=1&size=' + limit, {
-                            credentials: 'include',
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (resp.ok) return await resp.json();
-                        return null;
-                    } catch(e) { return null; }
-                }
-            """,
-                limit,
+            # List orders from mobile API
+            resp = await self._mobile_request(
+                "GET",
+                "/wow/v1/orders/api/orders",
+                params={"shopperId": shopper_id, "pageNumber": 1, "pageSize": limit},
             )
+            if not resp or resp.status_code != 200:
+                logger.warning("Failed to list Woolworths orders from mobile API")
+                return orders
 
-            if result:
-                order_list = (
-                    result.get("Orders")
-                    or result.get("orders")
-                    or result.get("data")
-                    or []
+            order_list = resp.json().get("items") or []
+            logger.info("Found %d Woolworths orders", len(order_list))
+
+            # Fetch full details (with items) for each order
+            for summary in order_list[:limit]:
+                order_id = summary.get("OrderId")
+                if not order_id:
+                    continue
+                detail_resp = await self._mobile_request(
+                    "GET", f"/wow/v1/orders/api/orders/{order_id}"
                 )
-                for order_data in order_list[:limit]:
-                    order = self._parse_api_order(order_data)
+                if detail_resp and detail_resp.status_code == 200:
+                    order = self._parse_mobile_order(str(order_id), summary, detail_resp.json())
                     if order:
                         orders.append(order)
+                else:
+                    # Fall back to summary only
+                    order = self._parse_mobile_order(str(order_id), summary, {})
+                    if order:
+                        orders.append(order)
+
+            await self._save_cookies_from_client()
         except Exception:
-            logger.debug("Woolworths API order fetch failed")
+            logger.exception("Failed to fetch Woolworths order history")
 
         return orders
 
-    async def _scrape_orders_page(self, page, limit: int) -> list[ScrapedOrder]:
-        """Scrape orders from the rendered DOM."""
-        orders = []
+    # ── Product Search ───────────────────────────────────────────────
+
+    async def search_product(self, query: str) -> list[ScrapedProduct]:
+        products: list[ScrapedProduct] = []
         try:
-            # Try to find order data in page scripts
-            script_data = await page.evaluate(
-                """
-                () => {
-                    const results = [];
-                    // Check for __NEXT_DATA__ or similar
-                    if (window.__NEXT_DATA__) results.push(window.__NEXT_DATA__);
-                    if (window.__WOW_INITIAL_STATE__) results.push(window.__WOW_INITIAL_STATE__);
-                    const scripts = document.querySelectorAll('script[type="application/json"]');
-                    scripts.forEach(s => {
-                        try { results.push(JSON.parse(s.textContent)); } catch(e) {}
-                    });
-                    return results;
-                }
-            """
+            resp = await self._request(
+                "GET",
+                "/apis/ui/Search/products",
+                params={
+                    "searchTerm": query,
+                    "pageNumber": 1,
+                    "pageSize": 20,
+                    "sortType": "TraderRelevance",
+                },
             )
-            for data in script_data or []:
-                orders.extend(self._extract_orders_from_json(data))
+            if resp and resp.status_code == 200:
+                result = resp.json()
+                for item in (
+                    result.get("Products")
+                    or result.get("products")
+                    or result.get("Items")
+                    or []
+                ):
+                    product_data = (
+                        item.get("Products", [item])
+                        if isinstance(item, dict)
+                        else [item]
+                    )
+                    for pd in product_data:
+                        p = self._parse_search_result(pd)
+                        if p:
+                            products.append(p)
         except Exception:
-            logger.debug("Woolworths DOM scraping failed")
+            logger.exception("Woolworths search failed for: %s", query)
 
-        return orders[:limit]
+        return products
 
-    def _extract_orders_from_json(self, data) -> list[ScrapedOrder]:
-        """Recursively search for order data in JSON."""
-        orders = []
-        if isinstance(data, dict):
-            if "OrderId" in data or "orderId" in data or "orderNumber" in data:
-                order = self._parse_api_order(data)
-                if order:
-                    orders.append(order)
-            for value in data.values():
-                if isinstance(value, (dict, list)):
-                    orders.extend(self._extract_orders_from_json(value))
-        elif isinstance(data, list):
-            for item in data:
-                if isinstance(item, (dict, list)):
-                    orders.extend(self._extract_orders_from_json(item))
-        return orders
+    # ── Product Price ────────────────────────────────────────────────
+
+    async def get_product_price(self, store_product_id: str) -> ScrapedProduct | None:
+        try:
+            resp = await self._request(
+                "GET", f"/apis/ui/product/detail/{store_product_id}"
+            )
+            if resp and resp.status_code == 200:
+                result = resp.json()
+                product_data = result.get("Product") or result
+                return self._parse_search_result(product_data)
+        except Exception:
+            logger.exception(
+                "Woolworths price fetch failed for: %s", store_product_id
+            )
+        return None
+
+    # ── Add to Cart ──────────────────────────────────────────────────
+
+    async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
+        try:
+            for product_id, quantity in items:
+                resp = await self._request(
+                    "POST",
+                    "/apis/ui/Trolley/item",
+                    json={
+                        "Stockcode": int(product_id),
+                        "Quantity": quantity,
+                        "IsInTrolley": False,
+                    },
+                )
+                if not resp or resp.status_code != 200:
+                    logger.warning(
+                        "Failed to add Woolworths product %s to cart", product_id
+                    )
+                    return False
+
+            await self._save_cookies_from_client()
+            return True
+        except Exception:
+            logger.exception("Woolworths add to cart failed")
+            return False
+
+    async def get_cart_url(self) -> str:
+        return f"{WOOLWORTHS_BASE}/shop/checkout"
+
+    # ── Parsing helpers ──────────────────────────────────────────────
+
+    def _parse_mobile_order(self, order_id: str, summary: dict, detail: dict) -> ScrapedOrder | None:
+        """Parse an order from the mobile API list + detail responses."""
+        try:
+            date_str = summary.get("CreatedDate") or summary.get("OriginalOrderCreatedDate") or ""
+            try:
+                order_date = datetime.fromisoformat(date_str).date()
+            except (ValueError, AttributeError):
+                order_date = datetime.now().date()
+
+            items = []
+            for product in detail.get("OrderProducts") or []:
+                ordered = product.get("Ordered") or {}
+                supplied = product.get("Supplied") or {}
+                stock_code = str(ordered.get("StockCode") or "")
+                if not stock_code:
+                    continue
+                # Use supplied quantity if available (accounts for substitutions/out-of-stock)
+                quantity = int(supplied.get("Quantity") or ordered.get("Quantity") or 1)
+                price = float(
+                    ordered.get("SalePrice", {}).get("Value")
+                    or ordered.get("Total")
+                    or 0
+                )
+                items.append(ScrapedOrderItem(
+                    store_product_id=stock_code,
+                    name=ordered.get("Name") or "Unknown",
+                    quantity=quantity,
+                    price_paid=price,
+                    brand=ordered.get("Brand"),
+                    unit_size=ordered.get("Size"),
+                ))
+
+            return ScrapedOrder(
+                store_order_id=order_id,
+                order_date=order_date,
+                total_amount=float(summary.get("Total") or detail.get("Total") or 0),
+                status=summary.get("CurrentStatus") or detail.get("CurrentStatus"),
+                items=items,
+            )
+        except Exception:
+            logger.debug("Failed to parse Woolworths mobile order %s", order_id, exc_info=True)
+            return None
+
+    def _parse_invoice(self, data: dict) -> ScrapedOrder | None:
+        """Parse an invoice summary from /api/v3/ui/invoices/search."""
+        try:
+            invoice_id = str(data.get("InvoiceId") or "")
+            if not invoice_id:
+                return None
+
+            # CollectionDate is a human-readable string like "22 February 2026"
+            date_str = data.get("CollectionDate") or ""
+            try:
+                from datetime import datetime
+                order_date = datetime.strptime(date_str, "%d %B %Y").date()
+            except (ValueError, AttributeError):
+                order_date = datetime.now().date()
+
+            return ScrapedOrder(
+                store_order_id=invoice_id,
+                order_date=order_date,
+                total_amount=float(data.get("Total") or 0),
+                status=data.get("CollectionType"),
+                items=[],  # Item details not available from summary API
+            )
+        except Exception:
+            logger.debug("Failed to parse Woolworths invoice", exc_info=True)
+            return None
 
     def _parse_api_order(self, data: dict) -> ScrapedOrder | None:
         try:
             order_id = str(
-                data.get("OrderId") or data.get("orderId") or data.get("orderNumber") or data.get("id", "")
+                data.get("OrderId")
+                or data.get("orderId")
+                or data.get("orderNumber")
+                or data.get("id", "")
             )
             if not order_id:
                 return None
@@ -152,13 +560,18 @@ class WoolworthsScraper(BaseScraper):
                 or ""
             )
             try:
-                order_date = datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
+                order_date = datetime.fromisoformat(
+                    date_str.replace("Z", "+00:00")
+                ).date()
             except (ValueError, AttributeError):
                 order_date = datetime.now().date()
 
             items = []
             for item_data in (
-                data.get("OrderItems") or data.get("items") or data.get("Products") or []
+                data.get("OrderItems")
+                or data.get("items")
+                or data.get("Products")
+                or []
             ):
                 item = ScrapedOrderItem(
                     store_product_id=str(
@@ -173,7 +586,9 @@ class WoolworthsScraper(BaseScraper):
                         or item_data.get("Name")
                         or "Unknown"
                     ),
-                    quantity=int(item_data.get("Quantity") or item_data.get("quantity") or 1),
+                    quantity=int(
+                        item_data.get("Quantity") or item_data.get("quantity") or 1
+                    ),
                     price_paid=float(
                         item_data.get("SalePrice")
                         or item_data.get("price")
@@ -198,7 +613,10 @@ class WoolworthsScraper(BaseScraper):
                 store_order_id=order_id,
                 order_date=order_date,
                 total_amount=float(
-                    data.get("TotalPrice") or data.get("totalAmount") or data.get("Total") or 0
+                    data.get("TotalPrice")
+                    or data.get("totalAmount")
+                    or data.get("Total")
+                    or 0
                 ),
                 status=data.get("Status") or data.get("status"),
                 items=items,
@@ -207,136 +625,32 @@ class WoolworthsScraper(BaseScraper):
             logger.debug("Failed to parse Woolworths order", exc_info=True)
             return None
 
-    async def search_product(self, query: str) -> list[ScrapedProduct]:
-        page = await browser_manager.get_page(Store.WOOLWORTHS)
-        products = []
-        try:
-            await page.goto(WOOLWORTHS_BASE, wait_until="domcontentloaded")
-            await page.wait_for_timeout(1000)
-
-            result = await page.evaluate(
-                """
-                async (query) => {
-                    try {
-                        const resp = await fetch(
-                            `/apis/ui/Search/products?searchTerm=${encodeURIComponent(query)}&pageNumber=1&pageSize=20&sortType=TraderRelevance`,
-                            { credentials: 'include', headers: { 'Accept': 'application/json' } }
-                        );
-                        if (resp.ok) return await resp.json();
-                        return null;
-                    } catch(e) { return null; }
-                }
-            """,
-                query,
-            )
-
-            if result:
-                for item in (
-                    result.get("Products") or result.get("products") or result.get("Items") or []
-                ):
-                    # Woolworths wraps products in a Products array
-                    product_data = item.get("Products", [item]) if isinstance(item, dict) else [item]
-                    for pd in product_data:
-                        p = self._parse_search_result(pd)
-                        if p:
-                            products.append(p)
-        except Exception:
-            logger.exception("Woolworths search failed for: %s", query)
-        finally:
-            await page.close()
-
-        return products
-
     def _parse_search_result(self, data: dict) -> ScrapedProduct | None:
         try:
             return ScrapedProduct(
-                store_product_id=str(data.get("Stockcode") or data.get("stockcode") or ""),
-                name=data.get("Name") or data.get("name") or data.get("DisplayName") or "",
+                store_product_id=str(
+                    data.get("Stockcode") or data.get("stockcode") or ""
+                ),
+                name=data.get("Name")
+                or data.get("name")
+                or data.get("DisplayName")
+                or "",
                 current_price=float(data.get("Price") or data.get("price") or 0),
                 brand=data.get("Brand") or data.get("brand"),
                 category=data.get("Category") or data.get("category"),
                 unit_size=data.get("PackageSize") or data.get("packageSize"),
-                unit_price=float(data.get("CupPrice") or data.get("unitPrice") or 0) or None,
-                unit_price_measure=data.get("CupMeasure") or data.get("cupMeasure"),
+                unit_price=float(
+                    data.get("CupPrice") or data.get("unitPrice") or 0
+                )
+                or None,
+                unit_price_measure=data.get("CupMeasure")
+                or data.get("cupMeasure"),
                 image_url=data.get("MediumImageFile") or data.get("imageUrl"),
                 product_url=data.get("UrlFriendlyName"),
                 is_available=data.get("IsAvailable", True),
             )
         except Exception:
             return None
-
-    async def get_product_price(self, store_product_id: str) -> ScrapedProduct | None:
-        page = await browser_manager.get_page(Store.WOOLWORTHS)
-        try:
-            await page.goto(WOOLWORTHS_BASE, wait_until="domcontentloaded")
-            result = await page.evaluate(
-                """
-                async (productId) => {
-                    try {
-                        const resp = await fetch(
-                            `/apis/ui/product/detail/${productId}`,
-                            { credentials: 'include', headers: { 'Accept': 'application/json' } }
-                        );
-                        if (resp.ok) return await resp.json();
-                        return null;
-                    } catch(e) { return null; }
-                }
-            """,
-                store_product_id,
-            )
-            if result:
-                product_data = result.get("Product") or result
-                return self._parse_search_result(product_data)
-        except Exception:
-            logger.exception("Woolworths price fetch failed for: %s", store_product_id)
-        finally:
-            await page.close()
-        return None
-
-    async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
-        page = await browser_manager.get_page(Store.WOOLWORTHS)
-        try:
-            await page.goto(WOOLWORTHS_BASE, wait_until="domcontentloaded")
-            await page.wait_for_timeout(1000)
-
-            for product_id, quantity in items:
-                result = await page.evaluate(
-                    """
-                    async ([productId, qty]) => {
-                        try {
-                            const resp = await fetch('/apis/ui/Trolley/item', {
-                                method: 'POST',
-                                credentials: 'include',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json'
-                                },
-                                body: JSON.stringify({
-                                    Stockcode: parseInt(productId),
-                                    Quantity: qty,
-                                    IsInTrolley: false
-                                })
-                            });
-                            return resp.ok;
-                        } catch(e) { return false; }
-                    }
-                """,
-                    [product_id, quantity],
-                )
-                if not result:
-                    logger.warning("Failed to add Woolworths product %s to cart", product_id)
-                    return False
-
-            await browser_manager.save_all_cookies()
-            return True
-        except Exception:
-            logger.exception("Woolworths add to cart failed")
-            return False
-        finally:
-            await page.close()
-
-    async def get_cart_url(self) -> str:
-        return f"{WOOLWORTHS_BASE}/shop/checkout"
 
 
 woolworths_scraper = WoolworthsScraper()

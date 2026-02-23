@@ -66,3 +66,11 @@ class BaseScraper(ABC):
     async def get_cart_url(self) -> str:
         """Return URL for user to review/submit the cart."""
         ...
+
+    async def import_cookies(self, cookie_json: str) -> bool:
+        """Import cookies from JSON string. Override in subclasses that support it."""
+        return False
+
+    async def logout(self) -> None:
+        """Clear stored auth. Override in subclasses."""
+        pass

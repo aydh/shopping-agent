@@ -11,14 +11,54 @@ from ..models import (
     ListStatus,
     Order,
     Product,
+    ProductMatch,
     ShoppingList,
     ShoppingListItem,
     Store,
 )
-from ..scrapers.browser_manager import browser_manager
+from ..services.price_comparison import PriceComparison
+from ..scrapers.coles import coles_scraper
+from ..scrapers.woolworths import woolworths_scraper
 from ..templating import templates
 
 router = APIRouter()
+
+
+def _matches_to_comparisons(matches: list) -> list[PriceComparison]:
+    """Convert ProductMatch rows into PriceComparison dataclasses."""
+    comparisons = []
+    for match in matches:
+        pa, pb = match.product_a, match.product_b
+        coles_p = pa if pa.store == Store.COLES else pb
+        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
+
+        cp = coles_p.current_price
+        wp = ww_p.current_price
+        cheaper = None
+        savings = 0.0
+        if cp and wp:
+            if cp < wp:
+                cheaper = Store.COLES
+                savings = wp - cp
+            elif wp < cp:
+                cheaper = Store.WOOLWORTHS
+                savings = cp - wp
+
+        comparisons.append(PriceComparison(
+            product_name=coles_p.name,
+            unit_size=coles_p.unit_size,
+            product_id=coles_p.id,
+            coles_product=coles_p,
+            woolworths_product=ww_p,
+            coles_price=cp,
+            woolworths_price=wp,
+            cheaper_store=cheaper,
+            savings=savings,
+            match_id=match.id,
+            match_confidence=match.confidence,
+            is_confirmed=match.is_confirmed,
+        ))
+    return comparisons
 
 
 @router.get("/")
@@ -41,8 +81,8 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
         pred.days_until_runout = (pred.predicted_runout_date - today).days
         upcoming_runouts.append(pred)
 
-    coles_connected = await browser_manager.is_authenticated(Store.COLES)
-    woolworths_connected = await browser_manager.is_authenticated(Store.WOOLWORTHS)
+    coles_connected = await coles_scraper.is_authenticated()
+    woolworths_connected = await woolworths_scraper.is_authenticated()
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -157,12 +197,33 @@ async def shopping_list_page(request: Request, session: AsyncSession = Depends(g
 
 @router.get("/prices")
 async def prices_page(request: Request, session: AsyncSession = Depends(get_session)):
+    from sqlalchemy.orm import selectinload as sil
+    from ..models import ProductMatch, Product
+
+    # Fetch all products with prices
+    result = await session.execute(
+        select(Product)
+        .where(Product.current_price.isnot(None))
+        .order_by(Product.store, Product.name)
+    )
+    all_products = result.scalars().all()
+
+    # Also fetch matches for comparison display
+    match_result = await session.execute(
+        select(ProductMatch)
+        .options(sil(ProductMatch.product_a), sil(ProductMatch.product_b))
+        .order_by(ProductMatch.confidence.desc())
+    )
+    matches = match_result.scalars().all()
+    comparisons = _matches_to_comparisons(matches)
+
     return templates.TemplateResponse(
         "prices.html",
         {
             "request": request,
             "active_page": "prices",
-            "comparisons": [],
+            "comparisons": comparisons,
+            "all_products": all_products,
         },
     )
 
@@ -210,8 +271,8 @@ async def confirm_page(request: Request, session: AsyncSession = Depends(get_ses
 
 @router.get("/settings")
 async def settings_page(request: Request):
-    coles_connected = await browser_manager.is_authenticated(Store.COLES)
-    woolworths_connected = await browser_manager.is_authenticated(Store.WOOLWORTHS)
+    coles_connected = await coles_scraper.is_authenticated()
+    woolworths_connected = await woolworths_scraper.is_authenticated()
 
     return templates.TemplateResponse(
         "settings.html",
