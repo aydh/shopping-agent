@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "shopping-agent",
-      "runtimeExecutable": ".claude/worktrees/youthful-jackson/.venv/bin/python",
+      "runtimeExecutable": ".venv/bin/python",
       "runtimeArgs": ["-m", "uvicorn", "shopping_agent.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
       "port": 8000
     }

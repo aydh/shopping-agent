@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Order History - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
+        <div class="flex space-x-2 items-center">
+            <button hx-post="/api/orders/sync/coles" hx-target="#sync-result" hx-indicator="#sync-spinner"
+                    class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Sync Coles</button>
+            <button hx-post="/api/orders/sync/woolworths" hx-target="#sync-result" hx-indicator="#sync-spinner"
+                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Sync Woolworths</button>
+            <div class="w-px h-5 bg-gray-300 mx-1"></div>
+            <button hx-delete="/api/orders/purge/coles" hx-target="#sync-result"
+                    hx-confirm="Delete all Coles orders from the database?"
+                    hx-on:htmx:after-request="setTimeout(() => location.reload(), 1200)"
+                    class="px-3 py-1.5 bg-white text-red-600 text-sm rounded border border-red-300 hover:bg-red-50">Purge Coles</button>
+            <button hx-delete="/api/orders/purge/woolworths" hx-target="#sync-result"
+                    hx-confirm="Delete all Woolworths orders from the database?"
+                    hx-on:htmx:after-request="setTimeout(() => location.reload(), 1200)"
+                    class="px-3 py-1.5 bg-white text-green-600 text-sm rounded border border-green-300 hover:bg-green-50">Purge Woolworths</button>
+            <span id="sync-spinner" class="htmx-indicator text-gray-400 self-center">syncing...</span>
+        </div>
+    </div>
+    <div id="sync-result"></div>
+
+    <!-- Store Filter Tabs -->
+    <div class="border-b border-gray-200">
+        <nav class="flex space-x-8">
+            <a href="/orders" class="py-2 px-1 border-b-2 text-sm font-medium {% if store_filter == 'all' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">All</a>
+            <a href="/orders?store=coles" class="py-2 px-1 border-b-2 text-sm font-medium {% if store_filter == 'coles' %}border-red-500 text-red-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Coles</a>
+            <a href="/orders?store=woolworths" class="py-2 px-1 border-b-2 text-sm font-medium {% if store_filter == 'woolworths' %}border-green-500 text-green-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Woolworths</a>
+        </nav>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th class="px-6 py-3"></th>
+                </tr>
+            </thead>
+            <tbody id="orders-table" class="divide-y divide-gray-200">
+                {% for order in orders %}
+                {% include "partials/order_row.html" %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+                        No orders yet. Connect to Coles or Woolworths in Settings, then sync your orders.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

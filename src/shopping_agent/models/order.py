@@ -1,0 +1,36 @@
+from datetime import date
+
+from sqlalchemy import Date, Enum as SAEnum, Float, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base, TimestampMixin
+from .product import Product, Store
+
+
+class Order(TimestampMixin, Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store: Mapped[Store] = mapped_column(SAEnum(Store))
+    store_order_id: Mapped[str] = mapped_column(String(64), unique=True)
+    order_date: Mapped[date] = mapped_column(Date)
+    total_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    items: Mapped[list["OrderItem"]] = relationship(
+        back_populates="order", cascade="all, delete-orphan"
+    )
+
+
+class OrderItem(TimestampMixin, Base):
+    __tablename__ = "order_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    quantity: Mapped[int] = mapped_column(Integer)
+    price_paid: Mapped[float] = mapped_column(Float)
+    was_substituted: Mapped[bool] = mapped_column(default=False)
+
+    order: Mapped["Order"] = relationship(back_populates="items")
+    product: Mapped["Product"] = relationship(back_populates="order_items")

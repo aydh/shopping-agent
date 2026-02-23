@@ -1,0 +1,21 @@
+<tr>
+    <td class="px-6 py-4 text-sm text-gray-900">{{ order.order_date }}</td>
+    <td class="px-6 py-4 text-sm">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if order.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+            {{ order.store.value | title }}
+        </span>
+    </td>
+    <td class="px-6 py-4 text-sm text-gray-500">{{ order.store_order_id }}</td>
+    <td class="px-6 py-4 text-sm text-gray-500">{{ order.items | length }}</td>
+    <td class="px-6 py-4 text-sm text-gray-900">${{ "%.2f" | format(order.total_amount or 0) }}</td>
+    <td class="px-6 py-4 text-sm text-gray-500">{{ order.status or 'N/A' }}</td>
+    <td class="px-6 py-4 text-sm text-right">
+        <button hx-get="/api/orders/{{ order.id }}/items" hx-target="#order-detail-{{ order.id }}" hx-swap="innerHTML"
+                class="text-blue-600 hover:text-blue-800">Details</button>
+    </td>
+</tr>
+<tr id="order-detail-row-{{ order.id }}" class="hidden">
+    <td colspan="7" class="px-6 py-4 bg-gray-50">
+        <div id="order-detail-{{ order.id }}"></div>
+    </td>
+</tr>

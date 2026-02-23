@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+
+    <!-- Auth Status -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900">Coles</h3>
+                    <p id="coles-status" class="text-sm {% if coles_connected %}text-green-600{% else %}text-red-600{% endif %}">
+                        {% if coles_connected %}Connected{% else %}Not connected{% endif %}
+                    </p>
+                    {% if coles_last_sync %}
+                    <p class="text-xs text-gray-400 mt-1">Last sync: {{ coles_last_sync }}</p>
+                    {% endif %}
+                </div>
+                <div class="flex space-x-2">
+                    {% if coles_connected %}
+                    <button hx-post="/api/orders/sync/coles" hx-target="#coles-sync-status" hx-indicator="#coles-spinner"
+                            class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                        Sync Orders
+                    </button>
+                    <span id="coles-spinner" class="htmx-indicator text-gray-400">syncing...</span>
+                    {% else %}
+                    <a href="/settings" class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                        Login
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div id="coles-sync-status"></div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900">Woolworths</h3>
+                    <p id="woolies-status" class="text-sm {% if woolworths_connected %}text-green-600{% else %}text-red-600{% endif %}">
+                        {% if woolworths_connected %}Connected{% else %}Not connected{% endif %}
+                    </p>
+                    {% if woolworths_last_sync %}
+                    <p class="text-xs text-gray-400 mt-1">Last sync: {{ woolworths_last_sync }}</p>
+                    {% endif %}
+                </div>
+                <div class="flex space-x-2">
+                    {% if woolworths_connected %}
+                    <button hx-post="/api/orders/sync/woolworths" hx-target="#woolies-sync-status" hx-indicator="#woolies-spinner"
+                            class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                        Sync Orders
+                    </button>
+                    <span id="woolies-spinner" class="htmx-indicator text-gray-400">syncing...</span>
+                    {% else %}
+                    <a href="/settings" class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                        Login
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div id="woolies-sync-status"></div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-lg shadow p-6">
+            <p class="text-sm text-gray-500">Products Tracked</p>
+            <p class="text-3xl font-bold text-gray-900">{{ product_count }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6">
+            <p class="text-sm text-gray-500">Total Orders</p>
+            <p class="text-3xl font-bold text-gray-900">{{ order_count }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6">
+            <p class="text-sm text-gray-500">Running Low</p>
+            <p class="text-3xl font-bold text-orange-600">{{ runout_count }}</p>
+        </div>
+    </div>
+
+    <!-- Upcoming Runouts -->
+    {% if upcoming_runouts %}
+    <div class="bg-white rounded-lg shadow">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-medium text-gray-900">Running Low (Next 7 Days)</h2>
+        </div>
+        <div class="divide-y divide-gray-200">
+            {% for pred in upcoming_runouts %}
+            <div class="px-6 py-4 flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    {% if pred.product.image_url %}
+                    <img src="{{ pred.product.image_url }}" alt="" class="w-10 h-10 rounded object-cover">
+                    {% else %}
+                    <div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs">N/A</div>
+                    {% endif %}
+                    <div>
+                        <p class="font-medium text-gray-900">{{ pred.product.name }}</p>
+                        <p class="text-sm text-gray-500">{{ pred.product.store.value | title }}</p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <p class="text-sm font-medium {% if pred.days_until_runout <= 2 %}text-red-600{% elif pred.days_until_runout <= 5 %}text-orange-500{% else %}text-yellow-500{% endif %}">
+                        {% if pred.days_until_runout <= 0 %}Run out{% elif pred.days_until_runout == 1 %}Tomorrow{% else %}{{ pred.days_until_runout }} days{% endif %}
+                    </p>
+                    <p class="text-xs text-gray-400">{{ pred.predicted_runout_date }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
