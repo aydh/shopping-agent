@@ -5,6 +5,27 @@
 <div class="space-y-6">
     <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
 
+    <!-- Instructions -->
+    <details class="bg-blue-50 border border-blue-200 rounded-lg">
+        <summary class="px-4 py-3 cursor-pointer text-sm font-semibold text-blue-800 hover:bg-blue-100 rounded-lg">
+            Instructions
+        </summary>
+        <div class="px-4 pb-4 pt-2 space-y-2">
+            <p class="text-sm text-blue-800">
+                Both Coles and Woolworths use cookie import to connect. This avoids bot detection.
+            </p>
+            <ol class="text-sm text-blue-800 list-decimal list-inside ml-2 space-y-1">
+                <li>Install the <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" class="underline font-medium">Cookie-Editor</a> Chrome extension</li>
+                <li>Go to <a href="https://www.coles.com.au" target="_blank" class="underline">coles.com.au</a> or <a href="https://www.woolworths.com.au" target="_blank" class="underline">woolworths.com.au</a> and log in</li>
+                <li>Click the Cookie-Editor icon and click <strong>Export</strong> (JSON format)</li>
+                <li>Paste the JSON into the relevant store below and click Import Cookies</li>
+            </ol>
+            <p class="text-xs text-blue-600 mt-1">
+                Your password is never stored. Only session cookies are saved locally to make API calls.
+            </p>
+        </div>
+    </details>
+
     <!-- Store Connections -->
     <div class="bg-white rounded-lg shadow">
         <div class="px-6 py-4 border-b border-gray-200">
@@ -118,52 +139,15 @@
                     <th class="px-6 py-3"></th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
-                {% set rows = [
-                    ("Coles Orders", counts.coles_orders ~ " orders, " ~ counts.coles_order_items ~ " items", "price history", "/api/orders/purge/coles", "purge-coles"),
-                    ("Woolworths Orders", counts.woolworths_orders ~ " orders, " ~ counts.woolworths_order_items ~ " items", "price history", "/api/orders/purge/woolworths", "purge-woolworths"),
-                    ("Coles Products", counts.coles_products, "matches, price history, predictions", "/api/prices/products/purge/coles", "purge-coles-products"),
-                    ("Woolworths Products", counts.woolworths_products, "matches, price history, predictions", "/api/prices/products/purge/woolworths", "purge-woolworths-products"),
-                    ("Product Matches", counts.product_matches, "—", "/api/prices/matches/purge", "purge-matches"),
-                    ("Price History", counts.price_history, "—", "/api/prices/history/purge", "purge-price-history"),
-                    ("Predictions", counts.predictions, "—", "/api/predictions/purge", "purge-predictions"),
-                    ("Shopping Lists", counts.shopping_lists ~ " lists, " ~ counts.shopping_list_items ~ " items", "—", "/api/shopping-list/purge", "purge-lists"),
-                ] %}
-                {% for label, count, also, endpoint, tid in rows %}
-                <tr>
-                    <td class="px-6 py-3 text-sm font-medium text-gray-900">{{ label }}</td>
-                    <td class="px-6 py-3 text-sm text-gray-500">{{ count }}</td>
-                    <td class="px-6 py-3 text-xs text-gray-400">{{ also }}</td>
-                    <td class="px-6 py-3 text-right">
-                        <span id="{{ tid }}-result" class="mr-2 text-sm"></span>
-                        <button hx-delete="{{ endpoint }}" hx-target="#{{ tid }}-result"
-                                class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">
-                            Purge
-                        </button>
-                    </td>
-                </tr>
-                {% endfor %}
+            <tbody id="data-mgmt-body" class="divide-y divide-gray-200"
+                   hx-get="/api/settings/counts"
+                   hx-trigger="countsRefresh"
+                   hx-swap="innerHTML">
+                {{ counts_rows_html | safe }}
             </tbody>
         </table>
     </div>
 
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-        <p class="text-sm text-blue-800">
-            <strong>How to connect stores:</strong>
-        </p>
-        <p class="text-sm text-blue-800">
-            Both Coles and Woolworths use cookie import to connect. This avoids bot detection.
-        </p>
-        <ol class="text-sm text-blue-800 list-decimal list-inside ml-2 space-y-1">
-            <li>Install the <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" class="underline font-medium">Cookie-Editor</a> Chrome extension</li>
-            <li>Go to <a href="https://www.coles.com.au" target="_blank" class="underline">coles.com.au</a> or <a href="https://www.woolworths.com.au" target="_blank" class="underline">woolworths.com.au</a> and log in</li>
-            <li>Click the Cookie-Editor icon and click <strong>Export</strong> (JSON format)</li>
-            <li>Paste the JSON into the relevant store above and click Import Cookies</li>
-        </ol>
-        <p class="text-xs text-blue-600 mt-1">
-            Your password is never stored. Only session cookies are saved locally to make API calls.
-        </p>
-    </div>
 </div>
 
 <script>
