@@ -20,9 +20,17 @@
                         <p id="coles-auth-status" class="text-sm {% if coles_connected %}text-green-600{% else %}text-gray-500{% endif %}">
                             {% if coles_connected %}Connected - session active{% else %}Not connected{% endif %}
                         </p>
+                        <p class="text-sm mt-1">
+                            <span id="coles-validate-result"></span>
+                            <span id="coles-validate-spinner" class="htmx-indicator text-gray-400 text-xs">checking...</span>
+                        </p>
                     </div>
-                    <div class="flex space-x-2">
+                    <div class="flex items-center space-x-2">
                         {% if coles_connected %}
+                        <button hx-get="/api/auth/validate/coles" hx-target="#coles-validate-result" hx-indicator="#coles-validate-spinner"
+                                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
+                            Validate
+                        </button>
                         <button hx-post="/api/auth/logout/coles" hx-target="#coles-auth-status"
                                 class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
                             Disconnect
@@ -57,9 +65,17 @@
                         <p id="woolworths-auth-status" class="text-sm {% if woolworths_connected %}text-green-600{% else %}text-gray-500{% endif %}">
                             {% if woolworths_connected %}Connected - session active{% else %}Not connected{% endif %}
                         </p>
+                        <p class="text-sm mt-1">
+                            <span id="woolworths-validate-result"></span>
+                            <span id="woolworths-validate-spinner" class="htmx-indicator text-xs text-gray-400">checking...</span>
+                        </p>
                     </div>
-                    <div class="flex space-x-2">
+                    <div class="flex items-center space-x-2">
                         {% if woolworths_connected %}
+                        <button hx-get="/api/auth/validate/woolworths" hx-target="#woolworths-validate-result" hx-indicator="#woolworths-validate-spinner"
+                                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
+                            Validate
+                        </button>
                         <button hx-post="/api/auth/logout/woolworths" hx-target="#woolworths-auth-status"
                                 class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
                             Disconnect

@@ -319,6 +319,26 @@ class WoolworthsScraper(BaseScraper):
             logger.exception("Failed to import Woolworths cookies")
             return False
 
+    async def validate_cookies(self) -> dict:
+        """Make a real API call to verify the stored cookies actually work.
+        Returns {"ok": bool, "detail": str}.
+        """
+        if not await self.is_authenticated():
+            return {"ok": False, "detail": "No cookies stored"}
+        shopper_id = await self._get_shopper_id()
+        if not shopper_id:
+            return {"ok": False, "detail": "No valid auth token (wow-auth-token) found in cookies"}
+        resp = await self._mobile_request(
+            "GET",
+            "/wow/v1/orders/api/orders",
+            params={"shopperId": shopper_id, "pageNumber": 1, "pageSize": 1},
+        )
+        if resp is None:
+            return {"ok": False, "detail": "API returned 401/403 — cookies expired or invalid"}
+        if resp.status_code == 200:
+            return {"ok": True, "detail": f"API reachable (HTTP {resp.status_code})"}
+        return {"ok": False, "detail": f"Unexpected response: HTTP {resp.status_code}"}
+
     async def login_interactive(self) -> bool:
         """Not supported for httpx-based scraper. Use import_cookies instead."""
         logger.info(

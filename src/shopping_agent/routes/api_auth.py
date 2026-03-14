@@ -47,6 +47,26 @@ async def import_cookies(store: str, request: Request):
     )
 
 
+@router.get("/validate/{store}")
+async def validate(store: str):
+    """Test stored cookies against the live API and report the result."""
+    store_enum = Store(store)
+    if store_enum == Store.COLES:
+        result = await coles_scraper.validate_cookies()
+    elif store_enum == Store.WOOLWORTHS:
+        result = await woolworths_scraper.validate_cookies()
+    else:
+        result = {"ok": False, "detail": "Unknown store"}
+
+    if result["ok"]:
+        return HTMLResponse(
+            f'<span class="text-green-600 text-sm">&#10003; Valid — {result["detail"]}</span>'
+        )
+    return HTMLResponse(
+        f'<span class="text-red-600 text-sm">&#10007; Failed — {result["detail"]}</span>'
+    )
+
+
 @router.post("/logout/{store}")
 async def logout(store: str):
     store_enum = Store(store)
