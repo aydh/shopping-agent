@@ -10,6 +10,7 @@ from ..models import (
     ConsumptionPrediction,
     ListStatus,
     Order,
+    OrderItem,
     Product,
     ProductMatch,
     ShoppingList,
@@ -57,6 +58,7 @@ def _matches_to_comparisons(matches: list) -> list[PriceComparison]:
             match_id=match.id,
             match_confidence=match.confidence,
             is_confirmed=match.is_confirmed,
+            match_method=match.match_method,
         ))
     return comparisons
 
@@ -198,17 +200,15 @@ async def shopping_list_page(request: Request, session: AsyncSession = Depends(g
 @router.get("/prices")
 async def prices_page(request: Request, session: AsyncSession = Depends(get_session)):
     from sqlalchemy.orm import selectinload as sil
-    from ..models import ProductMatch, Product
 
-    # Fetch all products with prices
+    # Fetch all products
     result = await session.execute(
         select(Product)
-        .where(Product.current_price.isnot(None))
         .order_by(Product.store, Product.name)
     )
-    all_products = result.scalars().all()
+    all_products = list(result.scalars().all())
 
-    # Also fetch matches for comparison display
+    # Fetch matches for comparison display
     match_result = await session.execute(
         select(ProductMatch)
         .options(sil(ProductMatch.product_a), sil(ProductMatch.product_b))
@@ -217,6 +217,15 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     matches = match_result.scalars().all()
     comparisons = _matches_to_comparisons(matches)
 
+    # Determine which products are already matched
+    matched_ids = set()
+    for m in matches:
+        matched_ids.add(m.product_a_id)
+        matched_ids.add(m.product_b_id)
+
+    unmatched_coles = [p for p in all_products if p.store == Store.COLES and p.id not in matched_ids]
+    unmatched_woolworths = [p for p in all_products if p.store == Store.WOOLWORTHS and p.id not in matched_ids]
+
     return templates.TemplateResponse(
         "prices.html",
         {
@@ -224,6 +233,8 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
             "active_page": "prices",
             "comparisons": comparisons,
             "all_products": all_products,
+            "unmatched_coles": unmatched_coles,
+            "unmatched_woolworths": unmatched_woolworths,
         },
     )
 
@@ -270,9 +281,31 @@ async def confirm_page(request: Request, session: AsyncSession = Depends(get_ses
 
 
 @router.get("/settings")
-async def settings_page(request: Request):
+async def settings_page(request: Request, session: AsyncSession = Depends(get_session)):
+    from ..models import ConsumptionPrediction, PriceHistory, ProductMatch, ShoppingListItem
+
     coles_connected = await coles_scraper.is_authenticated()
     woolworths_connected = await woolworths_scraper.is_authenticated()
+
+    def count(q): return session.execute(select(func.count()).select_from(q.subquery()))
+
+    counts = {
+        "coles_orders": (await session.execute(select(func.count(Order.id)).where(Order.store == Store.COLES))).scalar(),
+        "coles_order_items": (await session.execute(
+            select(func.count(OrderItem.id)).join(Order).where(Order.store == Store.COLES)
+        )).scalar(),
+        "woolworths_orders": (await session.execute(select(func.count(Order.id)).where(Order.store == Store.WOOLWORTHS))).scalar(),
+        "woolworths_order_items": (await session.execute(
+            select(func.count(OrderItem.id)).join(Order).where(Order.store == Store.WOOLWORTHS)
+        )).scalar(),
+        "coles_products": (await session.execute(select(func.count(Product.id)).where(Product.store == Store.COLES))).scalar(),
+        "woolworths_products": (await session.execute(select(func.count(Product.id)).where(Product.store == Store.WOOLWORTHS))).scalar(),
+        "product_matches": (await session.execute(select(func.count(ProductMatch.id)))).scalar(),
+        "price_history": (await session.execute(select(func.count(PriceHistory.id)))).scalar(),
+        "predictions": (await session.execute(select(func.count(ConsumptionPrediction.id)))).scalar(),
+        "shopping_lists": (await session.execute(select(func.count(ShoppingList.id)))).scalar(),
+        "shopping_list_items": (await session.execute(select(func.count(ShoppingListItem.id)))).scalar(),
+    }
 
     return templates.TemplateResponse(
         "settings.html",
@@ -281,5 +314,6 @@ async def settings_page(request: Request):
             "active_page": "settings",
             "coles_connected": coles_connected,
             "woolworths_connected": woolworths_connected,
+            "counts": counts,
         },
     )

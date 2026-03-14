@@ -5,10 +5,11 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
 
 from ..database import get_session
-from ..models import Order, OrderItem, Store
+from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from ..services.order_sync import sync_orders
+from ..services.price_comparison import match_unmatched_products
 
 router = APIRouter()
 
@@ -26,8 +27,10 @@ async def sync_store_orders(store: str, session: AsyncSession = Depends(get_sess
     try:
         scraped_orders = await scraper.get_order_history()
         new_count = await sync_orders(session, scraped_orders, store_enum)
+        matched_count = await match_unmatched_products(session, store_enum)
+        match_msg = f" Matched {matched_count} products." if matched_count else ""
         return HTMLResponse(
-            f'<div class="text-green-600 text-sm mt-2">Synced {new_count} new orders from {store}.</div>'
+            f'<div class="text-green-600 text-sm mt-2">Synced {new_count} new orders from {store}.{match_msg}</div>'
         )
     except Exception as e:
         return HTMLResponse(
@@ -52,10 +55,19 @@ async def purge_store_orders(store: str, session: AsyncSession = Depends(get_ses
         await session.execute(
             delete(Order).where(Order.store == store_enum)
         )
-        await session.commit()
-        count = len(order_ids)
-    else:
-        count = 0
+
+    # Also clear price history for this store's products
+    product_ids_result = await session.execute(
+        select(Product.id).where(Product.store == store_enum)
+    )
+    product_ids = [row[0] for row in product_ids_result.all()]
+    if product_ids:
+        await session.execute(
+            delete(PriceHistory).where(PriceHistory.product_id.in_(product_ids))
+        )
+
+    await session.commit()
+    count = len(order_ids) if order_ids else 0
 
     label = store_enum.value.capitalize()
     return HTMLResponse(

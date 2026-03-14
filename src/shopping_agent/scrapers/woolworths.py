@@ -342,7 +342,7 @@ class WoolworthsScraper(BaseScraper):
 
     # ── Order History ────────────────────────────────────────────────
 
-    async def get_order_history(self, limit: int = 50) -> list[ScrapedOrder]:
+    async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
         orders: list[ScrapedOrder] = []
         try:
             shopper_id = await self._get_shopper_id()

@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Price Comparison - Shopping Agent{% endblock %}
 
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="space-y-6">
     <div class="flex items-center justify-between">
@@ -20,37 +24,29 @@
                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
     </div>
 
-    <script>
-        document.getElementById('search-field').addEventListener('keyup', function(e) {
-            const searchTerm = e.target.value.toLowerCase();
+    <!-- Tabs -->
+    <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-8">
+            <button id="tab-matched" onclick="switchTab('matched')"
+                    class="tab-btn border-b-2 border-blue-500 text-blue-600 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Matched Products ({{ comparisons | length }})
+            </button>
+            <button id="tab-unmatched" onclick="switchTab('unmatched')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Unmatched Products ({{ (unmatched_coles | length) + (unmatched_woolworths | length) }})
+            </button>
+        </nav>
+    </div>
 
-            // Filter matched products table
-            const matchedRows = document.querySelectorAll('#prices-table-body tr');
-            matchedRows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
-
-            // Filter all products table
-            const allProductRows = document.querySelectorAll('#all-products-table tr');
-            allProductRows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
-        });
-    </script>
-
-    <!-- Matched Price Comparisons -->
-    {% if comparisons %}
-    <div class="mb-8">
-        <h2 class="text-lg font-semibold text-gray-900 mb-4">Matched Products</h2>
+    <!-- Matched Tab -->
+    <div id="panel-matched">
+        {% if comparisons %}
         <div class="bg-white rounded-lg shadow overflow-hidden">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Coles</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Woolworths</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Match</th>
                         <th class="px-6 py-3"></th>
@@ -58,16 +54,26 @@
                 </thead>
                 <tbody id="prices-table-body" class="divide-y divide-gray-200">
                     {% for comp in comparisons %}
-                    <tr>
+                    <tr id="match-row-{{ comp.match_id }}">
                         <td class="px-6 py-4">
-                            <p class="text-sm font-medium text-gray-900">{{ comp.product_name }}</p>
-                            <p class="text-xs text-gray-400">{{ comp.unit_size or '' }}</p>
+                            {% if comp.coles_product %}
+                            <p class="text-sm font-medium text-gray-900">{{ comp.coles_product.name }}</p>
+                            {% if comp.coles_product.brand %}<p class="text-xs text-gray-400">{{ comp.coles_product.brand }}</p>{% endif %}
+                            {% if comp.coles_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.coles_product.unit_size }}</p>{% endif %}
+                            {% if comp.coles_price is not none %}
+                            <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.coles_price) }}</p>
+                            {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
+                            {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
                         </td>
-                        <td class="px-6 py-4 text-sm {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600 font-medium{% else %}text-gray-500{% endif %}">
-                            {% if comp.coles_price is not none %}${{ "%.2f" | format(comp.coles_price) }}{% else %}-{% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-sm {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600 font-medium{% else %}text-gray-500{% endif %}">
-                            {% if comp.woolworths_price is not none %}${{ "%.2f" | format(comp.woolworths_price) }}{% else %}-{% endif %}
+                        <td class="px-6 py-4">
+                            {% if comp.woolworths_product %}
+                            <p class="text-sm font-medium text-gray-900">{{ comp.woolworths_product.name }}</p>
+                            {% if comp.woolworths_product.brand %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.brand }}</p>{% endif %}
+                            {% if comp.woolworths_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.unit_size }}</p>{% endif %}
+                            {% if comp.woolworths_price is not none %}
+                            <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.woolworths_price) }}</p>
+                            {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
+                            {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
                         </td>
                         <td class="px-6 py-4 text-sm">
                             {% if comp.cheaper_store %}
@@ -82,34 +88,95 @@
                         <td class="px-6 py-4">
                             {% if comp.match_confidence is not none %}
                             <div class="flex items-center space-x-1">
+                                {% if comp.match_method != 'manual' %}
                                 <div class="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
                                     <div class="h-full rounded-full {% if comp.match_confidence >= 0.8 %}bg-green-500{% elif comp.match_confidence >= 0.6 %}bg-yellow-500{% else %}bg-red-400{% endif %}"
                                          style="width: {{ (comp.match_confidence * 100) | int }}%"></div>
                                 </div>
-                                {% if comp.is_confirmed %}
+                                {% endif %}
+                                {% if comp.match_method == 'manual' %}
+                                <span class="text-xs text-blue-600 font-medium">Manual</span>
+                                {% elif comp.is_confirmed %}
                                 <span class="text-xs text-green-600">Confirmed</span>
                                 {% endif %}
                             </div>
                             {% else %}-{% endif %}
                         </td>
-                        <td class="px-6 py-4 text-right">
+                        <td class="px-6 py-4 text-right space-x-2">
+                            {% if comp.match_id %}
+                            <button
+                                onclick="toggleHistory(this, '{{ comp.match_id }}')"
+                                class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                            {% endif %}
                             {% if comp.match_confidence is not none and not comp.is_confirmed %}
                             <button hx-post="/api/prices/confirm-match/{{ comp.match_id }}"
                                     hx-target="closest tr" hx-swap="outerHTML"
                                     class="text-blue-600 hover:text-blue-800 text-xs">Confirm</button>
                             {% endif %}
+                            {% if comp.match_id %}
+                            <button hx-delete="/api/prices/match/{{ comp.match_id }}"
+                                    hx-confirm="Remove this match?"
+                                    class="text-red-400 hover:text-red-600 text-xs">Remove</button>
+                            {% endif %}
                         </td>
                     </tr>
+                    <tr><td colspan="5" id="history-body-{{ comp.match_id }}"></td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No matched products yet. Sync orders to auto-match, or use the Unmatched tab to create manual matches.</p>
+        {% endif %}
     </div>
-    {% endif %}
 
-    <!-- All Products with Prices -->
-    <div>
-        <h2 class="text-lg font-semibold text-gray-900 mb-4">All Products with Prices</h2>
+    <!-- Unmatched Tab -->
+    <div id="panel-unmatched" class="hidden">
+        <!-- Manual Matching -->
+        {% if unmatched_coles or unmatched_woolworths %}
+        <div class="mb-6">
+            <h2 class="text-base font-semibold text-gray-900 mb-3">Create Manual Match</h2>
+            <div class="bg-white rounded-lg shadow p-6">
+                <p class="text-sm text-gray-500 mb-4">Select one unmatched product from each store to link them together.</p>
+                <form hx-post="/api/prices/manual-match" hx-target="#manual-match-result" class="flex flex-wrap gap-4 items-end">
+                    <div class="flex-1 min-w-48">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mr-1">Coles</span>
+                            Unmatched ({{ unmatched_coles | length }})
+                        </label>
+                        <select name="coles_id" required
+                                class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select Coles product…</option>
+                            {% for p in unmatched_coles %}
+                            <option value="{{ p.id }}">{{ p.name }}{% if p.unit_size %} ({{ p.unit_size }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-48">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mr-1">Woolworths</span>
+                            Unmatched ({{ unmatched_woolworths | length }})
+                        </label>
+                        <select name="woolworths_id" required
+                                class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select Woolworths product…</option>
+                            {% for p in unmatched_woolworths %}
+                            <option value="{{ p.id }}">{{ p.name }}{% if p.unit_size %} ({{ p.unit_size }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                        Create Match
+                    </button>
+                </form>
+                <div id="manual-match-result" class="mt-3 text-sm"></div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Unmatched Products Table -->
+        {% set unmatched_all = unmatched_coles + unmatched_woolworths %}
+        {% if unmatched_all %}
         <div class="bg-white rounded-lg shadow overflow-hidden">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
@@ -118,32 +185,108 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Size</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+                        <th class="px-6 py-3"></th>
                     </tr>
                 </thead>
                 <tbody id="all-products-table" class="divide-y divide-gray-200">
-                    {% for product in all_products %}
-                    <tr>
-                        <td class="px-6 py-4 text-sm">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if product.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
-                                {{ product.store.value | title }}
-                            </span>
-                        </td>
+                    {% for product in unmatched_coles %}
+                    <tr id="urow-{{ product.id }}">
+                        <td class="px-6 py-4 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></td>
                         <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ product.name }}</td>
-                        <td class="px-6 py-4 text-sm text-gray-900">${{ "%.2f" | format(product.current_price) }}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
                         <td class="px-6 py-4 text-sm text-gray-500">{{ product.unit_size or '-' }}</td>
-                        <td class="px-6 py-4 text-sm text-gray-400">{{ product.updated_at.strftime('%Y-%m-%d %H:%M') if product.updated_at else '-' }}</td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-12 text-center text-gray-500">
-                            No prices fetched yet. Refresh prices to populate.
+                        <td class="px-6 py-4 text-right">
+                            <button
+                                onclick="toggleProductHistory(this, '{{ product.id }}')"
+                                class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
                         </td>
                     </tr>
+                    <tr><td colspan="5" id="phistory-body-{{ product.id }}"></td></tr>
+                    {% endfor %}
+                    {% for product in unmatched_woolworths %}
+                    <tr id="urow-{{ product.id }}">
+                        <td class="px-6 py-4 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></td>
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ product.name }}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">{{ product.unit_size or '-' }}</td>
+                        <td class="px-6 py-4 text-right">
+                            <button
+                                onclick="toggleProductHistory(this, '{{ product.id }}')"
+                                class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                        </td>
+                    </tr>
+                    <tr><td colspan="5" id="phistory-body-{{ product.id }}"></td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% else %}
+        <p class="text-sm text-gray-500">All products are matched.</p>
+        {% endif %}
     </div>
 </div>
+
+<script>
+function switchTab(tab) {
+    ['matched', 'unmatched'].forEach(t => {
+        document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById('tab-' + t);
+        if (t === tab) {
+            btn.classList.add('border-blue-500', 'text-blue-600');
+            btn.classList.remove('border-transparent', 'text-gray-500');
+        } else {
+            btn.classList.remove('border-blue-500', 'text-blue-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        }
+    });
+}
+
+function execScripts(container) {
+    container.querySelectorAll('script').forEach(s => {
+        const ns = document.createElement('script');
+        ns.textContent = s.textContent;
+        s.replaceWith(ns);
+    });
+}
+
+function toggleHistory(btn, matchId) {
+    const body = document.getElementById('history-body-' + matchId);
+    if (body.innerHTML.trim()) {
+        body.innerHTML = '';
+        btn.classList.remove('text-blue-600');
+    } else {
+        btn.classList.add('text-blue-600');
+        fetch('/api/prices/history/' + matchId)
+            .then(r => r.text())
+            .then(html => { body.innerHTML = html; execScripts(body); });
+    }
+}
+
+function toggleProductHistory(btn, productId) {
+    const body = document.getElementById('phistory-body-' + productId);
+    if (body.innerHTML.trim()) {
+        body.innerHTML = '';
+        btn.classList.remove('text-blue-600');
+    } else {
+        btn.classList.add('text-blue-600');
+        fetch('/api/prices/product-history/' + productId)
+            .then(r => r.text())
+            .then(html => { body.innerHTML = html; execScripts(body); });
+    }
+}
+
+document.getElementById('search-field').addEventListener('keyup', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+
+    document.querySelectorAll('#prices-table-body tr').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(searchTerm) ? '' : 'none';
+    });
+
+    document.querySelectorAll('#all-products-table tr').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(searchTerm) ? '' : 'none';
+    });
+});
+</script>
 {% endblock %}

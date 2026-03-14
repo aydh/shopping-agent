@@ -1,9 +1,10 @@
 import logging
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Order, OrderItem, Product, Store
+from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.base import ScrapedOrder
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ async def sync_orders(
 
         # Upsert products and create order items
         for scraped_item in scraped.items:
-            product = await _upsert_product(session, scraped_item, store)
+            product = await _upsert_product(session, scraped_item, store, scraped.order_date)
             order_item = OrderItem(
                 order_id=order.id,
                 product_id=product.id,
@@ -54,7 +55,7 @@ async def sync_orders(
     return new_count
 
 
-async def _upsert_product(session: AsyncSession, item, store: Store) -> Product:
+async def _upsert_product(session: AsyncSession, item, store: Store, order_date: date) -> Product:
     """Find or create a product from a scraped order item."""
     result = await session.execute(
         select(Product).where(
@@ -86,5 +87,22 @@ async def _upsert_product(session: AsyncSession, item, store: Store) -> Product:
         )
         session.add(product)
         await session.flush()
+
+    # Record price history using the order date — one entry per product per day
+    if item.price_paid:
+        recorded_at = datetime.combine(order_date, datetime.min.time())
+        existing_ph = await session.execute(
+            select(PriceHistory).where(
+                PriceHistory.product_id == product.id,
+                PriceHistory.recorded_at == recorded_at,
+            )
+        )
+        if not existing_ph.scalar_one_or_none():
+            session.add(PriceHistory(
+                product_id=product.id,
+                store=store,
+                price=item.price_paid,
+                recorded_at=recorded_at,
+            ))
 
     return product

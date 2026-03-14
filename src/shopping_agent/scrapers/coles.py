@@ -327,7 +327,7 @@ class ColesScraper(BaseScraper):
 
     # ── Order History ────────────────────────────────────────────────
 
-    async def get_order_history(self, limit: int = 2) -> list[ScrapedOrder]:
+    async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
         orders: list[ScrapedOrder] = []
         try:
             for status in ("past", "active"):
@@ -677,6 +677,15 @@ class ColesScraper(BaseScraper):
                 if image_uri else None
             )
 
+            quantity = int(data.get("quantity") or data.get("qty") or 1)
+            # Prefer unit price fields; fall back to dividing the line total by quantity
+            item_total = float(data.get("itemTotalPrice") or data.get("totalPrice") or 0)
+            unit_price = float(
+                data.get("salePrice")
+                or data.get("unitPrice")
+                or data.get("price")
+                or (item_total / quantity if item_total and quantity else 0)
+            )
             return ScrapedOrderItem(
                 store_product_id=product_id,
                 name=(
@@ -686,15 +695,8 @@ class ColesScraper(BaseScraper):
                     or data.get("displayName")
                     or "Unknown"
                 ),
-                quantity=int(data.get("quantity") or data.get("qty") or 1),
-                price_paid=float(
-                    data.get("itemTotalPrice")
-                    or data.get("price")
-                    or data.get("totalPrice")
-                    or data.get("salePrice")
-                    or data.get("unitPrice")
-                    or 0
-                ),
+                quantity=quantity,
+                price_paid=unit_price,
                 brand=product.get("brand") or data.get("brand"),
                 unit_size=(
                     product.get("size")

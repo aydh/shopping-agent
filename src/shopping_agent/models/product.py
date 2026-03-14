@@ -1,6 +1,7 @@
 import enum
+from datetime import datetime
 
-from sqlalchemy import Boolean, Enum as SAEnum, Float, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -45,3 +46,15 @@ class ProductMatch(TimestampMixin, Base):
 
     product_a: Mapped["Product"] = relationship(foreign_keys=[product_a_id])
     product_b: Mapped["Product"] = relationship(foreign_keys=[product_b_id])
+
+
+class PriceHistory(Base):
+    __tablename__ = "price_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    store: Mapped[Store] = mapped_column(SAEnum(Store))
+    price: Mapped[float] = mapped_column(Float)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    product: Mapped["Product"] = relationship()

@@ -10,15 +10,6 @@
                     class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Sync Coles</button>
             <button hx-post="/api/orders/sync/woolworths" hx-target="#sync-result" hx-indicator="#sync-spinner"
                     class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Sync Woolworths</button>
-            <div class="w-px h-5 bg-gray-300 mx-1"></div>
-            <button hx-delete="/api/orders/purge/coles" hx-target="#sync-result"
-                    hx-confirm="Delete all Coles orders from the database?"
-                    hx-on:htmx:after-request="setTimeout(() => location.reload(), 1200)"
-                    class="px-3 py-1.5 bg-white text-red-600 text-sm rounded border border-red-300 hover:bg-red-50">Purge Coles</button>
-            <button hx-delete="/api/orders/purge/woolworths" hx-target="#sync-result"
-                    hx-confirm="Delete all Woolworths orders from the database?"
-                    hx-on:htmx:after-request="setTimeout(() => location.reload(), 1200)"
-                    class="px-3 py-1.5 bg-white text-green-600 text-sm rounded border border-green-300 hover:bg-green-50">Purge Woolworths</button>
             <span id="sync-spinner" class="htmx-indicator text-gray-400 self-center">syncing...</span>
         </div>
     </div>

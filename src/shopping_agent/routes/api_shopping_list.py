@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
-from ..models import Store
+from ..models import ShoppingList, ShoppingListItem, Store
 from ..services.shopping_list import (
     confirm_list,
     generate_shopping_list,
@@ -66,3 +67,13 @@ async def delete_item(item_id: int, session: AsyncSession = Depends(get_session)
 async def confirm(list_id: int, session: AsyncSession = Depends(get_session)):
     await confirm_list(session, list_id)
     return RedirectResponse("/confirm", status_code=303)
+
+
+@router.delete("/purge")
+async def purge_shopping_lists(session: AsyncSession = Depends(get_session)):
+    items = await session.execute(delete(ShoppingListItem))
+    lists = await session.execute(delete(ShoppingList))
+    await session.commit()
+    return HTMLResponse(
+        f'<span class="text-orange-600 text-sm">Purged {lists.rowcount} lists and {items.rowcount} items.</span>'
+    )

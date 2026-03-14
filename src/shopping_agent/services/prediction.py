@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import ConsumptionPrediction, Order, OrderItem, Product
+from ..models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def compute_prediction(
 
 async def refresh_predictions(session: AsyncSession) -> int:
     """Recompute all consumption predictions. Returns count of predictions updated."""
-    # Get all products that have been ordered
+    # Load all products with order history
     query = (
         select(Product)
         .join(OrderItem)
@@ -122,25 +122,58 @@ async def refresh_predictions(session: AsyncSession) -> int:
         .distinct()
     )
     result = await session.execute(query)
-    products = result.scalars().all()
+    products = {p.id: p for p in result.scalars().all()}
+
+    # Load all confirmed/auto matches to merge purchase histories
+    matches_result = await session.execute(select(ProductMatch))
+    matches = matches_result.scalars().all()
+
+    # Build: product_id -> canonical_id (lower id in pair), and canonical -> [all product ids in group]
+    canonical_map: dict[int, int] = {}  # non-canonical -> canonical
+    groups: dict[int, list[int]] = {}   # canonical -> [product_ids]
+
+    for match in matches:
+        a, b = match.product_a_id, match.product_b_id
+        canon = min(a, b)
+        other = max(a, b)
+        canonical_map[other] = canon
+        if canon not in groups:
+            groups[canon] = [canon]
+        if other not in groups[canon]:
+            groups[canon].append(other)
+
+    # Products not in any match are their own group
+    for pid in products:
+        if pid not in canonical_map and pid not in groups:
+            groups[pid] = [pid]
 
     count = 0
-    for product in products:
-        # Collect purchase records
-        purchases = []
-        for oi in product.order_items:
-            purchases.append(
-                PurchaseRecord(order_date=oi.order.order_date, quantity=oi.quantity)
-            )
+    seen_non_canonical: set[int] = set()
+
+    for canon_id, member_ids in groups.items():
+        # Collect combined purchase records from all members that have order history
+        purchases: list[PurchaseRecord] = []
+        for pid in member_ids:
+            product = products.get(pid)
+            if product is None:
+                continue
+            for oi in product.order_items:
+                purchases.append(
+                    PurchaseRecord(order_date=oi.order.order_date, quantity=oi.quantity)
+                )
+            seen_non_canonical.update(m for m in member_ids if m != canon_id)
+
+        if not purchases:
+            continue
 
         pred_data = compute_prediction(purchases)
         if not pred_data:
             continue
 
-        # Upsert prediction
+        # Upsert prediction for the canonical product
         existing = await session.execute(
             select(ConsumptionPrediction).where(
-                ConsumptionPrediction.product_id == product.id
+                ConsumptionPrediction.product_id == canon_id
             )
         )
         pred = existing.scalar_one_or_none()
@@ -149,8 +182,29 @@ async def refresh_predictions(session: AsyncSession) -> int:
             for key, value in pred_data.items():
                 setattr(pred, key, value)
         else:
-            pred = ConsumptionPrediction(product_id=product.id, **pred_data)
+            # Only create if the canonical product exists (has order history or is in products)
+            canon_product = products.get(canon_id)
+            if canon_product is None:
+                # Canonical has no orders — use first member that does
+                for pid in member_ids:
+                    if pid in products:
+                        canon_id = pid
+                        break
+                else:
+                    continue
+            pred = ConsumptionPrediction(product_id=canon_id, **pred_data)
             session.add(pred)
+
+        # Remove stale predictions for non-canonical members
+        for pid in member_ids:
+            if pid == canon_id:
+                continue
+            stale = await session.execute(
+                select(ConsumptionPrediction).where(ConsumptionPrediction.product_id == pid)
+            )
+            stale_pred = stale.scalar_one_or_none()
+            if stale_pred:
+                await session.delete(stale_pred)
 
         count += 1
 

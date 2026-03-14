@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    {% block extra_head %}{% endblock %}
     <style>
         [hx-indicator] .htmx-indicator { display: none; }
         .htmx-request .htmx-indicator { display: inline-block; }

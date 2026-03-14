@@ -9,6 +9,7 @@ from ..models import (
     ConsumptionPrediction,
     ListStatus,
     Product,
+    ProductMatch,
     ShoppingList,
     ShoppingListItem,
     Store,
@@ -40,6 +41,22 @@ async def generate_shopping_list(
         predictions, target_date=target_date, lookahead_days=lookahead_days
     )
 
+    # Build a price lookup across matched products: product_id -> {coles_price, woolworths_price}
+    matches_result = await session.execute(
+        select(ProductMatch).options(
+            selectinload(ProductMatch.product_a),
+            selectinload(ProductMatch.product_b),
+        )
+    )
+    price_map: dict[int, dict] = {}
+    for match in matches_result.scalars().all():
+        pa, pb = match.product_a, match.product_b
+        coles_p = pa if pa.store == Store.COLES else pb
+        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
+        entry = {"coles_price": coles_p.current_price, "woolworths_price": ww_p.current_price}
+        price_map[coles_p.id] = entry
+        price_map[ww_p.id] = entry
+
     # Create or update shopping list
     existing = await session.execute(
         select(ShoppingList)
@@ -49,12 +66,11 @@ async def generate_shopping_list(
     shopping_list = existing.scalars().first()
 
     if shopping_list:
-        # Clear existing items
-        await session.execute(
-            select(ShoppingListItem)
-            .where(ShoppingListItem.shopping_list_id == shopping_list.id)
+        # Clear auto-generated items (fix: load items explicitly, don't rely on lazy relationship)
+        items_result = await session.execute(
+            select(ShoppingListItem).where(ShoppingListItem.shopping_list_id == shopping_list.id)
         )
-        for item in list(shopping_list.items):
+        for item in items_result.scalars().all():
             if not item.is_user_added:
                 await session.delete(item)
         shopping_list.name = list_name
@@ -74,14 +90,29 @@ async def generate_shopping_list(
         if not product:
             continue
 
+        # Use match price map if available, otherwise fall back to the product's own price
+        if candidate.product_id in price_map:
+            prices = price_map[candidate.product_id]
+            coles_price = prices["coles_price"]
+            woolworths_price = prices["woolworths_price"]
+            # Default to cheapest store, or the store this product is from
+            if coles_price and woolworths_price:
+                chosen_store = Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
+            else:
+                chosen_store = product.store
+        else:
+            coles_price = product.current_price if product.store == Store.COLES else None
+            woolworths_price = product.current_price if product.store == Store.WOOLWORTHS else None
+            chosen_store = product.store
+
         item = ShoppingListItem(
             shopping_list_id=shopping_list.id,
             product_id=candidate.product_id,
             quantity=candidate.quantity,
             reason=candidate.reason,
-            coles_price=product.current_price if product.store == Store.COLES else None,
-            woolworths_price=product.current_price if product.store == Store.WOOLWORTHS else None,
-            chosen_store=product.store,
+            coles_price=coles_price,
+            woolworths_price=woolworths_price,
+            chosen_store=chosen_store,
         )
         session.add(item)
 

@@ -26,15 +26,22 @@ class PriceComparison:
     match_id: int | None
     match_confidence: float | None
     is_confirmed: bool
+    match_method: str | None = None
 
 
 def normalize_product_name(name: str) -> str:
     """Standardize product names for matching."""
     name = name.lower()
-    # Remove store-specific prefixes
-    for prefix in ["coles", "woolworths", "woolies"]:
-        name = name.replace(prefix, "")
-    # Normalize weight/volume formats
+    # Remove store-specific words
+    for word in ["coles", "woolworths", "woolies"]:
+        name = re.sub(rf"\b{word}\b", "", name)
+    # Remove common descriptor words that vary between stores
+    for word in [
+        "fresh", "australian", "australia", "free range", "free-range",
+        "organic", "no added", "value", "selected", "varieties", "variety",
+    ]:
+        name = name.replace(word, "")
+    # Normalize weight/volume formats (remove spaces between number and unit)
     name = re.sub(r"(\d+)\s*(g|kg|ml|l|pk|pack)\b", r"\1\2", name)
     return " ".join(name.split())
 
@@ -43,11 +50,47 @@ def normalize_size(size: str) -> str:
     """Normalize size strings for comparison."""
     size = size.lower().strip()
     size = re.sub(r"\s+", "", size)
-    # Convert common variations
     size = size.replace("litre", "l").replace("liter", "l")
     size = size.replace("gram", "g").replace("kilogram", "kg")
     size = size.replace("millilitre", "ml").replace("milliliter", "ml")
     return size
+
+
+def size_to_grams(size: str) -> float | None:
+    """Convert a size string to a canonical numeric value in base units (g or ml).
+
+    Returns None if the size can't be parsed.
+    """
+    s = normalize_size(size)
+    m = re.match(r"^([\d.]+)(g|kg|ml|l)$", s)
+    if not m:
+        return None
+    value, unit = float(m.group(1)), m.group(2)
+    if unit == "kg":
+        return value * 1000
+    if unit == "l":
+        return value * 1000
+    return value  # g or ml already in base unit
+
+
+def sizes_compatible(a: str | None, b: str | None) -> int:
+    """Compare two size strings. Returns:
+      +15  if sizes match (same product size)
+      -20  if sizes are both parseable and clearly differ
+        0  if sizes are missing or unparseable (can't judge)
+    """
+    if not a or not b:
+        return 0
+    # Try exact string match first (handles multi-packs like "3pk" etc.)
+    if normalize_size(a) == normalize_size(b):
+        return 15
+    # Try numeric comparison
+    av, bv = size_to_grams(a), size_to_grams(b)
+    if av is not None and bv is not None:
+        if abs(av - bv) < 1:  # essentially equal (float rounding)
+            return 15
+        return -20  # both parseable but genuinely different sizes
+    return 0
 
 
 def find_best_match(
@@ -69,15 +112,14 @@ def find_best_match(
             if brand_score < 60:
                 continue
 
-        name_score = fuzz.token_sort_ratio(source_name, candidate_name)
+        # Use both algorithms — token_set handles subset matches (e.g. "milk full cream 2L" vs "full cream milk 2L")
+        name_score = max(
+            fuzz.token_sort_ratio(source_name, candidate_name),
+            fuzz.token_set_ratio(source_name, candidate_name),
+        )
 
-        # Boost for matching sizes
-        size_bonus = 0
-        if source.unit_size and candidate.unit_size:
-            if normalize_size(source.unit_size) == normalize_size(candidate.unit_size):
-                size_bonus = 15
-
-        final_score = min(name_score + size_bonus, 100)
+        size_adjustment = sizes_compatible(source.unit_size, candidate.unit_size)
+        final_score = min(max(name_score + size_adjustment, 0), 100)
 
         if final_score > best_score and final_score >= threshold:
             best_score = final_score
@@ -200,6 +242,55 @@ async def _upsert_scraped_product(
         await session.flush()
 
     return product
+
+
+async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
+    """Run auto-matching for all unmatched products from the given store. Returns match count."""
+    target_store = Store.WOOLWORTHS if store == Store.COLES else Store.COLES
+
+    # Find products from this store that have no existing match
+    already_matched = await session.execute(
+        select(ProductMatch.product_a_id, ProductMatch.product_b_id)
+    )
+    matched_ids: set[int] = set()
+    for a_id, b_id in already_matched.all():
+        matched_ids.add(a_id)
+        matched_ids.add(b_id)
+
+    unmatched_result = await session.execute(
+        select(Product).where(Product.store == store)
+    )
+    unmatched = [p for p in unmatched_result.scalars().all() if p.id not in matched_ids]
+
+    candidates_result = await session.execute(
+        select(Product).where(Product.store == target_store)
+    )
+    candidates = list(candidates_result.scalars().all())
+
+    count = 0
+    for product in unmatched:
+        local_match = find_best_match(product, candidates)
+        if local_match:
+            matched_product, confidence = local_match
+            pm = ProductMatch(
+                product_a_id=min(product.id, matched_product.id),
+                product_b_id=max(product.id, matched_product.id),
+                confidence=confidence,
+                match_method="fuzzy_name",
+            )
+            session.add(pm)
+            # Add to matched_ids so the same target product isn't matched twice
+            matched_ids.add(product.id)
+            matched_ids.add(matched_product.id)
+            # Remove the matched candidate to prevent duplicate pairings
+            candidates = [c for c in candidates if c.id != matched_product.id]
+            count += 1
+
+    if count:
+        await session.commit()
+        logger.info("Auto-matched %d products from %s", count, store.value)
+
+    return count
 
 
 async def compare_product_prices(
