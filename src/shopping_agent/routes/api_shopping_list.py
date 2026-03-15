@@ -13,6 +13,8 @@ from ..services.shopping_list import (
     update_item_quantity,
     update_item_store,
 )
+from ..templating import templates
+from .views import _shopping_list_context
 
 router = APIRouter()
 
@@ -20,10 +22,9 @@ router = APIRouter()
 @router.post("/generate")
 async def generate(session: AsyncSession = Depends(get_session)):
     await generate_shopping_list(session)
-    return HTMLResponse(
-        '<div class="text-green-600 text-sm mb-4">Shopping list generated. '
-        '<a href="/shopping-list" class="underline">Reload page</a> to see it.</div>'
-    )
+    ctx = await _shopping_list_context(session)
+    html = templates.get_template("_shopping_list_content.html").render(**ctx)
+    return HTMLResponse(html)
 
 
 @router.post("/items/{item_id}/quantity")

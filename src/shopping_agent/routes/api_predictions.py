@@ -6,17 +6,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_session
 from ..models import ConsumptionPrediction
 from ..services.prediction import refresh_predictions
+from ..templating import templates
+from .views import _predictions_list
 
 router = APIRouter()
 
 
 @router.post("/refresh")
 async def refresh(session: AsyncSession = Depends(get_session)):
-    count = await refresh_predictions(session)
-    return HTMLResponse(
-        f'<div class="text-green-600 text-sm mb-4">Refreshed {count} predictions. '
-        f'<a href="/predictions" class="underline">Reload page</a> to see updates.</div>'
-    )
+    await refresh_predictions(session)
+    predictions = await _predictions_list(session)
+    html = templates.get_template("_predictions_grid.html").render(predictions=predictions)
+    return HTMLResponse(html)
 
 
 @router.delete("/purge")

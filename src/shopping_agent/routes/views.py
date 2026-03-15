@@ -127,32 +127,30 @@ async def orders_page(
     )
 
 
-@router.get("/predictions")
-async def predictions_page(request: Request, session: AsyncSession = Depends(get_session)):
+async def _predictions_list(session: AsyncSession) -> list:
     today = date.today()
-    query = (
+    result = await session.execute(
         select(ConsumptionPrediction)
         .options(selectinload(ConsumptionPrediction.product))
         .order_by(ConsumptionPrediction.predicted_runout_date)
     )
-    result = await session.execute(query)
     predictions = []
     for pred in result.scalars().all():
         pred.days_until_runout = (pred.predicted_runout_date - today).days
         predictions.append(pred)
+    return predictions
 
+
+@router.get("/predictions")
+async def predictions_page(request: Request, session: AsyncSession = Depends(get_session)):
+    predictions = await _predictions_list(session)
     return templates.TemplateResponse(
         "predictions.html",
-        {
-            "request": request,
-            "active_page": "predictions",
-            "predictions": predictions,
-        },
+        {"request": request, "active_page": "predictions", "predictions": predictions},
     )
 
 
-@router.get("/shopping-list")
-async def shopping_list_page(request: Request, session: AsyncSession = Depends(get_session)):
+async def _shopping_list_context(session: AsyncSession) -> dict:
     query = (
         select(ShoppingList)
         .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
@@ -184,17 +182,21 @@ async def shopping_list_page(request: Request, session: AsyncSession = Depends(g
         else:
             recommendation = "Same price at both stores"
 
+    return {
+        "shopping_list": shopping_list,
+        "coles_total": coles_total,
+        "woolworths_total": woolworths_total,
+        "best_total": best_total,
+        "recommendation": recommendation,
+    }
+
+
+@router.get("/shopping-list")
+async def shopping_list_page(request: Request, session: AsyncSession = Depends(get_session)):
+    ctx = await _shopping_list_context(session)
     return templates.TemplateResponse(
         "shopping_list.html",
-        {
-            "request": request,
-            "active_page": "shopping_list",
-            "shopping_list": shopping_list,
-            "coles_total": coles_total,
-            "woolworths_total": woolworths_total,
-            "best_total": best_total,
-            "recommendation": recommendation,
-        },
+        {"request": request, "active_page": "shopping_list", **ctx},
     )
 
 
