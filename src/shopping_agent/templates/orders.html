@@ -52,7 +52,6 @@
         </table>
     </div>
 </div>
-{% endblock %}
 
 <script>
 function toggleOrderDetail(orderId, btn) {
@@ -67,3 +66,4 @@ function toggleOrderDetail(orderId, btn) {
     htmx.ajax('GET', '/api/orders/' + orderId + '/items', {target: detail, swap: 'innerHTML'});
 }
 </script>
+{% endblock %}
