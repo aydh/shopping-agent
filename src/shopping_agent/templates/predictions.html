@@ -12,8 +12,22 @@
         <span id="refresh-spinner" class="htmx-indicator text-gray-400">refreshing...</span>
     </div>
 
+    <div class="bg-white rounded-lg shadow p-4">
+        <input type="text" id="predictions-search" placeholder="Search predictions..."
+               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+    </div>
+
     <div id="predictions-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {% include "_predictions_grid.html" %}
     </div>
 </div>
+
+<script>
+document.getElementById('predictions-search').addEventListener('keyup', function() {
+    const term = this.value.toLowerCase();
+    document.querySelectorAll('#predictions-grid > div').forEach(card => {
+        card.style.display = card.textContent.toLowerCase().includes(term) ? '' : 'none';
+    });
+});
+</script>
 {% endblock %}
