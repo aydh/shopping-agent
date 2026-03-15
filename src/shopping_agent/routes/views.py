@@ -338,13 +338,19 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     )
     rejected_matches = rejected_result.scalars().all()
 
-    # Fetch hidden products
+    # Fetch hidden products with order history for last ordered date
     hidden_result = await session.execute(
         select(Product)
+        .options(sil(Product.order_items).selectinload(OrderItem.order))
         .where(Product.is_hidden == True)  # noqa: E712
         .order_by(Product.store, Product.name)
     )
-    hidden_products = hidden_result.scalars().all()
+    hidden_products_raw = hidden_result.scalars().all()
+    hidden_products = []
+    for p in hidden_products_raw:
+        dates = [oi.order.order_date for oi in p.order_items if oi.order]
+        p.last_ordered_date = max(dates) if dates else None
+        hidden_products.append(p)
 
     return templates.TemplateResponse(
         "prices.html",

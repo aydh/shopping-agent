@@ -267,10 +267,14 @@
             <div id="hidden-{{ product.id }}" class="px-4 py-3 flex items-center justify-between gap-3">
                 <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium text-gray-900 truncate">{{ product.name }}</p>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if product.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
-                        {{ product.store.value | title }}
-                    </span>
-                    {% if product.unit_size %}<span class="text-xs text-gray-400 ml-1">{{ product.unit_size }}</span>{% endif %}
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if product.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                            {{ product.store.value | title }}
+                        </span>
+                        {% if product.unit_size %}<span class="text-xs text-gray-400">{{ product.unit_size }}</span>{% endif %}
+                        {% if product.current_price %}<span class="text-xs text-gray-600 font-medium">${{ "%.2f" | format(product.current_price) }}</span>{% endif %}
+                        {% if product.last_ordered_date %}<span class="text-xs text-gray-400">Last ordered {{ product.last_ordered_date.strftime('%d %b %Y') }}</span>{% endif %}
+                    </div>
                 </div>
                 <button hx-post="/api/prices/product/{{ product.id }}/restore"
                         hx-target="#hidden-{{ product.id }}"
