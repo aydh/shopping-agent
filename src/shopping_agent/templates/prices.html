@@ -213,26 +213,56 @@
     <!-- Rejected Matches Tab -->
     <div id="panel-rejected" class="hidden">
         {% if rejected_matches %}
-        <div class="bg-white rounded-lg shadow divide-y divide-gray-200">
-            {% for match in rejected_matches %}
-            {% set pa = match.product_a %}
-            {% set pb = match.product_b %}
-            {% set coles_p = pa if pa.store.value == 'coles' else pb %}
-            {% set ww_p = pa if pa.store.value == 'woolworths' else pb %}
-            <div id="rejected-{{ match.id }}" class="px-4 py-3 flex items-center justify-between gap-3">
-                <div class="min-w-0 flex-1">
-                    <p class="text-sm text-red-700 font-medium truncate">{{ coles_p.name }}</p>
-                    <p class="text-sm text-green-700 truncate">{{ ww_p.name }}</p>
-                    <p class="text-xs text-gray-400 mt-0.5">Confidence: {{ "%.0f" | format(match.confidence * 100) }}%</p>
-                </div>
-                <button hx-post="/api/prices/match/{{ match.id }}/undo"
-                        hx-target="#rejected-{{ match.id }}"
-                        hx-swap="outerHTML"
-                        class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 shrink-0">
-                    Undo
-                </button>
-            </div>
-            {% endfor %}
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Confidence</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for match in rejected_matches %}
+                    {% set pa = match.product_a %}
+                    {% set pb = match.product_b %}
+                    {% set coles_p = pa if pa.store.value == 'coles' else pb %}
+                    {% set ww_p = pa if pa.store.value == 'woolworths' else pb %}
+                    <tr id="rejected-{{ match.id }}">
+                        <td class="px-3 sm:px-6 py-3">
+                            <p class="text-sm font-medium text-gray-900">{{ coles_p.name }}</p>
+                            {% if coles_p.brand %}<p class="text-xs text-gray-500">{{ coles_p.brand }}</p>{% endif %}
+                            {% if coles_p.unit_size %}<p class="text-xs text-gray-400">{{ coles_p.unit_size }}</p>{% endif %}
+                            {% if coles_p.current_price is not none %}<p class="text-sm font-semibold text-gray-700 mt-1">${{ "%.2f" | format(coles_p.current_price) }}</p>{% endif %}
+                        </td>
+                        <td class="px-3 sm:px-6 py-3">
+                            <p class="text-sm font-medium text-gray-900">{{ ww_p.name }}</p>
+                            {% if ww_p.brand %}<p class="text-xs text-gray-500">{{ ww_p.brand }}</p>{% endif %}
+                            {% if ww_p.unit_size %}<p class="text-xs text-gray-400">{{ ww_p.unit_size }}</p>{% endif %}
+                            {% if ww_p.current_price is not none %}<p class="text-sm font-semibold text-gray-700 mt-1">${{ "%.2f" | format(ww_p.current_price) }}</p>{% endif %}
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 hidden md:table-cell">
+                            <div class="flex items-center space-x-1">
+                                <div class="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full {% if match.confidence >= 0.8 %}bg-green-500{% elif match.confidence >= 0.6 %}bg-yellow-500{% else %}bg-red-400{% endif %}"
+                                         style="width: {{ (match.confidence * 100) | int }}%"></div>
+                                </div>
+                                <span class="text-xs text-gray-500">{{ "%.0f" | format(match.confidence * 100) }}%</span>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-right">
+                            <button hx-post="/api/prices/match/{{ match.id }}/undo"
+                                    hx-target="#rejected-{{ match.id }}"
+                                    hx-swap="outerHTML"
+                                    class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200">
+                                Undo
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% else %}
         <p class="text-sm text-gray-500">No rejected matches.</p>
