@@ -379,6 +379,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
         for dt, price in coles_by_date.items()
         if dt in ww_by_date and abs(price - ww_by_date[dt]) < 0.001
     ]
+    equal_labels = [p["x"] for p in equal_points]
 
     if not coles_points and not ww_points:
         return HTMLResponse('<div class="bg-gray-50 px-6 py-3 text-xs text-gray-400">No price history recorded yet.</div>')
@@ -397,6 +398,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
         (function() {{
           const ctx = document.getElementById('{canvas_id}').getContext('2d');
           const allPoints = {json.dumps(all_combined)};
+          const equalDates = new Set({json.dumps(equal_labels)});
           new Chart(ctx, {{
             type: 'line',
             data: {{
@@ -416,7 +418,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   borderColor: 'transparent',
                   pointBackgroundColor: '#dc2626',
                   pointBorderColor: '#dc2626',
-                  pointRadius: 6,
+                  pointRadius: (ctx) => equalDates.has(ctx.dataset.data[ctx.dataIndex]?.x) ? 0 : 6,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }},
@@ -426,7 +428,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   borderColor: 'transparent',
                   pointBackgroundColor: '#16a34a',
                   pointBorderColor: '#16a34a',
-                  pointRadius: 6,
+                  pointRadius: (ctx) => equalDates.has(ctx.dataset.data[ctx.dataIndex]?.x) ? 0 : 6,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }},
