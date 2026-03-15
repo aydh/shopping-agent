@@ -20,11 +20,10 @@
                 </div>
                 <div class="flex space-x-2">
                     {% if coles_connected %}
-                    <button hx-post="/api/orders/sync/coles" hx-target="#coles-sync-status" hx-indicator="#coles-spinner"
+                    <button hx-post="/api/orders/sync/coles" hx-target="#sync-progress-coles" hx-swap="outerHTML"
                             class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
                         Sync Orders
                     </button>
-                    <span id="coles-spinner" class="htmx-indicator text-gray-400">syncing...</span>
                     {% else %}
                     <a href="/settings" class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
                         Login
@@ -32,7 +31,7 @@
                     {% endif %}
                 </div>
             </div>
-            <div id="coles-sync-status"></div>
+            <span id="sync-progress-coles"></span>
         </div>
 
         <div class="bg-white rounded-lg shadow p-6">
@@ -48,11 +47,10 @@
                 </div>
                 <div class="flex space-x-2">
                     {% if woolworths_connected %}
-                    <button hx-post="/api/orders/sync/woolworths" hx-target="#woolies-sync-status" hx-indicator="#woolies-spinner"
+                    <button hx-post="/api/orders/sync/woolworths" hx-target="#sync-progress-woolworths" hx-swap="outerHTML"
                             class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
                         Sync Orders
                     </button>
-                    <span id="woolies-spinner" class="htmx-indicator text-gray-400">syncing...</span>
                     {% else %}
                     <a href="/settings" class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
                         Login
@@ -60,7 +58,7 @@
                     {% endif %}
                 </div>
             </div>
-            <div id="woolies-sync-status"></div>
+            <span id="sync-progress-woolworths"></span>
         </div>
     </div>
 

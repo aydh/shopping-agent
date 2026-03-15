@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
 
-from ..database import get_session
+from ..database import async_session, get_session
 from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
@@ -13,29 +13,71 @@ from ..services.price_comparison import match_unmatched_products
 
 router = APIRouter()
 
+# In-memory progress tracking: store_value -> {phase, fetched, new_count, matched, running, error}
+_sync_progress: dict[str, dict] = {}
+
+
+def _progress_span(store: str, state: dict) -> str:
+    sid = f"sync-progress-{store}"
+    if state.get("running"):
+        phase = state.get("phase", "running")
+        fetched = state.get("fetched", 0)
+        msg = f"Fetching orders… {fetched} found" if phase == "fetching" else f"Saving {fetched} orders…" if phase == "saving" else f"Matching products…"
+        return (
+            f'<span id="{sid}" class="text-blue-600 text-sm"'
+            f' hx-get="/api/orders/sync-progress/{store}"'
+            f' hx-trigger="every 1s" hx-target="#{sid}" hx-swap="outerHTML">{msg}</span>'
+        )
+    if state.get("error"):
+        return f'<span id="{sid}" class="text-red-600 text-sm">Sync failed: {state["error"]}</span>'
+    new_count = state.get("new_count", 0)
+    matched = state.get("matched", 0)
+    match_msg = f", {matched} matched" if matched else ""
+    return f'<span id="{sid}" class="text-green-600 text-sm">Done — {new_count} new orders{match_msg}</span>'
+
+
+async def _do_sync(store_enum: Store) -> None:
+    key = store_enum.value
+    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    _sync_progress[key] = {"running": True, "phase": "fetching", "fetched": 0}
+    try:
+        scraped_orders = await scraper.get_order_history(limit=100)
+        _sync_progress[key].update({"phase": "saving", "fetched": len(scraped_orders)})
+
+        async with async_session() as session:
+            new_count = await sync_orders(session, scraped_orders, store_enum)
+
+        _sync_progress[key].update({"phase": "matching", "new_count": new_count})
+
+        async with async_session() as session:
+            matched_count = await match_unmatched_products(session, store_enum)
+
+        _sync_progress[key] = {"running": False, "new_count": new_count, "matched": matched_count}
+    except Exception as e:
+        _sync_progress[key] = {"running": False, "error": str(e)}
+
 
 @router.post("/sync/{store}")
-async def sync_store_orders(store: str, session: AsyncSession = Depends(get_session)):
+async def sync_store_orders(store: str, background_tasks: BackgroundTasks):
     store_enum = Store(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
 
     if not await scraper.is_authenticated():
         return HTMLResponse(
-            '<div class="text-red-600 text-sm mt-2">Not logged in. Please login first in Settings.</div>'
+            f'<span class="text-red-600 text-sm">Not connected to {store_enum.value.title()}.</span>'
         )
 
-    try:
-        scraped_orders = await scraper.get_order_history(limit=100)
-        new_count = await sync_orders(session, scraped_orders, store_enum)
-        matched_count = await match_unmatched_products(session, store_enum)
-        match_msg = f" Matched {matched_count} products." if matched_count else ""
-        return HTMLResponse(
-            f'<div class="text-green-600 text-sm mt-2">Synced {new_count} new orders from {store}.{match_msg}</div>'
-        )
-    except Exception as e:
-        return HTMLResponse(
-            f'<div class="text-red-600 text-sm mt-2">Sync failed: {e}</div>'
-        )
+    background_tasks.add_task(_do_sync, store_enum)
+    _sync_progress[store_enum.value] = {"running": True, "phase": "fetching", "fetched": 0}
+    return HTMLResponse(_progress_span(store_enum.value, _sync_progress[store_enum.value]))
+
+
+@router.get("/sync-progress/{store}")
+async def sync_progress(store: str):
+    state = _sync_progress.get(store)
+    if not state:
+        return HTMLResponse("")
+    return HTMLResponse(_progress_span(store, state))
 
 
 @router.delete("/purge/{store}")

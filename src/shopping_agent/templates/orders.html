@@ -6,14 +6,16 @@
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
         <div class="flex flex-wrap gap-2 items-center">
-            <button hx-post="/api/orders/sync/coles" hx-target="#sync-result" hx-indicator="#sync-spinner"
+            <button hx-post="/api/orders/sync/coles" hx-target="#sync-progress-coles" hx-swap="outerHTML"
                     class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Sync Coles</button>
-            <button hx-post="/api/orders/sync/woolworths" hx-target="#sync-result" hx-indicator="#sync-spinner"
+            <button hx-post="/api/orders/sync/woolworths" hx-target="#sync-progress-woolworths" hx-swap="outerHTML"
                     class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Sync Woolworths</button>
-            <span id="sync-spinner" class="htmx-indicator text-gray-400 self-center">syncing...</span>
         </div>
     </div>
-    <div id="sync-result"></div>
+    <div class="flex gap-4">
+        <span id="sync-progress-coles"></span>
+        <span id="sync-progress-woolworths"></span>
+    </div>
 
     <!-- Store Filter Tabs -->
     <div class="border-b border-gray-200">
