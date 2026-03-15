@@ -301,24 +301,26 @@ async def shopping_list_page(request: Request, session: AsyncSession = Depends(g
 async def prices_page(request: Request, session: AsyncSession = Depends(get_session)):
     from sqlalchemy.orm import selectinload as sil
 
-    # Fetch all products
+    # Fetch all visible products
     result = await session.execute(
         select(Product)
+        .where(Product.is_hidden == False)  # noqa: E712
         .order_by(Product.store, Product.name)
     )
     all_products = list(result.scalars().all())
+    visible_ids = {p.id for p in all_products}
 
-    # Fetch matches for comparison display (exclude rejected)
+    # Fetch active matches (exclude rejected, exclude matches where either product is hidden)
     match_result = await session.execute(
         select(ProductMatch)
         .options(sil(ProductMatch.product_a), sil(ProductMatch.product_b))
         .where(ProductMatch.is_rejected == False)  # noqa: E712
         .order_by(ProductMatch.confidence.desc())
     )
-    matches = match_result.scalars().all()
+    matches = [m for m in match_result.scalars().all()
+               if m.product_a_id in visible_ids and m.product_b_id in visible_ids]
     comparisons = _matches_to_comparisons(matches)
 
-    # Determine which products are already matched (exclude rejected so they appear in unmatched tab)
     matched_ids = set()
     for m in matches:
         matched_ids.add(m.product_a_id)
@@ -327,15 +329,33 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     unmatched_coles = [p for p in all_products if p.store == Store.COLES and p.id not in matched_ids]
     unmatched_woolworths = [p for p in all_products if p.store == Store.WOOLWORTHS and p.id not in matched_ids]
 
+    # Fetch rejected matches
+    rejected_result = await session.execute(
+        select(ProductMatch)
+        .options(sil(ProductMatch.product_a), sil(ProductMatch.product_b))
+        .where(ProductMatch.is_rejected == True)  # noqa: E712
+        .order_by(ProductMatch.updated_at.desc())
+    )
+    rejected_matches = rejected_result.scalars().all()
+
+    # Fetch hidden products
+    hidden_result = await session.execute(
+        select(Product)
+        .where(Product.is_hidden == True)  # noqa: E712
+        .order_by(Product.store, Product.name)
+    )
+    hidden_products = hidden_result.scalars().all()
+
     return templates.TemplateResponse(
         "prices.html",
         {
             "request": request,
             "active_page": "prices",
             "comparisons": comparisons,
-            "all_products": all_products,
             "unmatched_coles": unmatched_coles,
             "unmatched_woolworths": unmatched_woolworths,
+            "rejected_matches": rejected_matches,
+            "hidden_products": hidden_products,
         },
     )
 

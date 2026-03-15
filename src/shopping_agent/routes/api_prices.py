@@ -42,7 +42,9 @@ async def _do_price_refresh(store_enum: Store) -> None:
     key = store_enum.value
 
     async with async_session() as session:
-        result = await session.execute(select(Product).where(Product.store == store_enum))
+        result = await session.execute(
+            select(Product).where(Product.store == store_enum, Product.is_hidden == False)  # noqa: E712
+        )
         products = list(result.scalars().all())
 
     _refresh_progress[key] = {"done": 0, "total": len(products), "running": True}
@@ -218,6 +220,46 @@ async def create_manual_match(
     response = Response(status_code=200)
     response.headers["HX-Refresh"] = "true"
     return response
+
+
+@router.post("/match/{match_id}/undo")
+async def undo_rejected_match(match_id: int, session: AsyncSession = Depends(get_session)):
+    """Restore a rejected match."""
+    match = await session.get(ProductMatch, match_id)
+    if not match:
+        return HTMLResponse("")
+    match.is_rejected = False
+    await session.commit()
+    return HTMLResponse("")
+
+
+@router.post("/product/{product_id}/hide")
+async def hide_product(product_id: int, session: AsyncSession = Depends(get_session)):
+    """Mark a product as hidden (no longer buying). Removes its prediction."""
+    from ..models import ConsumptionPrediction
+    product = await session.get(Product, product_id)
+    if not product:
+        return HTMLResponse("")
+    product.is_hidden = True
+    pred_result = await session.execute(
+        select(ConsumptionPrediction).where(ConsumptionPrediction.product_id == product_id)
+    )
+    pred = pred_result.scalar_one_or_none()
+    if pred:
+        await session.delete(pred)
+    await session.commit()
+    return HTMLResponse("")
+
+
+@router.post("/product/{product_id}/restore")
+async def restore_product(product_id: int, session: AsyncSession = Depends(get_session)):
+    """Restore a hidden product."""
+    product = await session.get(Product, product_id)
+    if not product:
+        return HTMLResponse("")
+    product.is_hidden = False
+    await session.commit()
+    return HTMLResponse("")
 
 
 @router.get("/product-history/{product_id}")

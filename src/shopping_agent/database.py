@@ -24,3 +24,9 @@ async def init_db() -> None:
             ))
         except Exception:
             pass  # Column already exists
+        try:
+            await conn.execute(text(
+                "ALTER TABLE products ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0"
+            ))
+        except Exception:
+            pass  # Column already exists

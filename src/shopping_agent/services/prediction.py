@@ -116,12 +116,13 @@ def compute_prediction(
 
 async def refresh_predictions(session: AsyncSession) -> int:
     """Recompute all consumption predictions. Returns count of predictions updated."""
-    # Load all products with order history
+    # Load all visible products with order history
     query = (
         select(Product)
         .join(OrderItem)
         .join(Order)
         .options(selectinload(Product.order_items).selectinload(OrderItem.order))
+        .where(Product.is_hidden == False)  # noqa: E712
         .distinct()
     )
     result = await session.execute(query)

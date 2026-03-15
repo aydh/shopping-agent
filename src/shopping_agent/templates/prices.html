@@ -36,11 +36,19 @@
         <nav class="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto">
             <button id="tab-matched" onclick="switchTab('matched')"
                     class="tab-btn border-b-2 border-blue-500 text-blue-600 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Matched Products ({{ comparisons | length }})
+                Matched ({{ comparisons | length }})
             </button>
             <button id="tab-unmatched" onclick="switchTab('unmatched')"
                     class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Unmatched Products ({{ (unmatched_coles | length) + (unmatched_woolworths | length) }})
+                Unmatched ({{ (unmatched_coles | length) + (unmatched_woolworths | length) }})
+            </button>
+            <button id="tab-rejected" onclick="switchTab('rejected')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Rejected ({{ rejected_matches | length }})
+            </button>
+            <button id="tab-removed" onclick="switchTab('removed')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Removed ({{ hidden_products | length }})
             </button>
         </nav>
     </div>
@@ -173,6 +181,10 @@
                                 </span>
                                 <button onclick="toggleProductHistory(this, '{{ product.id }}')"
                                         class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                                <button hx-post="/api/prices/product/{{ product.id }}/hide"
+                                        hx-target="#urow-{{ product.id }}"
+                                        hx-swap="outerHTML"
+                                        class="text-red-400 hover:text-red-600 text-xs ml-auto">Remove</button>
                             </div>
                         </div>
                         <div id="phistory-body-{{ product.id }}"></div>
@@ -203,6 +215,10 @@
                                 </span>
                                 <button onclick="toggleProductHistory(this, '{{ product.id }}')"
                                         class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                                <button hx-post="/api/prices/product/{{ product.id }}/hide"
+                                        hx-target="#urow-{{ product.id }}"
+                                        hx-swap="outerHTML"
+                                        class="text-red-400 hover:text-red-600 text-xs ml-auto">Remove</button>
                             </div>
                         </div>
                         <div id="phistory-body-{{ product.id }}"></div>
@@ -213,11 +229,67 @@
         <p class="text-sm text-gray-500">All products are matched.</p>
         {% endif %}
     </div>
+
+    <!-- Rejected Matches Tab -->
+    <div id="panel-rejected" class="hidden">
+        {% if rejected_matches %}
+        <div class="bg-white rounded-lg shadow divide-y divide-gray-200">
+            {% for match in rejected_matches %}
+            {% set pa = match.product_a %}
+            {% set pb = match.product_b %}
+            {% set coles_p = pa if pa.store.value == 'coles' else pb %}
+            {% set ww_p = pa if pa.store.value == 'woolworths' else pb %}
+            <div id="rejected-{{ match.id }}" class="px-4 py-3 flex items-center justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm text-red-700 font-medium truncate">{{ coles_p.name }}</p>
+                    <p class="text-sm text-green-700 truncate">{{ ww_p.name }}</p>
+                    <p class="text-xs text-gray-400 mt-0.5">Confidence: {{ "%.0f" | format(match.confidence * 100) }}%</p>
+                </div>
+                <button hx-post="/api/prices/match/{{ match.id }}/undo"
+                        hx-target="#rejected-{{ match.id }}"
+                        hx-swap="outerHTML"
+                        class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 shrink-0">
+                    Undo
+                </button>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No rejected matches.</p>
+        {% endif %}
+    </div>
+
+    <!-- Removed Products Tab -->
+    <div id="panel-removed" class="hidden">
+        {% if hidden_products %}
+        <div class="bg-white rounded-lg shadow divide-y divide-gray-200">
+            {% for product in hidden_products %}
+            <div id="hidden-{{ product.id }}" class="px-4 py-3 flex items-center justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium text-gray-900 truncate">{{ product.name }}</p>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if product.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                        {{ product.store.value | title }}
+                    </span>
+                    {% if product.unit_size %}<span class="text-xs text-gray-400 ml-1">{{ product.unit_size }}</span>{% endif %}
+                </div>
+                <button hx-post="/api/prices/product/{{ product.id }}/restore"
+                        hx-target="#hidden-{{ product.id }}"
+                        hx-swap="outerHTML"
+                        class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 shrink-0">
+                    Restore
+                </button>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No removed products.</p>
+        {% endif %}
+    </div>
 </div>
 
 <script>
 function switchTab(tab) {
-    ['matched', 'unmatched'].forEach(t => {
+    ['matched', 'unmatched', 'rejected', 'removed'].forEach(t => {
         document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
         const btn = document.getElementById('tab-' + t);
         if (t === tab) {
