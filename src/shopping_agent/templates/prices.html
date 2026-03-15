@@ -271,6 +271,7 @@
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if product.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
                             {{ product.store.value | title }}
                         </span>
+                        {% if product.brand %}<span class="text-xs text-gray-500">{{ product.brand }}</span>{% endif %}
                         {% if product.unit_size %}<span class="text-xs text-gray-400">{{ product.unit_size }}</span>{% endif %}
                         {% if product.current_price %}<span class="text-xs text-gray-600 font-medium">${{ "%.2f" | format(product.current_price) }}</span>{% endif %}
                         {% if product.last_ordered_date %}<span class="text-xs text-gray-400">Last ordered {{ product.last_ordered_date.strftime('%d %b %Y') }}</span>{% endif %}
