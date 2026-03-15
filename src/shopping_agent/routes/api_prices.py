@@ -399,6 +399,20 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
           const ctx = document.getElementById('{canvas_id}').getContext('2d');
           const allPoints = {json.dumps(all_combined)};
           const equalDates = new Set({json.dumps(equal_labels)});
+
+          const splitCanvas = (() => {{
+            const c = document.createElement('canvas');
+            c.width = 14; c.height = 14;
+            const cx = c.getContext('2d');
+            cx.beginPath(); cx.moveTo(7, 7);
+            cx.arc(7, 7, 6, Math.PI / 2, 3 * Math.PI / 2);
+            cx.closePath(); cx.fillStyle = '#dc2626'; cx.fill();
+            cx.beginPath(); cx.moveTo(7, 7);
+            cx.arc(7, 7, 6, -Math.PI / 2, Math.PI / 2);
+            cx.closePath(); cx.fillStyle = '#16a34a'; cx.fill();
+            return c;
+          }})();
+
           new Chart(ctx, {{
             type: 'line',
             data: {{
@@ -418,7 +432,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   borderColor: 'transparent',
                   pointBackgroundColor: '#dc2626',
                   pointBorderColor: '#dc2626',
-                  pointRadius: (ctx) => equalDates.has(ctx.dataset.data[ctx.dataIndex]?.x) ? 0 : 6,
+                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 6,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }},
@@ -428,7 +442,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   borderColor: 'transparent',
                   pointBackgroundColor: '#16a34a',
                   pointBorderColor: '#16a34a',
-                  pointRadius: (ctx) => equalDates.has(ctx.dataset.data[ctx.dataIndex]?.x) ? 0 : 6,
+                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 6,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }},
@@ -436,24 +450,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   label: 'Same Price',
                   data: {json.dumps(equal_points)},
                   borderColor: 'transparent',
-                  pointStyle: (() => {{
-                    const c = document.createElement('canvas');
-                    c.width = 14; c.height = 14;
-                    const cx = c.getContext('2d');
-                    cx.beginPath();
-                    cx.moveTo(7, 7);
-                    cx.arc(7, 7, 6, Math.PI / 2, 3 * Math.PI / 2);
-                    cx.closePath();
-                    cx.fillStyle = '#dc2626';
-                    cx.fill();
-                    cx.beginPath();
-                    cx.moveTo(7, 7);
-                    cx.arc(7, 7, 6, -Math.PI / 2, Math.PI / 2);
-                    cx.closePath();
-                    cx.fillStyle = '#16a34a';
-                    cx.fill();
-                    return c;
-                  }})(),
+                  pointStyle: splitCanvas,
                   pointRadius: 7,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
@@ -466,7 +463,20 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                 x: {{ type: 'category', title: {{ display: false }} }},
                 y: {{ title: {{ display: true, text: 'Price ($)' }}, beginAtZero: false }}
               }},
-              plugins: {{ legend: {{ position: 'top' }} }}
+              plugins: {{
+                legend: {{
+                  position: 'top',
+                  labels: {{
+                    usePointStyle: true,
+                    generateLabels: (chart) => [
+                      {{ text: 'Price', pointStyle: 'line', strokeStyle: '#111827', lineWidth: 1, datasetIndex: 0 }},
+                      {{ text: 'Coles', pointStyle: 'circle', fillStyle: '#dc2626', strokeStyle: '#dc2626', datasetIndex: 1 }},
+                      {{ text: 'Woolworths', pointStyle: 'circle', fillStyle: '#16a34a', strokeStyle: '#16a34a', datasetIndex: 2 }},
+                      {{ text: 'Same Price', pointStyle: splitCanvas, datasetIndex: 3 }},
+                    ]
+                  }}
+                }}
+              }}
             }}
           }});
         }})();
