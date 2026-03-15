@@ -2,6 +2,7 @@
     <td class="px-3 sm:px-6 py-3">
         {% if comp.coles_product %}
         <p class="text-sm font-medium text-gray-900">{{ comp.coles_product.name }}</p>
+        {% if comp.coles_product.brand %}<p class="text-xs text-gray-500">{{ comp.coles_product.brand }}</p>{% endif %}
         {% if comp.coles_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.coles_product.unit_size }}</p>{% endif %}
         {% if comp.coles_price is not none %}
         <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.coles_price) }}</p>
@@ -11,6 +12,7 @@
     <td class="px-3 sm:px-6 py-3">
         {% if comp.woolworths_product %}
         <p class="text-sm font-medium text-gray-900">{{ comp.woolworths_product.name }}</p>
+        {% if comp.woolworths_product.brand %}<p class="text-xs text-gray-500">{{ comp.woolworths_product.brand }}</p>{% endif %}
         {% if comp.woolworths_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.unit_size }}</p>{% endif %}
         {% if comp.woolworths_price is not none %}
         <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.woolworths_price) }}</p>
