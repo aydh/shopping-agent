@@ -618,13 +618,6 @@ class ColesScraper(BaseScraper):
 
     async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
         try:
-            build_id = await self._get_next_build_id()
-            if not build_id:
-                return None
-            # Search by product name — Coles search is name-based, not ID-based.
-            # Searching by numeric ID returns random unrelated products.
-            # Use a cookie-free client — the authenticated client gets WAF-blocked
-            # when the reese84 session cookie expires.
             if self._bare_client is None or self._bare_client.is_closed:
                 self._bare_client = httpx.AsyncClient(
                     base_url=COLES_BASE,
@@ -634,17 +627,20 @@ class ColesScraper(BaseScraper):
                 )
             search_term = product_name or store_product_id
             resp = await self._bare_client.get(
-                f"/_next/data/{build_id}/search/products.json",
-                params={"q": search_term},
+                "/api/bff/products/search",
+                params={
+                    "searchTerm": search_term,
+                    "subscription-key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+                    "storeId": "0584",
+                    "start": 0,
+                },
             )
             if resp and resp.status_code == 200:
-                results = (resp.json().get("pageProps") or {}).get("searchResults", {}).get("results") or []
+                results = resp.json().get("results") or []
                 for item in results:
                     p = self._parse_graphql_product(item)
                     if p and p.store_product_id == store_product_id:
                         return p
-            elif resp and resp.status_code == 404:
-                self._next_build_id = None
         except Exception:
             logger.exception("Coles price fetch failed for: %s", store_product_id)
         return None
