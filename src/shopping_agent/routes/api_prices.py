@@ -367,8 +367,18 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
     from datetime import date as date_type
     def fmt(dt_str, fmt): return date_type.fromisoformat(dt_str).strftime(fmt)
 
+    coles_by_date = {dt: price for dt, price in coles_rows}
+    ww_by_date = {dt: price for dt, price in ww_rows}
+
     coles_points = [{"x": fmt(dt, "%d-%b"), "y": price} for dt, price in coles_rows]
     ww_points = [{"x": fmt(dt, "%d-%b"), "y": price} for dt, price in ww_rows]
+
+    # Points where both stores have the same price on the same date
+    equal_points = [
+        {"x": fmt(dt, "%d-%b"), "y": price}
+        for dt, price in coles_by_date.items()
+        if dt in ww_by_date and abs(price - ww_by_date[dt]) < 0.001
+    ]
 
     if not coles_points and not ww_points:
         return HTMLResponse('<div class="bg-gray-50 px-6 py-3 text-xs text-gray-400">No price history recorded yet.</div>')
@@ -417,6 +427,32 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   pointBackgroundColor: '#16a34a',
                   pointBorderColor: '#16a34a',
                   pointRadius: 6,
+                  showLine: false,
+                  parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
+                }},
+                {{
+                  label: 'Same Price',
+                  data: {json.dumps(equal_points)},
+                  borderColor: 'transparent',
+                  pointStyle: (() => {{
+                    const c = document.createElement('canvas');
+                    c.width = 14; c.height = 14;
+                    const cx = c.getContext('2d');
+                    cx.beginPath();
+                    cx.moveTo(7, 7);
+                    cx.arc(7, 7, 6, Math.PI / 2, 3 * Math.PI / 2);
+                    cx.closePath();
+                    cx.fillStyle = '#dc2626';
+                    cx.fill();
+                    cx.beginPath();
+                    cx.moveTo(7, 7);
+                    cx.arc(7, 7, 6, -Math.PI / 2, Math.PI / 2);
+                    cx.closePath();
+                    cx.fillStyle = '#16a34a';
+                    cx.fill();
+                    return c;
+                  }})(),
+                  pointRadius: 7,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }}
