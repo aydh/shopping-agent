@@ -147,26 +147,38 @@
                 Expand All Graphs
             </button>
         </div>
-        <div class="bg-white rounded-lg shadow overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
+        <div class="bg-white rounded-lg shadow">
+            <table class="w-full table-fixed divide-y divide-gray-200">
+                <colgroup>
+                    <col class="w-14 sm:w-24">
+                    <col>
+                    <col class="w-14 sm:w-20">
+                    <col class="hidden sm:table-column w-24">
+                    <col class="w-20 sm:w-28">
+                </colgroup>
                 <thead class="bg-gray-50">
                     <tr>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Unit Size</th>
-                        <th class="px-3 sm:px-6 py-3"></th>
+                        <th class="px-2 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
+                        <th class="px-2 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-2 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                        <th class="px-2 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Unit Size</th>
+                        <th class="px-2 sm:px-6 py-3"></th>
                     </tr>
                 </thead>
                 <tbody id="all-products-table" class="divide-y divide-gray-200">
                     {% for product in unmatched_coles %}
                     <tr id="urow-{{ product.id }}">
-                        <td class="px-3 sm:px-6 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></td>
-                        <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900"><a href="https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}" target="_blank" class="hover:text-red-600 hover:underline">{{ product.name }}</a></td>
-                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
-                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-500 hidden sm:table-cell">{{ product.unit_size or '-' }}</td>
-                        <td class="px-3 sm:px-6 py-3 text-right space-x-2">
-                            <span id="add-btn-{{ product.id }}">
+                        <td class="px-2 sm:px-6 py-3 text-sm">
+                            <span class="sm:hidden inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">C</span>
+                            <span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span>
+                        </td>
+                        <td class="px-2 sm:px-6 py-3 text-sm font-medium text-gray-900 min-w-0">
+                            <a href="https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}" target="_blank" class="hover:text-red-600 hover:underline block truncate">{{ product.name }}</a>
+                        </td>
+                        <td class="px-2 sm:px-6 py-3 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
+                        <td class="px-2 sm:px-6 py-3 text-sm text-gray-500 hidden sm:table-cell">{{ product.unit_size or '-' }}</td>
+                        <td class="px-2 sm:px-6 py-3 text-right">
+                            <span id="add-btn-{{ product.id }}" class="inline-block">
                             <button hx-post="/api/shopping-list/items/add-product"
                                     hx-vals='{"product_id": {{ product.id }}}'
                                     hx-target="#add-btn-{{ product.id }}"
@@ -175,19 +187,24 @@
                             </span>
                             <button
                                 onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                                class="text-gray-400 hover:text-blue-600 text-xs ml-1">&#9660;</button>
                         </td>
                     </tr>
                     <tr><td colspan="5" id="phistory-body-{{ product.id }}"></td></tr>
                     {% endfor %}
                     {% for product in unmatched_woolworths %}
                     <tr id="urow-{{ product.id }}">
-                        <td class="px-3 sm:px-6 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></td>
-                        <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900"><a href="https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}" target="_blank" class="hover:text-green-600 hover:underline">{{ product.name }}</a></td>
-                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
-                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-500 hidden sm:table-cell">{{ product.unit_size or '-' }}</td>
-                        <td class="px-3 sm:px-6 py-3 text-right space-x-2">
-                            <span id="add-btn-{{ product.id }}">
+                        <td class="px-2 sm:px-6 py-3 text-sm">
+                            <span class="sm:hidden inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">W</span>
+                            <span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span>
+                        </td>
+                        <td class="px-2 sm:px-6 py-3 text-sm font-medium text-gray-900 min-w-0">
+                            <a href="https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}" target="_blank" class="hover:text-green-600 hover:underline block truncate">{{ product.name }}</a>
+                        </td>
+                        <td class="px-2 sm:px-6 py-3 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
+                        <td class="px-2 sm:px-6 py-3 text-sm text-gray-500 hidden sm:table-cell">{{ product.unit_size or '-' }}</td>
+                        <td class="px-2 sm:px-6 py-3 text-right">
+                            <span id="add-btn-{{ product.id }}" class="inline-block">
                             <button hx-post="/api/shopping-list/items/add-product"
                                     hx-vals='{"product_id": {{ product.id }}}'
                                     hx-target="#add-btn-{{ product.id }}"
@@ -196,7 +213,7 @@
                             </span>
                             <button
                                 onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                                class="text-gray-400 hover:text-blue-600 text-xs ml-1">&#9660;</button>
                         </td>
                     </tr>
                     <tr><td colspan="5" id="phistory-body-{{ product.id }}"></td></tr>
