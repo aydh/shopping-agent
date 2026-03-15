@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, Response
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
@@ -123,15 +123,52 @@ async def refresh_prices(session: AsyncSession = Depends(get_session)):
 
 @router.post("/confirm-match/{match_id}")
 async def confirm_match(match_id: int, session: AsyncSession = Depends(get_session)):
-    match = await session.get(ProductMatch, match_id)
-    if match:
-        match.is_confirmed = True
-        await session.commit()
-        return HTMLResponse(
-            '<td colspan="6" class="px-6 py-4 text-center text-green-600 text-sm">'
-            'Match confirmed. <a href="/prices" class="underline">Reload</a> to see updates.</td>'
-        )
-    return HTMLResponse("")
+    from sqlalchemy.orm import selectinload as sil
+    from ..models import Store
+    from ..services.price_comparison import PriceComparison
+    from ..templating import templates
+
+    match = await session.get(ProductMatch, match_id, options=[sil(ProductMatch.product_a), sil(ProductMatch.product_b)])
+    if not match:
+        return HTMLResponse("")
+
+    match.is_confirmed = True
+    await session.commit()
+
+    pa, pb = match.product_a, match.product_b
+    coles_p = pa if pa.store == Store.COLES else pb
+    ww_p = pa if pa.store == Store.WOOLWORTHS else pb
+
+    cp = coles_p.current_price
+    wp = ww_p.current_price
+    cheaper = None
+    savings = 0.0
+    if cp and wp:
+        if cp < wp:
+            cheaper = Store.COLES
+            savings = wp - cp
+        elif wp < cp:
+            cheaper = Store.WOOLWORTHS
+            savings = cp - wp
+
+    comp = PriceComparison(
+        product_name=coles_p.name,
+        unit_size=coles_p.unit_size,
+        product_id=coles_p.id,
+        coles_product=coles_p,
+        woolworths_product=ww_p,
+        coles_price=cp,
+        woolworths_price=wp,
+        cheaper_store=cheaper,
+        savings=savings,
+        match_id=match.id,
+        match_confidence=match.confidence,
+        is_confirmed=match.is_confirmed,
+        match_method=match.match_method,
+    )
+
+    html = templates.env.get_template("_match_row.html").render(comp=comp)
+    return HTMLResponse(html)
 
 
 @router.post("/manual-match")
@@ -386,12 +423,11 @@ async def purge_price_history(session: AsyncSession = Depends(get_session)):
 
 @router.delete("/match/{match_id}")
 async def delete_match(match_id: int, session: AsyncSession = Depends(get_session)):
-    """Remove a product match."""
+    """Reject a product match so it is never auto-matched again."""
     match = await session.get(ProductMatch, match_id)
-    if match:
-        await session.delete(match)
-        await session.commit()
-        response = Response(status_code=200)
-        response.headers["HX-Refresh"] = "true"
-        return response
-    return HTMLResponse("", status_code=404)
+    if not match:
+        return HTMLResponse("", status_code=404)
+    match.is_rejected = True
+    match.is_confirmed = False
+    await session.commit()
+    return HTMLResponse("")

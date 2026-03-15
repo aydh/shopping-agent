@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
-from ..models import ShoppingList, ShoppingListItem, Store
+from ..models import ListStatus, ShoppingList, ShoppingListItem, Store
 from ..services.shopping_list import (
     confirm_list,
     generate_shopping_list,
@@ -37,7 +37,6 @@ async def set_quantity(
     if not item:
         return HTMLResponse("")
 
-    # Return updated row (simplified - in production, render the partial template)
     return HTMLResponse(
         f'<tr id="item-{item.id}"><td colspan="7" class="px-6 py-2 text-sm text-green-600">'
         f'Updated quantity to {item.quantity}. <a href="/shopping-list" class="underline">Reload</a>'
@@ -52,10 +51,35 @@ async def set_store(
     session: AsyncSession = Depends(get_session),
 ):
     await update_item_store(session, item_id, Store(store))
-    return HTMLResponse(
-        '<div class="text-green-600 text-xs">Store updated. '
-        '<a href="/shopping-list" class="underline">Reload</a> for totals.</div>'
+    ctx = await _shopping_list_context(session)
+    html = templates.get_template("_shopping_list_content.html").render(**ctx)
+    return HTMLResponse(html)
+
+
+@router.post("/set-store/{store}")
+async def set_all_store(store: str, session: AsyncSession = Depends(get_session)):
+    """Set all items in the active list to the given store."""
+    store_enum = Store(store)
+    result = await session.execute(
+        select(ShoppingList)
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
     )
+    shopping_list = result.scalars().first()
+    if shopping_list:
+        items_result = await session.execute(
+            select(ShoppingListItem).where(
+                ShoppingListItem.shopping_list_id == shopping_list.id,
+                ShoppingListItem.is_removed == False,  # noqa: E712
+            )
+        )
+        for item in items_result.scalars().all():
+            item.chosen_store = store_enum
+        await session.commit()
+
+    ctx = await _shopping_list_context(session)
+    html = templates.get_template("_shopping_list_content.html").render(**ctx)
+    return HTMLResponse(html)
 
 
 @router.delete("/items/{item_id}")

@@ -137,43 +137,34 @@ async def find_or_create_match(
     scraper: BaseScraper | None = None,
 ) -> ProductMatch | None:
     """Find existing match or discover one via search."""
-    # Check existing matches
-    if product.store == Store.COLES:
-        existing = await session.execute(
-            select(ProductMatch)
-            .where(ProductMatch.product_a_id == product.id)
-            .join(Product, ProductMatch.product_b_id == Product.id)
-            .where(Product.store == target_store)
+    # Find all existing matches for this product (in either position)
+    existing_result = await session.execute(
+        select(ProductMatch).where(
+            (ProductMatch.product_a_id == product.id) | (ProductMatch.product_b_id == product.id)
         )
-    else:
-        existing = await session.execute(
-            select(ProductMatch)
-            .where(ProductMatch.product_b_id == product.id)
-            .join(Product, ProductMatch.product_a_id == Product.id)
-            .where(Product.store == target_store)
-        )
+    )
+    existing_matches = existing_result.scalars().all()
 
-    match = existing.scalar_one_or_none()
-    if match:
-        return match
+    rejected_partner_ids: set[int] = set()
+    for m in existing_matches:
+        partner_id = m.product_b_id if m.product_a_id == product.id else m.product_a_id
+        if m.is_rejected:
+            rejected_partner_ids.add(partner_id)
+        else:
+            return m  # Active match found
 
     # Try to find a match in local DB
     candidates_result = await session.execute(
         select(Product).where(Product.store == target_store)
     )
-    candidates = list(candidates_result.scalars().all())
+    candidates = [p for p in candidates_result.scalars().all() if p.id not in rejected_partner_ids]
 
     local_match = find_best_match(product, candidates)
     if local_match:
         matched_product, confidence = local_match
-        pm = ProductMatch(
-            product_a_id=min(product.id, matched_product.id),
-            product_b_id=max(product.id, matched_product.id),
-            confidence=confidence,
-            match_method="fuzzy_name",
+        pm = await _insert_match_or_fetch_existing(
+            session, product.id, matched_product.id, confidence, "fuzzy_name"
         )
-        session.add(pm)
-        await session.flush()
         return pm
 
     # Try search via scraper if available
@@ -188,22 +179,55 @@ async def find_or_create_match(
                     p = await _upsert_scraped_product(session, r, target_store)
                     search_products.append(p)
 
+                search_products = [p for p in search_products if p.id not in rejected_partner_ids]
                 search_match = find_best_match(product, search_products, threshold=65.0)
                 if search_match:
                     matched_product, confidence = search_match
-                    pm = ProductMatch(
-                        product_a_id=min(product.id, matched_product.id),
-                        product_b_id=max(product.id, matched_product.id),
-                        confidence=confidence,
-                        match_method="search",
+                    pm = await _insert_match_or_fetch_existing(
+                        session, product.id, matched_product.id, confidence, "search"
                     )
-                    session.add(pm)
-                    await session.flush()
                     return pm
         except Exception:
             logger.debug("Search-based matching failed for %s", product.name)
 
     return None
+
+
+async def _insert_match_or_fetch_existing(
+    session: AsyncSession,
+    product_id: int,
+    matched_id: int,
+    confidence: float,
+    method: str,
+) -> ProductMatch | None:
+    """Insert a new ProductMatch, or return the existing one on conflict.
+
+    Returns None if the existing match is rejected (should not be re-used).
+    Uses a savepoint so a conflict doesn't roll back the surrounding transaction.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    a_id, b_id = min(product_id, matched_id), max(product_id, matched_id)
+    pm = ProductMatch(
+        product_a_id=a_id,
+        product_b_id=b_id,
+        confidence=confidence,
+        match_method=method,
+    )
+    try:
+        async with session.begin_nested():
+            session.add(pm)
+            await session.flush()
+        return pm
+    except IntegrityError:
+        result = await session.execute(
+            select(ProductMatch).where(
+                ProductMatch.product_a_id == a_id,
+                ProductMatch.product_b_id == b_id,
+            )
+        )
+        existing = result.scalar_one()
+        return None if existing.is_rejected else existing
 
 
 async def _upsert_scraped_product(
@@ -248,9 +272,10 @@ async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
     """Run auto-matching for all unmatched products from the given store. Returns match count."""
     target_store = Store.WOOLWORTHS if store == Store.COLES else Store.COLES
 
-    # Find products from this store that have no existing match
+    # Find products from this store that have no existing active match
     already_matched = await session.execute(
         select(ProductMatch.product_a_id, ProductMatch.product_b_id)
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
     )
     matched_ids: set[int] = set()
     for a_id, b_id in already_matched.all():
@@ -265,11 +290,28 @@ async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
     candidates_result = await session.execute(
         select(Product).where(Product.store == target_store)
     )
-    candidates = list(candidates_result.scalars().all())
+    all_candidates = list(candidates_result.scalars().all())
 
+    # Load all rejected pairs so we don't re-match them
+    unmatched_ids = {p.id for p in unmatched}
+    rejected_result = await session.execute(
+        select(ProductMatch.product_a_id, ProductMatch.product_b_id)
+        .where(ProductMatch.is_rejected == True)  # noqa: E712
+    )
+    # Map: product_id -> set of partner ids that are rejected
+    rejected_partners: dict[int, set[int]] = {}
+    for a_id, b_id in rejected_result.all():
+        if a_id in unmatched_ids:
+            rejected_partners.setdefault(a_id, set()).add(b_id)
+        if b_id in unmatched_ids:
+            rejected_partners.setdefault(b_id, set()).add(a_id)
+
+    candidates = list(all_candidates)
     count = 0
     for product in unmatched:
-        local_match = find_best_match(product, candidates)
+        rejected = rejected_partners.get(product.id, set())
+        eligible = [c for c in candidates if c.id not in rejected]
+        local_match = find_best_match(product, eligible)
         if local_match:
             matched_product, confidence = local_match
             pm = ProductMatch(

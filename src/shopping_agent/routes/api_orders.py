@@ -25,7 +25,7 @@ async def sync_store_orders(store: str, session: AsyncSession = Depends(get_sess
         )
 
     try:
-        scraped_orders = await scraper.get_order_history()
+        scraped_orders = await scraper.get_order_history(limit=100)
         new_count = await sync_orders(session, scraped_orders, store_enum)
         matched_count = await match_unmatched_products(session, store_enum)
         match_msg = f" Matched {matched_count} products." if matched_count else ""

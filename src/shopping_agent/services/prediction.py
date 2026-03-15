@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class PurchaseRecord:
     order_date: date
     quantity: int
+    store: str = ""
 
 
 @dataclass
@@ -29,7 +30,7 @@ class ShoppingListCandidate:
 def compute_prediction(
     purchases: list[PurchaseRecord],
     today: date | None = None,
-    decay_factor: float = 0.15,
+    decay_factor: float = 0.3,
     lead_time_days: int = 2,
 ) -> dict | None:
     """
@@ -108,6 +109,8 @@ def compute_prediction(
         "predicted_runout_date": runout_date,
         "next_purchase_date": next_purchase,
         "purchase_count": len(purchases),
+        "last_purchase_quantity": last_purchase.quantity,
+        "last_purchase_store": last_purchase.store,
     }
 
 
@@ -124,33 +127,46 @@ async def refresh_predictions(session: AsyncSession) -> int:
     result = await session.execute(query)
     products = {p.id: p for p in result.scalars().all()}
 
-    # Load all confirmed/auto matches to merge purchase histories
+    # Load all matches to merge purchase histories
     matches_result = await session.execute(select(ProductMatch))
     matches = matches_result.scalars().all()
 
-    # Build: product_id -> canonical_id (lower id in pair), and canonical -> [all product ids in group]
-    canonical_map: dict[int, int] = {}  # non-canonical -> canonical
-    groups: dict[int, list[int]] = {}   # canonical -> [product_ids]
+    # Union-find to correctly group transitively-matched products.
+    # A product may appear in multiple matches (e.g. A↔B and B↔C),
+    # so simple pairwise min-id grouping breaks down — B ends up in
+    # two separate groups and its purchases get double-counted while
+    # stale predictions are never cleaned up.
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])  # path compression
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            if ra < rb:
+                parent[rb] = ra
+            else:
+                parent[ra] = rb
 
     for match in matches:
-        a, b = match.product_a_id, match.product_b_id
-        canon = min(a, b)
-        other = max(a, b)
-        canonical_map[other] = canon
-        if canon not in groups:
-            groups[canon] = [canon]
-        if other not in groups[canon]:
-            groups[canon].append(other)
+        union(match.product_a_id, match.product_b_id)
 
-    # Products not in any match are their own group
+    # Build groups: root canonical -> [all member product ids with order history]
+    groups: dict[int, list[int]] = {}
     for pid in products:
-        if pid not in canonical_map and pid not in groups:
-            groups[pid] = [pid]
+        canon = find(pid)
+        if canon not in groups:
+            groups[canon] = []
+        if pid not in groups[canon]:
+            groups[canon].append(pid)
 
     count = 0
-    seen_non_canonical: set[int] = set()
 
-    for canon_id, member_ids in groups.items():
+    for initial_canon_id, member_ids in groups.items():
         # Collect combined purchase records from all members that have order history
         purchases: list[PurchaseRecord] = []
         for pid in member_ids:
@@ -159,9 +175,8 @@ async def refresh_predictions(session: AsyncSession) -> int:
                 continue
             for oi in product.order_items:
                 purchases.append(
-                    PurchaseRecord(order_date=oi.order.order_date, quantity=oi.quantity)
+                    PurchaseRecord(order_date=oi.order.order_date, quantity=oi.quantity, store=product.store.value)
                 )
-            seen_non_canonical.update(m for m in member_ids if m != canon_id)
 
         if not purchases:
             continue
@@ -169,6 +184,19 @@ async def refresh_predictions(session: AsyncSession) -> int:
         pred_data = compute_prediction(purchases)
         if not pred_data:
             continue
+
+        # Determine which product to store the prediction under.
+        # Prefer the canonical (lower id), but fall back to the first member with orders
+        # if the canonical has no order history. Must be resolved BEFORE querying for
+        # existing predictions to avoid a duplicate-key error on subsequent refreshes.
+        canon_id = initial_canon_id
+        if canon_id not in products:
+            for pid in member_ids:
+                if pid in products:
+                    canon_id = pid
+                    break
+            else:
+                continue  # no member has order history (shouldn't happen)
 
         # Upsert prediction for the canonical product
         existing = await session.execute(
@@ -182,16 +210,6 @@ async def refresh_predictions(session: AsyncSession) -> int:
             for key, value in pred_data.items():
                 setattr(pred, key, value)
         else:
-            # Only create if the canonical product exists (has order history or is in products)
-            canon_product = products.get(canon_id)
-            if canon_product is None:
-                # Canonical has no orders — use first member that does
-                for pid in member_ids:
-                    if pid in products:
-                        canon_id = pid
-                        break
-                else:
-                    continue
             pred = ConsumptionPrediction(product_id=canon_id, **pred_data)
             session.add(pred)
 
@@ -217,7 +235,7 @@ def generate_candidates(
     predictions: list[ConsumptionPrediction],
     target_date: date | None = None,
     lookahead_days: int = 7,
-    lead_time_days: int = 2,
+    lead_time_days: int = 7,
     min_confidence: float = 0.3,
 ) -> list[ShoppingListCandidate]:
     """Generate shopping list candidates from predictions."""
@@ -227,7 +245,7 @@ def generate_candidates(
 
     candidates = []
     for pred in predictions:
-        if pred.confidence_score < min_confidence or pred.purchase_count < 2:
+        if pred.confidence_score < min_confidence or pred.purchase_count < 3:
             continue
         if window_start <= pred.predicted_runout_date <= window_end:
             qty = math.ceil(pred.estimated_daily_consumption * lookahead_days)

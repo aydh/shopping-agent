@@ -34,7 +34,7 @@
             {% for item in shopping_list.items %}
             {% if not item.is_removed %}
             <tr id="item-{{ item.id }}">
-                <td class="px-6 py-4 text-sm text-gray-900">{{ item.product.name }}</td>
+                <td class="px-6 py-4 text-sm text-gray-900">{{ display_names[item.id] }}</td>
                 <td class="px-6 py-4">
                     <input type="number" value="{{ item.quantity }}" min="1" max="99"
                            hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
@@ -50,7 +50,7 @@
                 </td>
                 <td class="px-6 py-4">
                     <select hx-post="/api/shopping-list/items/{{ item.id }}/store"
-                            hx-target="#list-totals" hx-swap="outerHTML"
+                            hx-target="#list-content" hx-swap="innerHTML"
                             name="store"
                             class="border border-gray-300 rounded px-2 py-1 text-sm">
                         <option value="coles" {% if item.chosen_store and item.chosen_store.value == 'coles' %}selected{% endif %}>Coles</option>
@@ -70,11 +70,31 @@
     </table>
 </div>
 
-<!-- Confirm -->
-<div class="flex justify-end mt-4">
-    <a href="/confirm" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">
-        Review & Create Order
-    </a>
+<!-- Store selector + Confirm -->
+<div class="flex items-center justify-between mt-4">
+    <div class="flex items-center space-x-2">
+        <span class="text-sm text-gray-500">Shop everything at:</span>
+        <button hx-post="/api/shopping-list/set-store/coles"
+                hx-target="#list-content" hx-swap="innerHTML"
+                class="px-4 py-2 text-sm rounded border {% if single_store and single_store.value == 'coles' %}bg-red-600 text-white border-red-600{% else %}bg-white text-red-700 border-red-300 hover:bg-red-50{% endif %}">
+            Coles
+        </button>
+        <button hx-post="/api/shopping-list/set-store/woolworths"
+                hx-target="#list-content" hx-swap="innerHTML"
+                class="px-4 py-2 text-sm rounded border {% if single_store and single_store.value == 'woolworths' %}bg-green-600 text-white border-green-600{% else %}bg-white text-green-700 border-green-300 hover:bg-green-50{% endif %}">
+            Woolworths
+        </button>
+        {% if not single_store %}
+        <span class="text-xs text-amber-600">Select a single store to continue</span>
+        {% endif %}
+    </div>
+    <form method="post" action="/api/shopping-list/confirm/{{ shopping_list.id }}">
+        <button type="submit"
+                {% if not single_store %}disabled{% endif %}
+                class="px-6 py-2 bg-blue-600 text-white rounded font-medium {% if single_store %}hover:bg-blue-700{% else %}opacity-40 cursor-not-allowed{% endif %}">
+            Review & Create Order
+        </button>
+    </form>
 </div>
 {% else %}
 <div class="text-center py-12 text-gray-500">

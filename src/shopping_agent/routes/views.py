@@ -134,9 +134,19 @@ async def _predictions_list(session: AsyncSession) -> list:
         .options(selectinload(ConsumptionPrediction.product))
         .order_by(ConsumptionPrediction.predicted_runout_date)
     )
+
+    # Build a set of product IDs that appear in any match, so the template
+    # can show "Both stores" instead of a single store name.
+    matches_result = await session.execute(select(ProductMatch))
+    matched_ids: set[int] = set()
+    for m in matches_result.scalars().all():
+        matched_ids.add(m.product_a_id)
+        matched_ids.add(m.product_b_id)
+
     predictions = []
     for pred in result.scalars().all():
         pred.days_until_runout = (pred.predicted_runout_date - today).days
+        pred.is_matched = pred.product_id in matched_ids
         predictions.append(pred)
     return predictions
 
@@ -148,6 +158,41 @@ async def predictions_page(request: Request, session: AsyncSession = Depends(get
         "predictions.html",
         {"request": request, "active_page": "predictions", "predictions": predictions},
     )
+
+
+async def _resolve_display_names(
+    session: AsyncSession, items: list
+) -> dict[int, str]:
+    """Return {item_id: product_name} using the chosen store's product name where available."""
+    display_names: dict[int, str] = {}
+    for item in items:
+        if item.is_removed:
+            continue
+        canonical = item.product
+        if not item.chosen_store or canonical.store == item.chosen_store:
+            display_names[item.id] = canonical.name
+            continue
+        # Find the partner product from the chosen store
+        match_result = await session.execute(
+            select(ProductMatch).where(
+                (
+                    (ProductMatch.product_a_id == canonical.id)
+                    | (ProductMatch.product_b_id == canonical.id)
+                ),
+                ProductMatch.is_rejected == False,  # noqa: E712
+            )
+        )
+        match = match_result.scalars().first()
+        if match:
+            partner_id = (
+                match.product_b_id if match.product_a_id == canonical.id else match.product_a_id
+            )
+            partner = await session.get(Product, partner_id)
+            if partner and partner.store == item.chosen_store:
+                display_names[item.id] = partner.name
+                continue
+        display_names[item.id] = canonical.name
+    return display_names
 
 
 async def _shopping_list_context(session: AsyncSession) -> dict:
@@ -163,10 +208,14 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
     coles_total = 0.0
     woolworths_total = 0.0
     best_total = 0.0
+    display_names: dict[int, str] = {}
+    single_store: Store | None = None
     if shopping_list:
-        for item in shopping_list.items:
-            if item.is_removed:
-                continue
+        display_names = await _resolve_display_names(session, shopping_list.items)
+        active_items = [i for i in shopping_list.items if not i.is_removed]
+        stores_used = {i.chosen_store for i in active_items if i.chosen_store}
+        single_store = stores_used.pop() if len(stores_used) == 1 else None
+        for item in active_items:
             cp = (item.coles_price or 0) * item.quantity
             wp = (item.woolworths_price or 0) * item.quantity
             coles_total += cp
@@ -184,6 +233,8 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
 
     return {
         "shopping_list": shopping_list,
+        "display_names": display_names,
+        "single_store": single_store,
         "coles_total": coles_total,
         "woolworths_total": woolworths_total,
         "best_total": best_total,
@@ -211,16 +262,17 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     )
     all_products = list(result.scalars().all())
 
-    # Fetch matches for comparison display
+    # Fetch matches for comparison display (exclude rejected)
     match_result = await session.execute(
         select(ProductMatch)
         .options(sil(ProductMatch.product_a), sil(ProductMatch.product_b))
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
         .order_by(ProductMatch.confidence.desc())
     )
     matches = match_result.scalars().all()
     comparisons = _matches_to_comparisons(matches)
 
-    # Determine which products are already matched
+    # Determine which products are already matched (exclude rejected so they appear in unmatched tab)
     matched_ids = set()
     for m in matches:
         matched_ids.add(m.product_a_id)
@@ -258,10 +310,11 @@ async def confirm_page(request: Request, session: AsyncSession = Depends(get_ses
     coles_total = 0.0
     woolworths_total = 0.0
 
+    display_names: dict[int, str] = {}
     if shopping_list:
-        for item in shopping_list.items:
-            if item.is_removed:
-                continue
+        all_items = [i for i in shopping_list.items if not i.is_removed]
+        display_names = await _resolve_display_names(session, all_items)
+        for item in all_items:
             if item.chosen_store == Store.COLES:
                 coles_items.append(item)
                 coles_total += (item.coles_price or 0) * item.quantity
@@ -275,6 +328,7 @@ async def confirm_page(request: Request, session: AsyncSession = Depends(get_ses
             "request": request,
             "active_page": "confirm",
             "shopping_list": shopping_list,
+            "display_names": display_names,
             "coles_items": coles_items,
             "woolworths_items": woolworths_items,
             "coles_total": coles_total,

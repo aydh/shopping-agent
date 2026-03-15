@@ -464,21 +464,32 @@ class WoolworthsScraper(BaseScraper):
     # ── Add to Cart ──────────────────────────────────────────────────
 
     async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
+        # (endpoint, method, payload_factory)
+        attempts = [
+            ("/apis/ui/Trolley/items", "POST", lambda pid, qty: {"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}),
+            ("/apis/ui/Trolley/items", "POST", lambda pid, qty: [{"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}]),
+            ("/apis/ui/Trolley/items", "POST", lambda pid, qty: {"items": [{"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}]}),
+        ]
         try:
             for product_id, quantity in items:
-                resp = await self._request(
-                    "POST",
-                    "/apis/ui/Trolley/item",
-                    json={
-                        "Stockcode": int(product_id),
-                        "Quantity": quantity,
-                        "IsInTrolley": False,
-                    },
-                )
-                if not resp or resp.status_code != 200:
-                    logger.warning(
-                        "Failed to add Woolworths product %s to cart", product_id
+                success = False
+                for endpoint, method, make_payload in attempts:
+                    payload = make_payload(int(product_id), quantity)
+                    resp = await self._request(method, endpoint, json=payload)
+                    body = resp.text[:300] if resp else None
+                    logger.info(
+                        "Woolworths add-to-cart %s %s product=%s status=%s body=%s",
+                        method, endpoint, product_id,
+                        resp.status_code if resp else None,
+                        body,
                     )
+                    if resp and resp.status_code == 200 and resp.text.strip().startswith("{"):
+                        data = resp.json()
+                        if data.get("AvailableItems") or data.get("BundleItems"):
+                            success = True
+                            break
+                if not success:
+                    logger.warning("Failed to add Woolworths product %s to cart", product_id)
                     return False
 
             await self._save_cookies_from_client()
@@ -488,7 +499,7 @@ class WoolworthsScraper(BaseScraper):
             return False
 
     async def get_cart_url(self) -> str:
-        return f"{WOOLWORTHS_BASE}/shop/checkout"
+        return WOOLWORTHS_BASE
 
     # ── Parsing helpers ──────────────────────────────────────────────
 

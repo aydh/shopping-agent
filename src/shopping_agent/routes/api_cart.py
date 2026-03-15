@@ -20,7 +20,7 @@ async def add_items_to_cart(store: str, session: AsyncSession = Depends(get_sess
             f'<div class="p-3 bg-green-50 border border-green-200 text-green-800 text-sm rounded mt-2">'
             f'{result["message"]}. '
             f'<a href="{cart_url}" target="_blank" class="underline font-medium">'
-            f"Open {store} cart to review & submit</a></div>"
+            f"Go to {store} &rarr;</a> then click the trolley icon in the top right.</div>"
         )
     return HTMLResponse(
         f'<div class="p-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded mt-2">'

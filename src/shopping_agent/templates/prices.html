@@ -41,6 +41,27 @@
     <!-- Matched Tab -->
     <div id="panel-matched">
         {% if comparisons %}
+        <div class="flex gap-2 mb-3 items-center">
+            <button onclick="setMatchFilter('all')" id="filter-all"
+                    class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white">
+                All ({{ comparisons | length }})
+            </button>
+            <button onclick="setMatchFilter('unconfirmed')" id="filter-unconfirmed"
+                    class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Needs Confirming ({{ comparisons | selectattr('is_confirmed', 'equalto', false) | selectattr('match_method', 'ne', 'manual') | list | length }})
+            </button>
+            <button onclick="setMatchFilter('manual')" id="filter-manual"
+                    class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Manual ({{ comparisons | selectattr('match_method', 'equalto', 'manual') | list | length }})
+            </button>
+            <div class="ml-auto">
+                <button onclick="toggleAllHistory(this)"
+                        data-expanded="false"
+                        class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                    Expand All Graphs
+                </button>
+            </div>
+        </div>
         <div class="bg-white rounded-lg shadow overflow-hidden">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
@@ -54,72 +75,7 @@
                 </thead>
                 <tbody id="prices-table-body" class="divide-y divide-gray-200">
                     {% for comp in comparisons %}
-                    <tr id="match-row-{{ comp.match_id }}">
-                        <td class="px-6 py-4">
-                            {% if comp.coles_product %}
-                            <p class="text-sm font-medium text-gray-900">{{ comp.coles_product.name }}</p>
-                            {% if comp.coles_product.brand %}<p class="text-xs text-gray-400">{{ comp.coles_product.brand }}</p>{% endif %}
-                            {% if comp.coles_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.coles_product.unit_size }}</p>{% endif %}
-                            {% if comp.coles_price is not none %}
-                            <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.coles_price) }}</p>
-                            {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
-                            {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
-                        </td>
-                        <td class="px-6 py-4">
-                            {% if comp.woolworths_product %}
-                            <p class="text-sm font-medium text-gray-900">{{ comp.woolworths_product.name }}</p>
-                            {% if comp.woolworths_product.brand %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.brand }}</p>{% endif %}
-                            {% if comp.woolworths_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.unit_size }}</p>{% endif %}
-                            {% if comp.woolworths_price is not none %}
-                            <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.woolworths_price) }}</p>
-                            {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
-                            {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-sm">
-                            {% if comp.cheaper_store %}
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if comp.cheaper_store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
-                                {{ comp.cheaper_store.value | title }}
-                            </span>
-                            {% if comp.savings > 0 %}
-                            <span class="text-xs text-gray-400 ml-1">save ${{ "%.2f" | format(comp.savings) }}</span>
-                            {% endif %}
-                            {% else %}-{% endif %}
-                        </td>
-                        <td class="px-6 py-4">
-                            {% if comp.match_confidence is not none %}
-                            <div class="flex items-center space-x-1">
-                                {% if comp.match_method != 'manual' %}
-                                <div class="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                    <div class="h-full rounded-full {% if comp.match_confidence >= 0.8 %}bg-green-500{% elif comp.match_confidence >= 0.6 %}bg-yellow-500{% else %}bg-red-400{% endif %}"
-                                         style="width: {{ (comp.match_confidence * 100) | int }}%"></div>
-                                </div>
-                                {% endif %}
-                                {% if comp.match_method == 'manual' %}
-                                <span class="text-xs text-blue-600 font-medium">Manual</span>
-                                {% elif comp.is_confirmed %}
-                                <span class="text-xs text-green-600">Confirmed</span>
-                                {% endif %}
-                            </div>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right space-x-2">
-                            {% if comp.match_id %}
-                            <button
-                                onclick="toggleHistory(this, '{{ comp.match_id }}')"
-                                class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
-                            {% endif %}
-                            {% if comp.match_confidence is not none and not comp.is_confirmed %}
-                            <button hx-post="/api/prices/confirm-match/{{ comp.match_id }}"
-                                    hx-target="closest tr" hx-swap="outerHTML"
-                                    class="text-blue-600 hover:text-blue-800 text-xs">Confirm</button>
-                            {% endif %}
-                            {% if comp.match_id %}
-                            <button hx-delete="/api/prices/match/{{ comp.match_id }}"
-                                    hx-confirm="Remove this match?"
-                                    class="text-red-400 hover:text-red-600 text-xs">Remove</button>
-                            {% endif %}
-                        </td>
-                    </tr>
+                    {% include '_match_row.html' %}
                     <tr><td colspan="5" id="history-body-{{ comp.match_id }}"></td></tr>
                     {% endfor %}
                 </tbody>
@@ -177,6 +133,13 @@
         <!-- Unmatched Products Table -->
         {% set unmatched_all = unmatched_coles + unmatched_woolworths %}
         {% if unmatched_all %}
+        <div class="flex justify-end mb-3">
+            <button onclick="toggleAllProductHistory(this)"
+                    data-expanded="false"
+                    class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Expand All Graphs
+            </button>
+        </div>
         <div class="bg-white rounded-lg shadow overflow-hidden">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
@@ -275,17 +238,113 @@ function toggleProductHistory(btn, productId) {
     }
 }
 
-document.getElementById('search-field').addEventListener('keyup', function(e) {
-    const searchTerm = e.target.value.toLowerCase();
+let activeMatchFilter = 'all';
 
-    document.querySelectorAll('#prices-table-body tr').forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(searchTerm) ? '' : 'none';
+function setMatchFilter(filter) {
+    activeMatchFilter = filter;
+    document.querySelectorAll('.match-filter-btn').forEach(btn => {
+        btn.classList.remove('bg-blue-600', 'text-white');
+        btn.classList.add('bg-gray-100', 'text-gray-700');
     });
+    const active = document.getElementById('filter-' + filter);
+    if (active) {
+        active.classList.add('bg-blue-600', 'text-white');
+        active.classList.remove('bg-gray-100', 'text-gray-700');
+    }
+    applyMatchFilters();
+}
 
+function toggleAllProductHistory(btn) {
+    const expanding = btn.dataset.expanded === 'false';
+    btn.dataset.expanded = expanding ? 'true' : 'false';
+    btn.textContent = expanding ? 'Collapse All Graphs' : 'Expand All Graphs';
+
+    document.querySelectorAll('#all-products-table tr[id^="urow-"]').forEach(row => {
+        if (row.style.display === 'none') return;
+        const productId = row.id.replace('urow-', '');
+        const body = document.getElementById('phistory-body-' + productId);
+        const histBtn = row.querySelector('button[onclick^="toggleProductHistory"]');
+        if (!body) return;
+
+        if (expanding && !body.innerHTML.trim()) {
+            if (histBtn) histBtn.classList.add('text-blue-600');
+            fetch('/api/prices/product-history/' + productId)
+                .then(r => r.text())
+                .then(html => { body.innerHTML = html; execScripts(body); });
+        } else if (!expanding && body.innerHTML.trim()) {
+            body.innerHTML = '';
+            if (histBtn) histBtn.classList.remove('text-blue-600');
+        }
+    });
+}
+
+function toggleAllHistory(btn) {
+    const expanding = btn.dataset.expanded === 'false';
+    btn.dataset.expanded = expanding ? 'true' : 'false';
+    btn.textContent = expanding ? 'Collapse All Graphs' : 'Expand All Graphs';
+
+    const tbody = document.getElementById('prices-table-body');
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.children);
+    let i = 0;
+    while (i < rows.length) {
+        const dataRow = rows[i];
+        const historyRow = rows[i + 1];
+        i += 2;
+        if (!dataRow || dataRow.style.display === 'none') continue;
+
+        const matchId = dataRow.id?.replace('match-row-', '');
+        if (!matchId) continue;
+
+        const body = document.getElementById('history-body-' + matchId);
+        const histBtn = dataRow.querySelector('button[onclick^="toggleHistory"]');
+        if (!body) continue;
+
+        if (expanding && !body.innerHTML.trim()) {
+            if (histBtn) histBtn.classList.add('text-blue-600');
+            fetch('/api/prices/history/' + matchId)
+                .then(r => r.text())
+                .then(html => { body.innerHTML = html; execScripts(body); });
+        } else if (!expanding && body.innerHTML.trim()) {
+            body.innerHTML = '';
+            if (histBtn) histBtn.classList.remove('text-blue-600');
+        }
+    }
+}
+
+function applyMatchFilters() {
+    const searchTerm = document.getElementById('search-field').value.toLowerCase();
+    const tbody = document.getElementById('prices-table-body');
+    if (!tbody) return;
+
+    // Process rows in pairs: data row + history row
+    const rows = Array.from(tbody.children);
+    let i = 0;
+    while (i < rows.length) {
+        const dataRow = rows[i];
+        const historyRow = rows[i + 1];
+        i += 2;
+
+        if (!dataRow) continue;
+        const matchType = dataRow.dataset.matchType;
+        if (!matchType) continue; // skip non-data rows
+
+        const filterMatch = activeMatchFilter === 'all' || matchType === activeMatchFilter;
+        const searchMatch = !searchTerm || dataRow.textContent.toLowerCase().includes(searchTerm);
+        const visible = filterMatch && searchMatch;
+
+        dataRow.style.display = visible ? '' : 'none';
+        if (historyRow) historyRow.style.display = visible ? '' : 'none';
+    }
+}
+
+document.getElementById('search-field').addEventListener('keyup', function() {
+    applyMatchFilters();
+
+    const searchTerm = this.value.toLowerCase();
     document.querySelectorAll('#all-products-table tr').forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(searchTerm) ? '' : 'none';
+        row.style.display = row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
     });
 });
 </script>

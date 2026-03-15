@@ -343,130 +343,192 @@ class ColesScraper(BaseScraper):
     # ── Order History ────────────────────────────────────────────────
 
     async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
+        PAGE_SIZE = 20
         orders: list[ScrapedOrder] = []
+        online_count = 0
+        instore_count = 0
         try:
             for status in ("past", "active"):
+                page = 1
+                while online_count < limit:
+                    resp = await self._request(
+                        "GET",
+                        "/api/bff/orders",
+                        params={"status": status, "pageNumber": page, "pageSize": PAGE_SIZE},
+                    )
+                    if not resp or resp.status_code != 200:
+                        logger.warning(
+                            "Failed to fetch Coles %s orders page %d (status %s)",
+                            status, page,
+                            resp.status_code if resp else "no response",
+                        )
+                        break
+
+                    data = resp.json()
+                    logger.info(
+                        "[Coles] Orders response top-level keys (%s, page %d): %s",
+                        status, page,
+                        list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                    )
+                    logger.debug(
+                        "[Coles] Orders raw response (%s, page %d):\n%s",
+                        status, page,
+                        json.dumps(data, indent=2, default=str)[:4000],
+                    )
+
+                    order_list = (
+                        data.get("orders")
+                        or data.get("data", {}).get("orders")
+                        or (data if isinstance(data, list) else [])
+                    )
+                    logger.info("Found %d Coles %s orders on page %d", len(order_list), status, page)
+
+                    if not order_list:
+                        break
+
+                    if page == 1 and order_list:
+                        logger.info(
+                            "[Coles] First order keys: %s",
+                            list(order_list[0].keys()) if isinstance(order_list[0], dict) else order_list[0],
+                        )
+
+                    for order_data in order_list:
+                        if online_count >= limit:
+                            break
+
+                        order_id = str(
+                            order_data.get("id")
+                            or order_data.get("orderId")
+                            or order_data.get("orderNumber")
+                            or ""
+                        )
+                        if not order_id:
+                            logger.warning("[Coles] Order has no id, keys: %s", list(order_data.keys()))
+                            continue
+
+                        # Fetch items for this order using the confirmed endpoint
+                        items_resp = await self._request(
+                            "GET", f"/api/bff/orders/{order_id}/items"
+                        )
+                        items: list[ScrapedOrderItem] = []
+                        raw_items: list = []
+                        if items_resp and items_resp.status_code == 200:
+                            items_data = items_resp.json()
+                            logger.info(
+                                "[Coles] Items response keys for order %s: %s",
+                                order_id,
+                                list(items_data.keys()) if isinstance(items_data, dict) else type(items_data).__name__,
+                            )
+                            raw_items = (
+                                items_data.get("items")
+                                or items_data.get("orderItems")
+                                or items_data.get("lineItems")
+                                or (items_data if isinstance(items_data, list) else [])
+                            )
+                            logger.info(
+                                "[Coles] Order %s: %d raw items found", order_id, len(raw_items)
+                            )
+                            for item_data in raw_items:
+                                item = self._parse_order_item(item_data)
+                                if item:
+                                    items.append(item)
+                                else:
+                                    logger.warning(
+                                        "[Coles] Failed to parse item: %s",
+                                        json.dumps(item_data, default=str)[:200],
+                                    )
+                        else:
+                            logger.warning(
+                                "[Coles] No items response for order %s (status %s)",
+                                order_id,
+                                items_resp.status_code if items_resp else "no response",
+                            )
+
+                        logger.info(
+                            "[Coles] Order %s: parsed %d/%d items",
+                            order_id, len(items), len(raw_items) if items_resp and items_resp.status_code == 200 else 0,
+                        )
+                        order = self._parse_bff_order(order_data, items)
+                        if order:
+                            orders.append(order)
+                            online_count += 1
+                        else:
+                            logger.warning(
+                                "[Coles] _parse_bff_order returned None for order_id=%s, keys=%s",
+                                order_id, list(order_data.keys()),
+                            )
+
+                    # If page returned fewer than PAGE_SIZE orders, we've hit the last page
+                    if len(order_list) < PAGE_SIZE:
+                        break
+
+                    page += 1
+
+            # ── In-store purchases ────────────────────────────────────
+            page = 1
+            while instore_count < limit:
                 resp = await self._request(
                     "GET",
                     "/api/bff/orders",
-                    params={"status": status, "pageNumber": 1, "pageSize": limit},
+                    params={"status": "in-store", "pageNumber": page, "pageSize": PAGE_SIZE},
                 )
                 if not resp or resp.status_code != 200:
-                    logger.warning(
-                        "Failed to fetch Coles %s orders (status %s)",
-                        status,
-                        resp.status_code if resp else "no response",
-                    )
-                    continue
+                    logger.warning("Failed to fetch Coles in-store orders page %d (status %s)",
+                                   page, resp.status_code if resp else "no response")
+                    break
 
                 data = resp.json()
-                # Log top-level keys so we can spot unexpected response shapes
-                logger.info(
-                    "[Coles] Orders response top-level keys (%s): %s",
-                    status,
-                    list(data.keys()) if isinstance(data, dict) else type(data).__name__,
-                )
-                logger.debug(
-                    "[Coles] Orders raw response (%s):\n%s",
-                    status,
-                    json.dumps(data, indent=2, default=str)[:4000],
-                )
-
                 order_list = (
                     data.get("orders")
                     or data.get("data", {}).get("orders")
                     or (data if isinstance(data, list) else [])
                 )
-                logger.info("Found %d Coles %s orders", len(order_list), status)
-                if order_list:
-                    logger.info(
-                        "[Coles] First order keys: %s",
-                        list(order_list[0].keys()) if isinstance(order_list[0], dict) else order_list[0],
-                    )
-                    logger.debug(
-                        "[Coles] First order raw:\n%s",
-                        json.dumps(order_list[0], indent=2, default=str),
-                    )
+                logger.info("Found %d Coles in-store orders on page %d", len(order_list), page)
+
+                if not order_list:
+                    break
 
                 for order_data in order_list:
-                    order_id = str(
-                        order_data.get("id")
-                        or order_data.get("orderId")
-                        or order_data.get("orderNumber")
-                        or ""
-                    )
-                    if not order_id:
-                        logger.warning("[Coles] Order has no id, keys: %s", list(order_data.keys()))
+                    if instore_count >= limit:
+                        break
+
+                    order_id = str(order_data.get("orderId") or order_data.get("id") or "")
+                    txn_id = str(order_data.get("transactionId") or order_data.get("transactionBarcode") or "")
+                    if not order_id or not txn_id:
                         continue
 
-                    # Fetch items for this order using the confirmed endpoint
-                    items_resp = await self._request(
-                        "GET", f"/api/bff/orders/{order_id}/items"
+                    # Fetch order detail (includes items) using the v2 endpoint
+                    detail_resp = await self._request(
+                        "GET", f"/api/bff/orders/{order_id}",
+                        headers={"x-api-version": "2", "x-transaction-id": txn_id},
                     )
                     items: list[ScrapedOrderItem] = []
-                    raw_items: list = []
-                    if items_resp and items_resp.status_code == 200:
-                        items_data = items_resp.json()
-                        logger.info(
-                            "[Coles] Items response keys for order %s: %s",
-                            order_id,
-                            list(items_data.keys()) if isinstance(items_data, dict) else type(items_data).__name__,
-                        )
-                        raw_items = (
-                            items_data.get("items")
-                            or items_data.get("orderItems")
-                            or items_data.get("lineItems")
-                            or (items_data if isinstance(items_data, list) else [])
-                        )
-                        logger.info(
-                            "[Coles] Order %s: %d raw items found", order_id, len(raw_items)
-                        )
-                        if raw_items:
-                            logger.info(
-                                "[Coles] First item keys: %s",
-                                list(raw_items[0].keys()) if isinstance(raw_items[0], dict) else raw_items[0],
-                            )
-                            logger.debug(
-                                "[Coles] First item raw:\n%s",
-                                json.dumps(raw_items[0], indent=2, default=str),
-                            )
-                        for item_data in raw_items:
-                            item = self._parse_order_item(item_data)
+                    if detail_resp and detail_resp.status_code == 200:
+                        detail = detail_resp.json()
+                        for item_data in detail.get("items", []):
+                            item = self._parse_instore_item(item_data)
                             if item:
                                 items.append(item)
-                            else:
-                                logger.warning(
-                                    "[Coles] Failed to parse item: %s",
-                                    json.dumps(item_data, default=str)[:200],
-                                )
                     else:
-                        logger.warning(
-                            "[Coles] No items response for order %s (status %s)",
-                            order_id,
-                            items_resp.status_code if items_resp else "no response",
-                        )
+                        logger.warning("[Coles] Could not fetch in-store order detail for %s", order_id)
 
-                    logger.info(
-                        "[Coles] Order %s: parsed %d/%d items",
-                        order_id, len(items), len(raw_items) if items_resp and items_resp.status_code == 200 else 0,
-                    )
-                    order = self._parse_bff_order(order_data, items)
+                    # Use transactionId as the unique order key to avoid collisions with online IDs
+                    instore_data = dict(order_data)
+                    instore_data["orderId"] = f"instore-{txn_id}"
+                    order = self._parse_bff_order(instore_data, items)
                     if order:
                         orders.append(order)
-                    else:
-                        logger.warning(
-                            "[Coles] _parse_bff_order returned None for order_id=%s, keys=%s",
-                            order_id, list(order_data.keys()),
-                        )
+                        instore_count += 1
 
-                    if len(orders) >= limit:
-                        break
+                if len(order_list) < PAGE_SIZE:
+                    break
+                page += 1
 
             await self._save_cookies_from_client()
         except Exception:
             logger.exception("Failed to fetch Coles order history")
 
-        return orders[:limit]
+        return orders
 
     # ── Product Search ───────────────────────────────────────────────
 
@@ -592,23 +654,22 @@ class ColesScraper(BaseScraper):
     # ── Add to Cart ──────────────────────────────────────────────────
 
     async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
+        # Extract numeric store ID from "COL:7674" -> "7674"
+        store_num = COLES_STORE_ID.split(":")[-1]
+        endpoint = f"/api/bff/trolley/store/{store_num}/items"
         try:
             for product_id, quantity in items:
                 resp = await self._request(
                     "POST",
-                    "/api/bff/cart/items",
-                    json={"productId": product_id, "quantity": quantity},
+                    endpoint,
+                    json={"items": [{"productId": int(product_id), "quantity": quantity}]},
                 )
                 if not resp or resp.status_code not in (200, 201):
-                    # Fallback to legacy cart endpoint
-                    resp = await self._request(
-                        "POST",
-                        "/api/cart/items",
-                        json={"productId": product_id, "quantity": quantity},
-                    )
-                if not resp or resp.status_code not in (200, 201):
                     logger.warning(
-                        "Failed to add Coles product %s to cart", product_id
+                        "Failed to add Coles product %s to cart (status=%s body=%s)",
+                        product_id,
+                        resp.status_code if resp else None,
+                        resp.text[:300] if resp else None,
                     )
                     return False
 
@@ -619,7 +680,7 @@ class ColesScraper(BaseScraper):
             return False
 
     async def get_cart_url(self) -> str:
-        return f"{COLES_BASE}/cart"
+        return COLES_BASE
 
     # ── Parsing helpers ──────────────────────────────────────────────
 
@@ -723,6 +784,44 @@ class ColesScraper(BaseScraper):
             )
         except Exception:
             logger.debug("Failed to parse Coles order item", exc_info=True)
+            return None
+
+    def _parse_instore_item(self, data: dict) -> ScrapedOrderItem | None:
+        """Parse a single in-store order item from the getOrderV2 detail response.
+
+        In-store items nest quantity/price inside an 'orderItem' sub-object.
+        """
+        try:
+            product_id = str(data.get("id") or data.get("productId") or "")
+            if not product_id:
+                return None
+
+            order_item = data.get("orderItem") or {}
+            quantity = int(order_item.get("quantity") or 1)
+            unit_price = float(
+                order_item.get("unitPrice")
+                or order_item.get("salePrice")
+                or (order_item.get("itemTotalPrice", 0) / quantity if quantity else 0)
+            )
+
+            image_uris = data.get("imageUris") or []
+            image_uri = image_uris[0].get("uri") if image_uris else None
+            image_url = (
+                f"https://productimages.coles.com.au/productimages/1-E1{image_uri}"
+                if image_uri else None
+            )
+
+            return ScrapedOrderItem(
+                store_product_id=product_id,
+                name=data.get("name") or "Unknown",
+                quantity=quantity,
+                price_paid=unit_price,
+                brand=data.get("brand") or None,
+                unit_size=data.get("size") or None,
+                image_url=image_url,
+            )
+        except Exception:
+            logger.debug("Failed to parse Coles in-store item", exc_info=True)
             return None
 
     def _parse_graphql_product(self, data: dict) -> ScrapedProduct | None:

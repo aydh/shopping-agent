@@ -43,6 +43,7 @@ class ProductMatch(TimestampMixin, Base):
     confidence: Mapped[float] = mapped_column(Float)
     match_method: Mapped[str] = mapped_column(String(32))
     is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_rejected: Mapped[bool] = mapped_column(Boolean, default=False)
 
     product_a: Mapped["Product"] = relationship(foreign_keys=[product_a_id])
     product_b: Mapped["Product"] = relationship(foreign_keys=[product_b_id])

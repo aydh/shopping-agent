@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Date, Float, ForeignKey, Integer
+from sqlalchemy import Date, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -20,5 +20,7 @@ class ConsumptionPrediction(TimestampMixin, Base):
     predicted_runout_date: Mapped[date] = mapped_column(Date)
     next_purchase_date: Mapped[date] = mapped_column(Date)
     purchase_count: Mapped[int] = mapped_column(Integer)
+    last_purchase_quantity: Mapped[int] = mapped_column(Integer, server_default="1")
+    last_purchase_store: Mapped[str] = mapped_column(String, server_default="")
 
     product: Mapped["Product"] = relationship()
