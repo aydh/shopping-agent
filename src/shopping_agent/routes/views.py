@@ -329,6 +329,16 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     unmatched_coles = [p for p in all_products if p.store == Store.COLES and p.id not in matched_ids]
     unmatched_woolworths = [p for p in all_products if p.store == Store.WOOLWORTHS and p.id not in matched_ids]
 
+    # Last ordered date for all visible products (single query)
+    from sqlalchemy import func as sqlfunc
+    lo_rows = await session.execute(
+        select(OrderItem.product_id, sqlfunc.max(Order.order_date))
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(OrderItem.product_id.in_(visible_ids))
+        .group_by(OrderItem.product_id)
+    )
+    last_ordered: dict[int, date] = dict(lo_rows.all())
+
     # Fetch rejected matches
     rejected_result = await session.execute(
         select(ProductMatch)
@@ -362,6 +372,7 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
             "unmatched_woolworths": unmatched_woolworths,
             "rejected_matches": rejected_matches,
             "hidden_products": hidden_products,
+            "last_ordered": last_ordered,
         },
     )
 

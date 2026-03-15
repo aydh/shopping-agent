@@ -46,6 +46,12 @@
         </div>
         {% else %}-{% endif %}
     </td>
+    <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden md:table-cell">
+        {% set coles_lo = last_ordered.get(comp.coles_product.id) if comp.coles_product else none %}
+        {% set ww_lo = last_ordered.get(comp.woolworths_product.id) if comp.woolworths_product else none %}
+        {% set lo = [coles_lo, ww_lo] | select | max %}
+        {% if lo %}{{ lo.strftime('%d %b %Y') }}{% else %}—{% endif %}
+    </td>
     <td class="px-3 sm:px-6 py-3 text-right space-x-2">
         {% if comp.match_id %}
         <button

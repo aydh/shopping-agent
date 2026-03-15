@@ -85,13 +85,14 @@
                         <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
                         <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Cheaper</th>
                         <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Match</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Last Ordered</th>
                         <th class="px-3 sm:px-6 py-3"></th>
                     </tr>
                 </thead>
                 <tbody id="prices-table-body" class="divide-y divide-gray-200">
                     {% for comp in comparisons %}
                     {% include '_match_row.html' %}
-                    <tr><td colspan="5" id="history-body-{{ comp.match_id }}"></td></tr>
+                    <tr><td colspan="6" id="history-body-{{ comp.match_id }}"></td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -162,6 +163,7 @@
                         <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
                         <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Store</th>
                         <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Last Ordered</th>
                         <th class="px-3 sm:px-6 py-3"></th>
                     </tr>
                 </thead>
@@ -184,6 +186,10 @@
                         <td class="px-3 sm:px-6 py-3 text-sm font-semibold text-gray-700">
                             {% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}—{% endif %}
                         </td>
+                        <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden md:table-cell">
+                            {% set lo = last_ordered.get(product.id) %}
+                            {% if lo %}{{ lo.strftime('%d %b %Y') }}{% else %}—{% endif %}
+                        </td>
                         <td class="px-3 sm:px-6 py-3 text-right space-x-2 whitespace-nowrap">
                             <button onclick="toggleProductHistory(this, '{{ product.id }}')"
                                     class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200">Price History</button>
@@ -200,7 +206,7 @@
                                     class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">Remove</button>
                         </td>
                     </tr>
-                    <tr><td colspan="4" id="phistory-body-{{ product.id }}"></td></tr>
+                    <tr><td colspan="5" id="phistory-body-{{ product.id }}"></td></tr>
                     {% endfor %}
                 </tbody>
             </table>
