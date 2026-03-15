@@ -66,11 +66,11 @@
         {% endif %}
         {% if comp.match_id %}
         <button hx-delete="/api/prices/match/{{ comp.match_id }}"
-                hx-confirm="Remove this match? It will not be auto-matched again."
+                hx-confirm="Reject this match? It will not be auto-matched again."
                 hx-target="closest tr"
                 hx-swap="outerHTML"
                 hx-on::after-request="document.getElementById('history-body-{{ comp.match_id }}').closest('tr').remove()"
-                class="text-red-400 hover:text-red-600 text-xs">Remove</button>
+                class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">Reject</button>
         {% endif %}
     </td>
 </tr>
