@@ -323,7 +323,17 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
               x: {{ type: 'category', title: {{ display: false }} }},
               y: {{ title: {{ display: true, text: 'Price ($)' }}, beginAtZero: false }}
             }},
-            plugins: {{ legend: {{ display: false }} }}
+            plugins: {{
+              legend: {{
+                position: 'top',
+                labels: {{
+                  usePointStyle: true,
+                  generateLabels: () => [
+                    {{ text: '{label}', pointStyle: 'circle', fillStyle: '{color}', strokeStyle: '{color}' }}
+                  ]
+                }}
+              }}
+            }}
           }}
         }});
       }})();
