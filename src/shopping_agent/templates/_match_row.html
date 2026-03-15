@@ -56,7 +56,7 @@
                 hx-vals='{"product_id": {{ comp.product_id }}}'
                 hx-target="#add-btn-{{ comp.product_id }}"
                 hx-swap="innerHTML"
-                class="text-blue-500 hover:text-blue-700 text-xs">+ List</button>
+                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200">Add to List</button>
         </span>
         {% endif %}
         {% if comp.match_confidence is not none and not comp.is_confirmed %}
