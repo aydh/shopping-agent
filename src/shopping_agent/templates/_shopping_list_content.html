@@ -20,22 +20,34 @@
 <div class="bg-white rounded-lg shadow divide-y divide-gray-200">
     {% for item in shopping_list.items %}
     {% if not item.is_removed %}
-    <div id="item-{{ item.id }}" class="px-4 py-3">
-        <!-- Row 1: Product name -->
-        <p class="text-sm font-medium text-gray-900 mb-2">{{ display_names[item.id] }}</p>
-        <!-- Row 2: Controls -->
-        <div class="flex items-center gap-3 flex-wrap">
+    {% set names = store_names[item.id] %}
+    {% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price <= item.woolworths_price) %}
+    {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price <= item.coles_price) %}
+    <div id="item-{{ item.id }}" class="px-4 py-3 space-y-2">
+
+        <!-- Row 1: Coles -->
+        <div class="flex items-center justify-between rounded px-2 py-1 {% if coles_cheaper %}ring-2 ring-red-400 bg-red-50{% endif %}">
+            <span class="text-sm font-medium text-red-700">{{ names.coles or display_names[item.id] }}</span>
+            <span class="text-sm font-semibold text-red-700 ml-3 shrink-0">
+                {% if item.coles_price %}${{ "%.2f" | format(item.coles_price) }}{% else %}—{% endif %}
+            </span>
+        </div>
+
+        <!-- Row 2: Woolworths -->
+        <div class="flex items-center justify-between rounded px-2 py-1 {% if ww_cheaper %}ring-2 ring-green-500 bg-green-50{% endif %}">
+            <span class="text-sm font-medium text-green-700">{{ names.woolworths or display_names[item.id] }}</span>
+            <span class="text-sm font-semibold text-green-700 ml-3 shrink-0">
+                {% if item.woolworths_price %}${{ "%.2f" | format(item.woolworths_price) }}{% else %}—{% endif %}
+            </span>
+        </div>
+
+        <!-- Row 3: Qty, store selector, remove -->
+        <div class="flex items-center gap-3">
             <input type="number" value="{{ item.quantity }}" min="1" max="99"
                    hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
                    hx-trigger="change" hx-target="#list-content" hx-swap="innerHTML"
                    name="quantity"
                    class="w-14 border border-gray-300 rounded px-2 py-1 text-sm">
-            <span class="text-sm {% if item.coles_price and (not item.woolworths_price or item.coles_price <= item.woolworths_price) %}text-green-600 font-medium{% else %}text-gray-400{% endif %}">
-                C: {% if item.coles_price %}${{ "%.2f" | format(item.coles_price) }}{% else %}—{% endif %}
-            </span>
-            <span class="text-sm {% if item.woolworths_price and (not item.coles_price or item.woolworths_price <= item.coles_price) %}text-green-600 font-medium{% else %}text-gray-400{% endif %}">
-                WW: {% if item.woolworths_price %}${{ "%.2f" | format(item.woolworths_price) }}{% else %}—{% endif %}
-            </span>
             <select hx-post="/api/shopping-list/items/{{ item.id }}/store"
                     hx-target="#list-content" hx-swap="innerHTML"
                     name="store"
@@ -47,9 +59,12 @@
                     hx-target="#item-{{ item.id }}" hx-swap="outerHTML"
                     class="text-red-400 hover:text-red-600 text-sm ml-auto">Remove</button>
         </div>
+
+        <!-- Row 4: Reason -->
         {% if item.reason %}
-        <p class="text-xs text-gray-400 mt-1">{{ item.reason }}</p>
+        <p class="text-xs text-gray-400 px-2">{{ item.reason }}</p>
         {% endif %}
+
     </div>
     {% endif %}
     {% endfor %}

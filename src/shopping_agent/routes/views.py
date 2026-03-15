@@ -162,17 +162,18 @@ async def predictions_page(request: Request, session: AsyncSession = Depends(get
 
 async def _resolve_display_names(
     session: AsyncSession, items: list
-) -> dict[int, str]:
-    """Return {item_id: product_name} using the chosen store's product name where available."""
+) -> tuple[dict[int, str], dict[int, dict]]:
+    """Return (display_names, store_names) dicts.
+    display_names: {item_id: name} using chosen store's product name.
+    store_names: {item_id: {'coles': name|None, 'woolworths': name|None}}
+    """
     display_names: dict[int, str] = {}
+    store_names: dict[int, dict] = {}
     for item in items:
         if item.is_removed:
             continue
         canonical = item.product
-        if not item.chosen_store or canonical.store == item.chosen_store:
-            display_names[item.id] = canonical.name
-            continue
-        # Find the partner product from the chosen store
+        partner = None
         match_result = await session.execute(
             select(ProductMatch).where(
                 (
@@ -188,11 +189,24 @@ async def _resolve_display_names(
                 match.product_b_id if match.product_a_id == canonical.id else match.product_a_id
             )
             partner = await session.get(Product, partner_id)
-            if partner and partner.store == item.chosen_store:
-                display_names[item.id] = partner.name
-                continue
-        display_names[item.id] = canonical.name
-    return display_names
+
+        if canonical.store == Store.COLES:
+            coles_name = canonical.name
+            woolworths_name = partner.name if partner and partner.store == Store.WOOLWORTHS else None
+        else:
+            woolworths_name = canonical.name
+            coles_name = partner.name if partner and partner.store == Store.COLES else None
+
+        store_names[item.id] = {"coles": coles_name, "woolworths": woolworths_name}
+
+        if item.chosen_store == Store.COLES and coles_name:
+            display_names[item.id] = coles_name
+        elif item.chosen_store == Store.WOOLWORTHS and woolworths_name:
+            display_names[item.id] = woolworths_name
+        else:
+            display_names[item.id] = canonical.name
+
+    return display_names, store_names
 
 
 async def _shopping_list_context(session: AsyncSession) -> dict:
@@ -209,9 +223,10 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
     woolworths_total = 0.0
     best_total = 0.0
     display_names: dict[int, str] = {}
+    store_names: dict[int, dict] = {}
     single_store: Store | None = None
     if shopping_list:
-        display_names = await _resolve_display_names(session, shopping_list.items)
+        display_names, store_names = await _resolve_display_names(session, shopping_list.items)
         active_items = [i for i in shopping_list.items if not i.is_removed]
         stores_used = {i.chosen_store for i in active_items if i.chosen_store}
         single_store = stores_used.pop() if len(stores_used) == 1 else None
@@ -234,6 +249,7 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
     return {
         "shopping_list": shopping_list,
         "display_names": display_names,
+        "store_names": store_names,
         "single_store": single_store,
         "coles_total": coles_total,
         "woolworths_total": woolworths_total,
@@ -343,7 +359,7 @@ async def confirm_page(request: Request, session: AsyncSession = Depends(get_ses
     display_names: dict[int, str] = {}
     if shopping_list:
         all_items = [i for i in shopping_list.items if not i.is_removed]
-        display_names = await _resolve_display_names(session, all_items)
+        display_names, _ = await _resolve_display_names(session, all_items)
         for item in all_items:
             if item.chosen_store == Store.COLES:
                 coles_items.append(item)
