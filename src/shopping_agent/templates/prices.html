@@ -73,7 +73,7 @@
                 <button onclick="toggleAllHistory(this)"
                         data-expanded="false"
                         class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
-                    Expand All Graphs
+                    Show All Price Histories
                 </button>
             </div>
         </div>
@@ -152,7 +152,7 @@
             <button onclick="toggleAllProductHistory(this)"
                     data-expanded="false"
                     class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
-                Expand All Graphs
+                Show All Price Histories
             </button>
         </div>
         <div class="bg-white rounded-lg shadow overflow-x-auto">
@@ -400,7 +400,7 @@ function setMatchFilter(filter) {
 function toggleAllProductHistory(btn) {
     const expanding = btn.dataset.expanded === 'false';
     btn.dataset.expanded = expanding ? 'true' : 'false';
-    btn.textContent = expanding ? 'Collapse All Graphs' : 'Expand All Graphs';
+    btn.textContent = expanding ? 'Hide All Price Histories' : 'Show All Price Histories';
 
     document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]').forEach(row => {
         if (row.style.display === 'none') return;
@@ -424,7 +424,7 @@ function toggleAllProductHistory(btn) {
 function toggleAllHistory(btn) {
     const expanding = btn.dataset.expanded === 'false';
     btn.dataset.expanded = expanding ? 'true' : 'false';
-    btn.textContent = expanding ? 'Collapse All Graphs' : 'Expand All Graphs';
+    btn.textContent = expanding ? 'Hide All Price Histories' : 'Show All Price Histories';
 
     const tbody = document.getElementById('prices-table-body');
     if (!tbody) return;
