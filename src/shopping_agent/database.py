@@ -30,3 +30,15 @@ async def init_db() -> None:
             ))
         except Exception:
             pass  # Column already exists
+        try:
+            await conn.execute(text(
+                "ALTER TABLE orders ADD COLUMN store_name VARCHAR(256)"
+            ))
+        except Exception:
+            pass  # Column already exists
+        try:
+            await conn.execute(text(
+                "ALTER TABLE orders ADD COLUMN store_id VARCHAR(64)"
+            ))
+        except Exception:
+            pass  # Column already exists

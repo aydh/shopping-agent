@@ -22,6 +22,8 @@ class ScrapedOrder:
     items: list[ScrapedOrderItem] = field(default_factory=list)
     total_amount: float | None = None
     status: str | None = None
+    store_name: str | None = None
+    store_id: str | None = None
 
 
 @dataclass

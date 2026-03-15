@@ -23,7 +23,13 @@ async def sync_orders(
         existing = await session.execute(
             select(Order).where(Order.store_order_id == scraped.store_order_id)
         )
-        if existing.scalar_one_or_none():
+        existing_order = existing.scalar_one_or_none()
+        if existing_order:
+            # Backfill store_name/store_id if now available
+            if scraped.store_name and not existing_order.store_name:
+                existing_order.store_name = scraped.store_name
+            if scraped.store_id and not existing_order.store_id:
+                existing_order.store_id = scraped.store_id
             continue
 
         # Create order
@@ -33,6 +39,8 @@ async def sync_orders(
             order_date=scraped.order_date,
             total_amount=scraped.total_amount,
             status=scraped.status,
+            store_name=scraped.store_name,
+            store_id=scraped.store_id,
         )
         session.add(order)
         await session.flush()

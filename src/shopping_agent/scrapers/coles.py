@@ -747,12 +747,18 @@ class ColesScraper(BaseScraper):
                 or 0
             )
 
+            store_obj = data.get("store") or {}
+            store_name = data.get("storeName") or store_obj.get("suburb") or None
+            store_id = store_obj.get("storeId") or None
+
             return ScrapedOrder(
                 store_order_id=order_id,
                 order_date=order_date,
                 total_amount=total,
                 status=data.get("orderStatus") or data.get("status"),
                 items=items,
+                store_name=store_name,
+                store_id=store_id,
             )
         except Exception:
             logger.debug("Failed to parse Coles BFF order", exc_info=True)

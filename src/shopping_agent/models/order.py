@@ -16,6 +16,8 @@ class Order(TimestampMixin, Base):
     order_date: Mapped[date] = mapped_column(Date)
     total_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    store_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    store_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
