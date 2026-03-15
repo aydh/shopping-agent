@@ -186,7 +186,7 @@
                         </td>
                         <td class="px-3 sm:px-6 py-3 text-right space-x-2 whitespace-nowrap">
                             <button onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                    class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200">Price History</button>
                             <span id="add-btn-{{ product.id }}">
                                 <button hx-post="/api/shopping-list/items/add-product"
                                         hx-vals='{"product_id": {{ product.id }}}'
@@ -305,7 +305,7 @@
                         </td>
                         <td class="px-3 sm:px-6 py-3 text-right space-x-2 whitespace-nowrap">
                             <button onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                    class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200">Price History</button>
                             <span id="add-btn-{{ product.id }}">
                                 <button hx-post="/api/shopping-list/items/add-product"
                                         hx-vals='{"product_id": {{ product.id }}}'
