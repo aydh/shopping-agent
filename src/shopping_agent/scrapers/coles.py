@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -100,6 +101,9 @@ class ColesScraper(BaseScraper):
 
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
+        self._bare_client: httpx.AsyncClient | None = None
+        self._next_build_id: str | None = None
+        self._build_id_lock: asyncio.Lock = asyncio.Lock()
 
     async def _load_cookies(self) -> httpx.Cookies:
         """Load cookies from the database into httpx.Cookies."""
@@ -581,41 +585,66 @@ class ColesScraper(BaseScraper):
 
     # ── Product Price ────────────────────────────────────────────────
 
-    async def get_product_price(self, store_product_id: str) -> ScrapedProduct | None:
+    async def _get_next_build_id(self) -> str | None:
+        """Fetch the current Next.js build ID from the Coles homepage."""
+        if self._next_build_id:
+            return self._next_build_id
+        async with self._build_id_lock:
+            # Double-check after acquiring lock — another coroutine may have fetched it
+            if self._next_build_id:
+                return self._next_build_id
+            try:
+                import re
+                # Use a cookie-free client — the authenticated client gets an Incapsula
+                # bot challenge page when the reese84 session cookie expires.
+                if self._bare_client is None or self._bare_client.is_closed:
+                    self._bare_client = httpx.AsyncClient(
+                        base_url=COLES_BASE,
+                        headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html,*/*"},
+                        follow_redirects=True,
+                        timeout=15.0,
+                    )
+                resp = await self._bare_client.get("/")
+                if resp and resp.status_code == 200:
+                    m = re.search(r'"buildId"\s*:\s*"([^"]+)"', resp.text)
+                    if m:
+                        self._next_build_id = m.group(1)
+                        logger.info("[Coles] Next.js build ID: %s", self._next_build_id)
+                        return self._next_build_id
+                    logger.warning("[Coles] buildId not found in homepage (%d bytes)", len(resp.text))
+            except Exception:
+                logger.debug("[Coles] Failed to get Next.js build ID", exc_info=True)
+        return None
+
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
         try:
-            # GraphQL: fetch via category search using the product id as a category hint
-            # Fall through to REST if GraphQL doesn't return the specific product
-            gql_data = await self._graphql(
-                _GQL_CROSS_CATEGORY,
-                {"categoryIds": [store_product_id], "storeId": COLES_STORE_ID},
-                "GetCrossCategory",
+            build_id = await self._get_next_build_id()
+            if not build_id:
+                return None
+            # Search by product name — Coles search is name-based, not ID-based.
+            # Searching by numeric ID returns random unrelated products.
+            # Use a cookie-free client — the authenticated client gets WAF-blocked
+            # when the reese84 session cookie expires.
+            if self._bare_client is None or self._bare_client.is_closed:
+                self._bare_client = httpx.AsyncClient(
+                    base_url=COLES_BASE,
+                    headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
+                    follow_redirects=True,
+                    timeout=15.0,
+                )
+            search_term = product_name or store_product_id
+            resp = await self._bare_client.get(
+                f"/_next/data/{build_id}/search/products.json",
+                params={"q": search_term},
             )
-            if gql_data:
-                logger.debug("[Coles] GraphQL response for product %s: %s", store_product_id, json.dumps(gql_data, indent=2, default=str)[:500])
-                cross = gql_data.get("crossCategory") or {}
-                products = cross.get("products") or []
-                logger.info("[Coles] GraphQL returned %d products for id %s", len(products), store_product_id)
-                for item in products:
+            if resp and resp.status_code == 200:
+                results = (resp.json().get("pageProps") or {}).get("searchResults", {}).get("results") or []
+                for item in results:
                     p = self._parse_graphql_product(item)
                     if p and p.store_product_id == store_product_id:
                         return p
-                # If there were products but none matched the id, return the first one
-                if products:
-                    p = self._parse_graphql_product(products[0])
-                    if p:
-                        return p
-
-            # Fallback: REST endpoints
-            resp = await self._request("GET", f"/api/products/{store_product_id}")
-            if not resp or resp.status_code != 200:
-                resp = await self._request("GET", f"/api/bff/products/{store_product_id}")
-            if not resp or resp.status_code != 200:
-                resp = await self._request("GET", f"/api/v2/ui-api/product/{store_product_id}")
-
-            if resp and resp.status_code == 200:
-                data = resp.json()
-                product_data = data.get("product") or data.get("Product") or data
-                return self._parse_search_result(product_data)
+            elif resp and resp.status_code == 404:
+                self._next_build_id = None
         except Exception:
             logger.exception("Coles price fetch failed for: %s", store_product_id)
         return None

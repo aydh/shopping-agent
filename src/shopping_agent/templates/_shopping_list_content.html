@@ -38,7 +38,7 @@
                 <td class="px-6 py-4">
                     <input type="number" value="{{ item.quantity }}" min="1" max="99"
                            hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
-                           hx-trigger="change" hx-target="#item-{{ item.id }}" hx-swap="outerHTML"
+                           hx-trigger="change" hx-target="#list-content" hx-swap="innerHTML"
                            name="quantity"
                            class="w-16 border border-gray-300 rounded px-2 py-1 text-sm">
                 </td>

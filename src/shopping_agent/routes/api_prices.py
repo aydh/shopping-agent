@@ -1,11 +1,13 @@
+import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, Form
-from fastapi.responses import HTMLResponse, Response
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, Form
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_session
+from ..database import async_session, get_session
 from ..models import PriceHistory, Product, ProductMatch, Store
 from ..scrapers.coles import ColesScraper
 from ..scrapers.woolworths import WoolworthsScraper
@@ -13,112 +15,118 @@ from ..scrapers.woolworths import WoolworthsScraper
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# In-memory progress tracking: store_value -> {done, total, running}
+_refresh_progress: dict[str, dict] = {}
 
-@router.post("/refresh")
-async def refresh_prices(session: AsyncSession = Depends(get_session)):
-    """Refresh prices for all products by scraping current prices from stores."""
-    coles_scraper = ColesScraper()
-    woolworths_scraper = WoolworthsScraper()
 
+@router.get("/image-proxy")
+async def image_proxy(url: str):
+    """Proxy product images to bypass CDN hotlink protection."""
     try:
-        # Check authentication
-        coles_auth = await coles_scraper.is_authenticated()
-        woolworths_auth = await woolworths_scraper.is_authenticated()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers={
+                "Referer": "https://www.coles.com.au/",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            })
+            if resp.status_code == 200:
+                return StreamingResponse(iter([resp.content]), media_type=resp.headers.get("content-type", "image/jpeg"))
+    except Exception:
+        pass
+    return Response(status_code=404)
 
-        logger.info(f"Authentication status - Coles: {coles_auth}, Woolworths: {woolworths_auth}")
 
-        if not coles_auth and not woolworths_auth:
-            return HTMLResponse(
-                '<tr><td colspan="6" class="px-6 py-4 text-center text-red-600 text-sm">'
-                'Not authenticated with any stores. Please log in first.</td></tr>'
-            )
+async def _do_price_refresh(store_enum: Store) -> None:
+    """Background task: refresh prices for all products of a given store."""
+    scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
+    concurrency = 10
+    key = store_enum.value
 
-        # Get all products
-        result = await session.execute(select(Product))
-        products = result.scalars().all()
+    async with async_session() as session:
+        result = await session.execute(select(Product).where(Product.store == store_enum))
+        products = list(result.scalars().all())
 
-        if not products:
-            return HTMLResponse(
-                '<tr><td colspan="6" class="px-6 py-4 text-center text-yellow-600 text-sm">'
-                'No products to refresh.</td></tr>'
-            )
+    _refresh_progress[key] = {"done": 0, "total": len(products), "running": True}
+    logger.info("[PriceRefresh] Starting %s refresh for %d products", store_enum.value, len(products))
 
-        updated_count = 0
-        failed_count = 0
-        auth_error_count = 0
+    sem = asyncio.Semaphore(concurrency)
 
-        for product in products:
+    async def fetch_one(product_id: int, store_product_id: str, product_name: str):
+        async with sem:
             try:
-                # Select appropriate scraper and check auth
-                if product.store == Store.COLES:
-                    scraper = coles_scraper
-                    if not coles_auth:
-                        auth_error_count += 1
-                        logger.warning(f"Skipping Coles product {product.id}: not authenticated")
-                        continue
-                else:
-                    scraper = woolworths_scraper
-                    if not woolworths_auth:
-                        auth_error_count += 1
-                        logger.warning(f"Skipping Woolworths product {product.id}: not authenticated")
-                        continue
-
-                # Fetch current price
-                scraped = await scraper.get_product_price(product.store_product_id)
-
+                scraped = await scraper.get_product_price(store_product_id, product_name)
                 if scraped:
-                    product.current_price = scraped.current_price
-                    product.is_available = scraped.is_available
-                    if scraped.unit_price:
-                        product.unit_price = scraped.unit_price
-                    if scraped.unit_price_measure:
-                        product.unit_price_measure = scraped.unit_price_measure
-                    session.add(PriceHistory(product_id=product.id, store=product.store, price=scraped.current_price))
-                    updated_count += 1
-                    logger.info(f"Updated price for product {product.id}: ${scraped.current_price}")
-                else:
-                    failed_count += 1
-                    logger.warning(f"Could not fetch price for product {product.id}")
-
+                    async with async_session() as session:
+                        product = await session.get(Product, product_id)
+                        if product:
+                            product.current_price = scraped.current_price
+                            product.is_available = scraped.is_available
+                            if scraped.unit_price:
+                                product.unit_price = scraped.unit_price
+                            if scraped.unit_price_measure:
+                                product.unit_price_measure = scraped.unit_price_measure
+                            if scraped.image_url:
+                                product.image_url = scraped.image_url
+                            session.add(PriceHistory(product_id=product_id, store=store_enum, price=scraped.current_price))
+                            await session.commit()
+                    _refresh_progress[key]["done"] += 1
+                    return True
             except Exception as e:
-                failed_count += 1
-                logger.error(f"Error fetching price for product {product.id}: {e}")
+                logger.error("[PriceRefresh] Error for product %s: %s", store_product_id, e)
+            _refresh_progress[key]["done"] += 1
+            return False
 
-        # Commit all updates
-        await session.commit()
+    results = await asyncio.gather(*[fetch_one(p.id, p.store_product_id, p.name) for p in products])
+    updated = sum(results)
+    _refresh_progress[key] = {"done": len(products), "total": len(products), "running": False, "updated": updated}
+    logger.info("[PriceRefresh] %s done: %d/%d updated", store_enum.value, updated, len(products))
 
-        if updated_count == 0 and failed_count > 0:
-            message = f"Failed to fetch any prices. {failed_count} products skipped"
-            if auth_error_count > 0:
-                message += f" ({auth_error_count} due to auth issues)"
-            return HTMLResponse(
-                f'<tr><td colspan="6" class="px-6 py-4 text-center text-red-600 text-sm">'
-                f'{message}</td></tr>'
-            )
 
-        # If we updated any prices, refresh the page to show updated data
-        if updated_count > 0:
-            response = Response(status_code=200)
-            response.headers["HX-Refresh"] = "true"
-            return response
+@router.post("/refresh/{store}")
+async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)):
+    """Kick off a background price refresh for the given store."""
+    store_enum = Store(store)
+    scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
 
-        message = f"Updated {updated_count} price"
-        message += "s" if updated_count != 1 else ""
-        if failed_count > 0:
-            message += f", {failed_count} failed"
-        message += ". <a href=\"/prices\" class=\"underline\">Reload</a> to see updates."
+    if not await scraper.is_authenticated():
+        return HTMLResponse(f'<span class="text-red-600 text-sm">Not connected to {store_enum.value.title()}.</span>')
 
+    result = await session.execute(select(Product).where(Product.store == store_enum))
+    count = len(result.scalars().all())
+    if not count:
+        return HTMLResponse(f'<span class="text-yellow-600 text-sm">No {store_enum.value.title()} products.</span>')
+
+    background_tasks.add_task(_do_price_refresh, store_enum)
+    store_val = store_enum.value
+    return HTMLResponse(
+        f'<span id="refresh-progress-{store_val}" class="text-blue-600 text-sm"'
+        f' hx-get="/api/prices/refresh-progress/{store_val}"'
+        f' hx-trigger="every 1s"'
+        f' hx-target="#refresh-progress-{store_val}"'
+        f' hx-swap="outerHTML">0/{count}</span>'
+    )
+
+
+@router.get("/refresh-progress/{store}")
+async def refresh_progress(store: str):
+    """Poll endpoint for price refresh progress."""
+    state = _refresh_progress.get(store)
+    if not state:
+        return HTMLResponse("")
+    done = state["done"]
+    total = state["total"]
+    running = state["running"]
+    if running:
         return HTMLResponse(
-            f'<tr><td colspan="6" class="px-6 py-4 text-center text-green-600 text-sm">'
-            f'{message}</td></tr>'
+            f'<span id="refresh-progress-{store}" class="text-blue-600 text-sm"'
+            f' hx-get="/api/prices/refresh-progress/{store}"'
+            f' hx-trigger="every 1s"'
+            f' hx-target="#refresh-progress-{store}"'
+            f' hx-swap="outerHTML">{done}/{total}</span>'
         )
-
-    except Exception as e:
-        logger.error(f"Error during price refresh: {e}")
-        return HTMLResponse(
-            '<tr><td colspan="6" class="px-6 py-4 text-center text-red-600 text-sm">'
-            f'Error refreshing prices: {str(e)}</td></tr>'
-        )
+    updated = state.get("updated", done)
+    return HTMLResponse(
+        f'<span class="text-green-600 text-sm">Done — {updated}/{total} updated</span>'
+    )
 
 
 @router.post("/confirm-match/{match_id}")
@@ -190,7 +198,8 @@ async def create_manual_match(
     existing = await session.execute(
         select(ProductMatch).where(
             (ProductMatch.product_a_id == coles_id) | (ProductMatch.product_b_id == coles_id) |
-            (ProductMatch.product_a_id == woolworths_id) | (ProductMatch.product_b_id == woolworths_id)
+            (ProductMatch.product_a_id == woolworths_id) | (ProductMatch.product_b_id == woolworths_id),
+            ProductMatch.is_rejected == False,  # noqa: E712
         )
     )
     if existing.scalars().first():

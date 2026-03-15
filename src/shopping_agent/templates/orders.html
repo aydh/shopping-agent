@@ -53,3 +53,17 @@
     </div>
 </div>
 {% endblock %}
+
+<script>
+function toggleOrderDetail(orderId, btn) {
+    const row = document.getElementById('order-detail-row-' + orderId);
+    const detail = document.getElementById('order-detail-' + orderId);
+    if (!row.classList.contains('hidden')) {
+        row.classList.add('hidden');
+        detail.innerHTML = '';
+        return;
+    }
+    row.classList.remove('hidden');
+    htmx.ajax('GET', '/api/orders/' + orderId + '/items', {target: detail, swap: 'innerHTML'});
+}
+</script>

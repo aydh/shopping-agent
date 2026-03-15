@@ -10,7 +10,7 @@
     <td class="px-6 py-4 text-sm text-gray-900">${{ "%.2f" | format(order.total_amount or 0) }}</td>
     <td class="px-6 py-4 text-sm text-gray-500">{{ order.status or 'N/A' }}</td>
     <td class="px-6 py-4 text-sm text-right">
-        <button hx-get="/api/orders/{{ order.id }}/items" hx-target="#order-detail-{{ order.id }}" hx-swap="innerHTML"
+        <button onclick="toggleOrderDetail({{ order.id }}, this)"
                 class="text-blue-600 hover:text-blue-800">Details</button>
     </td>
 </tr>

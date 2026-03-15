@@ -9,12 +9,19 @@
 <div class="space-y-6">
     <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold text-gray-900">Price Comparison</h1>
-        <div class="flex gap-2">
-            <button hx-post="/api/prices/refresh" hx-target="#prices-table-body" hx-indicator="#price-spinner"
-                    class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-                Refresh Prices
+        <div class="flex gap-2 items-center">
+            <button hx-post="/api/prices/refresh/coles" hx-target="#coles-refresh-result" hx-indicator="#coles-price-spinner"
+                    class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                Refresh Coles
             </button>
-            <span id="price-spinner" class="htmx-indicator text-gray-400">refreshing...</span>
+            <span id="coles-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
+            <span id="coles-refresh-result"></span>
+            <button hx-post="/api/prices/refresh/woolworths" hx-target="#ww-refresh-result" hx-indicator="#ww-price-spinner"
+                    class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                Refresh Woolworths
+            </button>
+            <span id="ww-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
+            <span id="ww-refresh-result"></span>
         </div>
     </div>
 
@@ -155,10 +162,17 @@
                     {% for product in unmatched_coles %}
                     <tr id="urow-{{ product.id }}">
                         <td class="px-6 py-4 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></td>
-                        <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ product.name }}</td>
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900"><a href="https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}" target="_blank" class="hover:text-red-600 hover:underline">{{ product.name }}</a></td>
                         <td class="px-6 py-4 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
                         <td class="px-6 py-4 text-sm text-gray-500">{{ product.unit_size or '-' }}</td>
-                        <td class="px-6 py-4 text-right">
+                        <td class="px-6 py-4 text-right space-x-2">
+                            <span id="add-btn-{{ product.id }}">
+                            <button hx-post="/api/shopping-list/items/add-product"
+                                    hx-vals='{"product_id": {{ product.id }}}'
+                                    hx-target="#add-btn-{{ product.id }}"
+                                    hx-swap="innerHTML"
+                                    class="text-blue-500 hover:text-blue-700 text-xs">+ List</button>
+                            </span>
                             <button
                                 onclick="toggleProductHistory(this, '{{ product.id }}')"
                                 class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
@@ -169,10 +183,17 @@
                     {% for product in unmatched_woolworths %}
                     <tr id="urow-{{ product.id }}">
                         <td class="px-6 py-4 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></td>
-                        <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ product.name }}</td>
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900"><a href="https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}" target="_blank" class="hover:text-green-600 hover:underline">{{ product.name }}</a></td>
                         <td class="px-6 py-4 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
                         <td class="px-6 py-4 text-sm text-gray-500">{{ product.unit_size or '-' }}</td>
-                        <td class="px-6 py-4 text-right">
+                        <td class="px-6 py-4 text-right space-x-2">
+                            <span id="add-btn-{{ product.id }}">
+                            <button hx-post="/api/shopping-list/items/add-product"
+                                    hx-vals='{"product_id": {{ product.id }}}'
+                                    hx-target="#add-btn-{{ product.id }}"
+                                    hx-swap="innerHTML"
+                                    class="text-blue-500 hover:text-blue-700 text-xs">+ List</button>
+                            </span>
                             <button
                                 onclick="toggleProductHistory(this, '{{ product.id }}')"
                                 class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>

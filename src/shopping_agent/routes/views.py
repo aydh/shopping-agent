@@ -242,12 +242,42 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
     }
 
 
+async def _shopping_list_history(session: AsyncSession) -> list[dict]:
+    """Return summary rows for past (ordered/confirmed) shopping lists."""
+    result = await session.execute(
+        select(ShoppingList)
+        .options(selectinload(ShoppingList.items))
+        .where(ShoppingList.status == ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )
+    rows = []
+    for sl in result.scalars().all():
+        active = [i for i in sl.items if not i.is_removed]
+        stores = {i.chosen_store for i in active if i.chosen_store}
+        store = stores.pop() if len(stores) == 1 else None
+        total = 0.0
+        for i in active:
+            price = (i.coles_price if store == Store.COLES else i.woolworths_price) or 0
+            total += price * i.quantity
+        rows.append({
+            "id": sl.id,
+            "name": sl.name,
+            "created_at": sl.created_at,
+            "status": sl.status,
+            "store": store,
+            "item_count": len(active),
+            "total": total,
+        })
+    return rows
+
+
 @router.get("/shopping-list")
 async def shopping_list_page(request: Request, session: AsyncSession = Depends(get_session)):
     ctx = await _shopping_list_context(session)
+    past_lists = await _shopping_list_history(session)
     return templates.TemplateResponse(
         "shopping_list.html",
-        {"request": request, "active_page": "shopping_list", **ctx},
+        {"request": request, "active_page": "shopping_list", "past_lists": past_lists, **ctx},
     )
 
 

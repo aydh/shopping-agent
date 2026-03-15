@@ -446,7 +446,7 @@ class WoolworthsScraper(BaseScraper):
 
     # ── Product Price ────────────────────────────────────────────────
 
-    async def get_product_price(self, store_product_id: str) -> ScrapedProduct | None:
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
         try:
             resp = await self._request(
                 "GET", f"/apis/ui/product/detail/{store_product_id}"
@@ -533,6 +533,7 @@ class WoolworthsScraper(BaseScraper):
                     price_paid=price,
                     brand=ordered.get("Brand"),
                     unit_size=ordered.get("Size"),
+                    image_url=f"https://cdn0.woolworths.media/content/wowproductimages/large/{stock_code}.jpg",
                 ))
 
             return ScrapedOrder(

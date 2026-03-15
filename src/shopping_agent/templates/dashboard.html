@@ -91,7 +91,7 @@
             <div class="px-6 py-4 flex items-center justify-between">
                 <div class="flex items-center space-x-4">
                     {% if pred.product.image_url %}
-                    <img src="{{ pred.product.image_url }}" alt="" class="w-10 h-10 rounded object-cover">
+                    <img src="{{ pred.product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover">
                     {% else %}
                     <div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs">N/A</div>
                     {% endif %}

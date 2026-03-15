@@ -2,7 +2,7 @@
 <div class="bg-white rounded-lg shadow p-4">
     <div class="flex items-start space-x-3">
         {% if pred.product.image_url %}
-        <img src="{{ pred.product.image_url }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0">
+        <img src="{{ pred.product.image_url | product_image_url }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0">
         {% else %}
         <div class="w-12 h-12 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>
         {% endif %}
