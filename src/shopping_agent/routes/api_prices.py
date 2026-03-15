@@ -253,8 +253,10 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
 
     canvas_id = f"pchart-{product_id}"
     html = f"""
-    <div class="bg-gray-50 px-6 py-4">
+    <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
+      <div style="position:relative;max-width:100%">
       <canvas id="{canvas_id}" height="100"></canvas>
+      </div>
       <script>
       (function() {{
         const ctx = document.getElementById('{canvas_id}').getContext('2d');
@@ -335,8 +337,10 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
 
     canvas_id = f"chart-{match_id}"
     html = f"""
-    <div class="bg-gray-50 px-6 py-4">
+    <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
+      <div style="position:relative;max-width:100%">
       <canvas id="{canvas_id}" height="100"></canvas>
+      </div>
       <script>
         (function() {{
           const ctx = document.getElementById('{canvas_id}').getContext('2d');
