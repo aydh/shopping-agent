@@ -155,75 +155,55 @@
                 Expand All Graphs
             </button>
         </div>
-        <div id="all-products-table" class="bg-white rounded-lg shadow divide-y divide-gray-200">
-                    {% for product in unmatched_coles %}
-                    <div id="urow-{{ product.id }}">
-                        <div class="px-4 py-3">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0 flex-1">
-                                    <a href="https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}"
-                                       target="_blank"
-                                       class="text-sm font-medium text-gray-900 hover:text-red-600 hover:underline">{{ product.name }}</a>
-                                </div>
-                                <div class="flex items-center gap-2 shrink-0">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span>
-                                    <span class="text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}—{% endif %}</span>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-3 mt-2">
-                                {% if product.unit_size %}<span class="text-xs text-gray-400">{{ product.unit_size }}</span>{% endif %}
-                                <span id="add-btn-{{ product.id }}">
-                                    <button hx-post="/api/shopping-list/items/add-product"
-                                            hx-vals='{"product_id": {{ product.id }}}'
-                                            hx-target="#add-btn-{{ product.id }}"
-                                            hx-swap="innerHTML"
-                                            class="text-blue-500 hover:text-blue-700 text-xs">+ List</button>
-                                </span>
-                                <button onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                        class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
-                                <button hx-post="/api/prices/product/{{ product.id }}/hide"
-                                        hx-target="#urow-{{ product.id }}"
-                                        hx-swap="outerHTML"
-                                        class="text-red-400 hover:text-red-600 text-xs ml-auto">Remove</button>
-                            </div>
-                        </div>
-                        <div id="phistory-body-{{ product.id }}"></div>
-                    </div>
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table id="all-products-table" class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Store</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for product in unmatched_coles + unmatched_woolworths %}
+                    {% set is_coles = product.store.value == 'coles' %}
+                    <tr id="urow-{{ product.id }}">
+                        <td class="px-3 sm:px-6 py-3">
+                            <a href="{% if is_coles %}https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}{% else %}https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}{% endif %}"
+                               target="_blank"
+                               class="text-sm font-medium text-gray-900 hover:{% if is_coles %}text-red-600{% else %}text-green-600{% endif %} hover:underline">{{ product.name }}</a>
+                            {% if product.brand %}<p class="text-xs text-gray-500">{{ product.brand }}</p>{% endif %}
+                            {% if product.unit_size %}<p class="text-xs text-gray-400">{{ product.unit_size }}</p>{% endif %}
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 hidden sm:table-cell">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if is_coles %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                {{ product.store.value | title }}
+                            </span>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-sm font-semibold text-gray-700">
+                            {% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-right space-x-2 whitespace-nowrap">
+                            <button onclick="toggleProductHistory(this, '{{ product.id }}')"
+                                    class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
+                            <span id="add-btn-{{ product.id }}">
+                                <button hx-post="/api/shopping-list/items/add-product"
+                                        hx-vals='{"product_id": {{ product.id }}}'
+                                        hx-target="#add-btn-{{ product.id }}"
+                                        hx-swap="innerHTML"
+                                        class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200">Add to List</button>
+                            </span>
+                            <button hx-post="/api/prices/product/{{ product.id }}/hide"
+                                    hx-target="#urow-{{ product.id }}"
+                                    hx-swap="outerHTML"
+                                    class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">Remove</button>
+                        </td>
+                    </tr>
+                    <tr><td colspan="4" id="phistory-body-{{ product.id }}"></td></tr>
                     {% endfor %}
-                    {% for product in unmatched_woolworths %}
-                    <div id="urow-{{ product.id }}">
-                        <div class="px-4 py-3">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0 flex-1">
-                                    <a href="https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}"
-                                       target="_blank"
-                                       class="text-sm font-medium text-gray-900 hover:text-green-600 hover:underline">{{ product.name }}</a>
-                                </div>
-                                <div class="flex items-center gap-2 shrink-0">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span>
-                                    <span class="text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}—{% endif %}</span>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-3 mt-2">
-                                {% if product.unit_size %}<span class="text-xs text-gray-400">{{ product.unit_size }}</span>{% endif %}
-                                <span id="add-btn-{{ product.id }}">
-                                    <button hx-post="/api/shopping-list/items/add-product"
-                                            hx-vals='{"product_id": {{ product.id }}}'
-                                            hx-target="#add-btn-{{ product.id }}"
-                                            hx-swap="innerHTML"
-                                            class="text-blue-500 hover:text-blue-700 text-xs">+ List</button>
-                                </span>
-                                <button onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                        class="text-gray-400 hover:text-blue-600 text-xs">&#9660; History</button>
-                                <button hx-post="/api/prices/product/{{ product.id }}/hide"
-                                        hx-target="#urow-{{ product.id }}"
-                                        hx-swap="outerHTML"
-                                        class="text-red-400 hover:text-red-600 text-xs ml-auto">Remove</button>
-                            </div>
-                        </div>
-                        <div id="phistory-body-{{ product.id }}"></div>
-                    </div>
-                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% else %}
         <p class="text-sm text-gray-500">All products are matched.</p>
@@ -362,7 +342,7 @@ function toggleAllProductHistory(btn) {
     btn.dataset.expanded = expanding ? 'true' : 'false';
     btn.textContent = expanding ? 'Collapse All Graphs' : 'Expand All Graphs';
 
-    document.querySelectorAll('#all-products-table > div[id^="urow-"]').forEach(row => {
+    document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]').forEach(row => {
         if (row.style.display === 'none') return;
         const productId = row.id.replace('urow-', '');
         const body = document.getElementById('phistory-body-' + productId);
