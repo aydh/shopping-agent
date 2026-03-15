@@ -3,13 +3,15 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 class="text-2xl font-bold text-gray-900">Consumption Predictions</h1>
-        <button hx-post="/api/predictions/refresh" hx-target="#predictions-grid" hx-indicator="#refresh-spinner"
-                class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-            Refresh Predictions
-        </button>
-        <span id="refresh-spinner" class="htmx-indicator text-gray-400">refreshing...</span>
+        <div class="flex items-center gap-2">
+            <button hx-post="/api/predictions/refresh" hx-target="#predictions-grid" hx-indicator="#refresh-spinner"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                Refresh Predictions
+            </button>
+            <span id="refresh-spinner" class="htmx-indicator text-gray-400">refreshing...</span>
+        </div>
     </div>
 
     <div class="bg-white rounded-lg shadow p-4">

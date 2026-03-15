@@ -402,10 +402,10 @@ def _counts_rows_html(counts: dict) -> str:
     html = ""
     for label, count, also, endpoint, tid in rows:
         html += f"""<tr>
-            <td class="px-6 py-3 text-sm font-medium text-gray-900">{label}</td>
-            <td class="px-6 py-3 text-sm text-gray-500" id="{tid}-count">{count}</td>
-            <td class="px-6 py-3 text-xs text-gray-400">{also}</td>
-            <td class="px-6 py-3 text-right">
+            <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900">{label}</td>
+            <td class="px-3 sm:px-6 py-3 text-sm text-gray-500" id="{tid}-count">{count}</td>
+            <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden sm:table-cell">{also}</td>
+            <td class="px-3 sm:px-6 py-3 text-right">
                 <span id="{tid}-result" class="mr-2 text-sm"></span>
                 <button
                     hx-delete="{endpoint}"

@@ -1,25 +1,23 @@
 <tr id="match-row-{{ comp.match_id }}" data-match-type="{% if comp.match_method == 'manual' %}manual{% elif comp.is_confirmed %}confirmed{% else %}unconfirmed{% endif %}">
-    <td class="px-6 py-4">
+    <td class="px-3 sm:px-6 py-3">
         {% if comp.coles_product %}
         <p class="text-sm font-medium text-gray-900">{{ comp.coles_product.name }}</p>
-        {% if comp.coles_product.brand %}<p class="text-xs text-gray-400">{{ comp.coles_product.brand }}</p>{% endif %}
         {% if comp.coles_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.coles_product.unit_size }}</p>{% endif %}
         {% if comp.coles_price is not none %}
         <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.coles_price) }}</p>
         {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
         {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
     </td>
-    <td class="px-6 py-4">
+    <td class="px-3 sm:px-6 py-3">
         {% if comp.woolworths_product %}
         <p class="text-sm font-medium text-gray-900">{{ comp.woolworths_product.name }}</p>
-        {% if comp.woolworths_product.brand %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.brand }}</p>{% endif %}
         {% if comp.woolworths_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.unit_size }}</p>{% endif %}
         {% if comp.woolworths_price is not none %}
         <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.woolworths_price) }}</p>
         {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
         {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
     </td>
-    <td class="px-6 py-4 text-sm">
+    <td class="px-3 sm:px-6 py-3 text-sm hidden sm:table-cell">
         {% if comp.cheaper_store %}
         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if comp.cheaper_store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
             {{ comp.cheaper_store.value | title }}
@@ -29,7 +27,7 @@
         {% endif %}
         {% else %}-{% endif %}
     </td>
-    <td class="px-6 py-4">
+    <td class="px-3 sm:px-6 py-3 hidden md:table-cell">
         {% if comp.match_confidence is not none %}
         <div class="flex items-center space-x-1">
             {% if comp.match_method != 'manual' %}
@@ -46,7 +44,7 @@
         </div>
         {% else %}-{% endif %}
     </td>
-    <td class="px-6 py-4 text-right space-x-2">
+    <td class="px-3 sm:px-6 py-3 text-right space-x-2">
         {% if comp.match_id %}
         <button
             onclick="toggleHistory(this, '{{ comp.match_id }}')"

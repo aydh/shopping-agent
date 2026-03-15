@@ -7,17 +7,17 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 class="text-2xl font-bold text-gray-900">Price Comparison</h1>
-        <div class="flex gap-2 items-center">
+        <div class="flex flex-wrap gap-2 items-center">
             <button hx-post="/api/prices/refresh/coles" hx-target="#coles-refresh-result" hx-indicator="#coles-price-spinner"
-                    class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                    class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
                 Refresh Coles
             </button>
             <span id="coles-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
             <span id="coles-refresh-result"></span>
             <button hx-post="/api/prices/refresh/woolworths" hx-target="#ww-refresh-result" hx-indicator="#ww-price-spinner"
-                    class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
                 Refresh Woolworths
             </button>
             <span id="ww-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
@@ -33,7 +33,7 @@
 
     <!-- Tabs -->
     <div class="border-b border-gray-200">
-        <nav class="-mb-px flex space-x-8">
+        <nav class="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto">
             <button id="tab-matched" onclick="switchTab('matched')"
                     class="tab-btn border-b-2 border-blue-500 text-blue-600 px-1 py-3 text-sm font-medium whitespace-nowrap">
                 Matched Products ({{ comparisons | length }})
@@ -48,7 +48,7 @@
     <!-- Matched Tab -->
     <div id="panel-matched">
         {% if comparisons %}
-        <div class="flex gap-2 mb-3 items-center">
+        <div class="flex flex-wrap gap-2 mb-3 items-center">
             <button onclick="setMatchFilter('all')" id="filter-all"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white">
                 All ({{ comparisons | length }})
@@ -61,7 +61,7 @@
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
                 Manual ({{ comparisons | selectattr('match_method', 'equalto', 'manual') | list | length }})
             </button>
-            <div class="ml-auto">
+            <div class="sm:ml-auto">
                 <button onclick="toggleAllHistory(this)"
                         data-expanded="false"
                         class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
@@ -69,15 +69,15 @@
                 </button>
             </div>
         </div>
-        <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Match</th>
-                        <th class="px-6 py-3"></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Cheaper</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Match</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
                     </tr>
                 </thead>
                 <tbody id="prices-table-body" class="divide-y divide-gray-200">
@@ -147,25 +147,25 @@
                 Expand All Graphs
             </button>
         </div>
-        <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Size</th>
-                        <th class="px-6 py-3"></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Unit Size</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
                     </tr>
                 </thead>
                 <tbody id="all-products-table" class="divide-y divide-gray-200">
                     {% for product in unmatched_coles %}
                     <tr id="urow-{{ product.id }}">
-                        <td class="px-6 py-4 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></td>
-                        <td class="px-6 py-4 text-sm font-medium text-gray-900"><a href="https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}" target="_blank" class="hover:text-red-600 hover:underline">{{ product.name }}</a></td>
-                        <td class="px-6 py-4 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">{{ product.unit_size or '-' }}</td>
-                        <td class="px-6 py-4 text-right space-x-2">
+                        <td class="px-3 sm:px-6 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></td>
+                        <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900"><a href="https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}" target="_blank" class="hover:text-red-600 hover:underline">{{ product.name }}</a></td>
+                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
+                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-500 hidden sm:table-cell">{{ product.unit_size or '-' }}</td>
+                        <td class="px-3 sm:px-6 py-3 text-right space-x-2">
                             <span id="add-btn-{{ product.id }}">
                             <button hx-post="/api/shopping-list/items/add-product"
                                     hx-vals='{"product_id": {{ product.id }}}'
@@ -182,11 +182,11 @@
                     {% endfor %}
                     {% for product in unmatched_woolworths %}
                     <tr id="urow-{{ product.id }}">
-                        <td class="px-6 py-4 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></td>
-                        <td class="px-6 py-4 text-sm font-medium text-gray-900"><a href="https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}" target="_blank" class="hover:text-green-600 hover:underline">{{ product.name }}</a></td>
-                        <td class="px-6 py-4 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">{{ product.unit_size or '-' }}</td>
-                        <td class="px-6 py-4 text-right space-x-2">
+                        <td class="px-3 sm:px-6 py-3 text-sm"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></td>
+                        <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900"><a href="https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}" target="_blank" class="hover:text-green-600 hover:underline">{{ product.name }}</a></td>
+                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-900">{% if product.current_price is not none %}${{ "%.2f" | format(product.current_price) }}{% else %}-{% endif %}</td>
+                        <td class="px-3 sm:px-6 py-3 text-sm text-gray-500 hidden sm:table-cell">{{ product.unit_size or '-' }}</td>
+                        <td class="px-3 sm:px-6 py-3 text-right space-x-2">
                             <span id="add-btn-{{ product.id }}">
                             <button hx-post="/api/shopping-list/items/add-product"
                                     hx-vals='{"product_id": {{ product.id }}}'

@@ -166,6 +166,9 @@ async def refresh_predictions(session: AsyncSession) -> int:
 
     count = 0
 
+    today = date.today()
+    recency_cutoff = today - timedelta(days=120)  # 4 months
+
     for initial_canon_id, member_ids in groups.items():
         # Collect combined purchase records from all members that have order history
         purchases: list[PurchaseRecord] = []
@@ -180,6 +183,19 @@ async def refresh_predictions(session: AsyncSession) -> int:
 
         if not purchases:
             continue
+
+        # Skip and remove prediction if not purchased in the last 4 months
+        most_recent = max(p.order_date for p in purchases)
+        if most_recent < recency_cutoff:
+            existing = await session.execute(
+                select(ConsumptionPrediction).where(ConsumptionPrediction.product_id.in_(member_ids))
+            )
+            for stale in existing.scalars().all():
+                await session.delete(stale)
+            continue
+
+        # Only use recent purchases for the prediction to keep intervals accurate
+        purchases = [p for p in purchases if p.order_date >= recency_cutoff]
 
         pred_data = compute_prediction(purchases)
         if not pred_data:

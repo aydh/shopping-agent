@@ -88,8 +88,8 @@
         </div>
         <div class="divide-y divide-gray-200">
             {% for pred in upcoming_runouts %}
-            <div class="px-6 py-4 flex items-center justify-between">
-                <div class="flex items-center space-x-4">
+            <div class="px-4 sm:px-6 py-4 flex items-center justify-between">
+                <div class="flex items-center space-x-3 sm:space-x-4">
                     {% if pred.product.image_url %}
                     <img src="{{ pred.product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover">
                     {% else %}
