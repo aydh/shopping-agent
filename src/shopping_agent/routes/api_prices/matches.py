@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/confirm-match/{match_id}")
-async def confirm_match(match_id: int, session: AsyncSession = Depends(get_session)):
+async def confirm_match(match_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     match = await session.get(ProductMatch, match_id, options=[selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b)])
     if not match:
         return HTMLResponse("")
@@ -35,7 +35,7 @@ async def create_manual_match(
     coles_id: int = Form(...),
     woolworths_id: int = Form(...),
     session: AsyncSession = Depends(get_session),
-):
+) -> Response:
     """Create a manual match between a Coles and Woolworths product."""
     coles_product = await session.get(Product, coles_id)
     ww_product = await session.get(Product, woolworths_id)
@@ -72,7 +72,7 @@ async def create_manual_match(
 
 
 @router.post("/match/{match_id}/undo")
-async def undo_rejected_match(match_id: int, session: AsyncSession = Depends(get_session)):
+async def undo_rejected_match(match_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Restore a rejected match."""
     match = await session.get(ProductMatch, match_id)
     if not match:
@@ -83,7 +83,7 @@ async def undo_rejected_match(match_id: int, session: AsyncSession = Depends(get
 
 
 @router.delete("/matches/purge")
-async def purge_all_matches(session: AsyncSession = Depends(get_session)):
+async def purge_all_matches(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     result = await session.execute(delete(ProductMatch))
     await session.commit()
     return HTMLResponse(
@@ -92,7 +92,7 @@ async def purge_all_matches(session: AsyncSession = Depends(get_session)):
 
 
 @router.delete("/history/purge")
-async def purge_price_history(session: AsyncSession = Depends(get_session)):
+async def purge_price_history(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     result = await session.execute(delete(PriceHistory))
     await session.commit()
     return HTMLResponse(
@@ -101,7 +101,7 @@ async def purge_price_history(session: AsyncSession = Depends(get_session)):
 
 
 @router.delete("/match/{match_id}")
-async def delete_match(match_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_match(match_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Reject a product match so it is never auto-matched again."""
     match = await session.get(ProductMatch, match_id)
     if not match:

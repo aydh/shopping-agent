@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/image-proxy")
-async def image_proxy(url: str):
+async def image_proxy(url: str) -> Response:
     """Proxy product images to bypass CDN hotlink protection."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -31,7 +31,7 @@ async def image_proxy(url: str):
 
 
 @router.post("/product/{product_id}/hide")
-async def hide_product(product_id: int, session: AsyncSession = Depends(get_session)):
+async def hide_product(product_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Mark a product as hidden (no longer buying). Removes its prediction."""
     product = await session.get(Product, product_id)
     if not product:
@@ -48,7 +48,7 @@ async def hide_product(product_id: int, session: AsyncSession = Depends(get_sess
 
 
 @router.post("/product/{product_id}/restore")
-async def restore_product(product_id: int, session: AsyncSession = Depends(get_session)):
+async def restore_product(product_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Restore a hidden product."""
     product = await session.get(Product, product_id)
     if not product:
@@ -59,7 +59,7 @@ async def restore_product(product_id: int, session: AsyncSession = Depends(get_s
 
 
 @router.delete("/products/purge/{store}")
-async def purge_products(store: str, session: AsyncSession = Depends(get_session)):
+async def purge_products(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     store_enum = Store(store)
     product_ids = [r[0] for r in (await session.execute(
         select(Product.id).where(Product.store == store_enum)

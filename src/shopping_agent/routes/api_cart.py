@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/stream/{store}")
-async def add_to_cart_stream(store: str):
+async def add_to_cart_stream(store: str) -> StreamingResponse:
     """SSE endpoint: adds items to cart one at a time, streaming per-item results."""
     store_enum = Store(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
@@ -66,7 +66,7 @@ async def add_to_cart_stream(store: str):
 
 
 @router.post("/add/{store}")
-async def add_items_to_cart(store: str, session: AsyncSession = Depends(get_session)):
+async def add_items_to_cart(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     store_enum = Store(store)
     result = await add_to_cart(session, store_enum)
 

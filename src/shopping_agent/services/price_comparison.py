@@ -37,7 +37,18 @@ class PriceComparison:
 
 
 def normalize_product_name(name: str) -> str:
-    """Standardize product names for matching."""
+    """Standardize a product name for fuzzy matching.
+
+    Lowercases, removes store brand names, strips common descriptor words
+    that vary between stores (e.g. "organic", "free range"), and normalizes
+    weight/volume formats by removing spaces between number and unit.
+
+    Args:
+        name: Raw product name from scraper output.
+
+    Returns:
+        Normalized, whitespace-collapsed product name string.
+    """
     name = name.lower()
     # Remove store-specific words
     for word in ["coles", "woolworths", "woolies"]:
@@ -54,7 +65,17 @@ def normalize_product_name(name: str) -> str:
 
 
 def normalize_size(size: str) -> str:
-    """Normalize size strings for comparison."""
+    """Normalize a size string for comparison by collapsing whitespace and standardizing units.
+
+    Converts verbose unit names (e.g. "litre", "gram") to their short forms
+    (e.g. "l", "g") and removes all whitespace.
+
+    Args:
+        size: Raw size string (e.g. "500 millilitre", "1 kilogram").
+
+    Returns:
+        Normalized size string with no whitespace and abbreviated units (e.g. "500ml", "1kg").
+    """
     size = size.lower().strip()
     size = re.sub(r"\s+", "", size)
     size = size.replace("litre", "l").replace("liter", "l")

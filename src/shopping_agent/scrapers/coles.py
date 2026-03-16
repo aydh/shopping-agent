@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import AsyncGenerator
 from datetime import datetime
 
 import httpx
@@ -142,6 +143,7 @@ class ColesScraper(BaseScraper):
     # ── Auth ─────────────────────────────────────────────────────────
 
     async def is_authenticated(self) -> bool:
+        """Return True if Coles cookies are stored in the database."""
         async with async_session() as session:
             result = await session.execute(
                 select(StoreCookies).where(StoreCookies.store == Store.COLES)
@@ -222,6 +224,7 @@ class ColesScraper(BaseScraper):
         return False
 
     async def logout(self) -> None:
+        """Delete stored Coles cookies and close the HTTP client."""
         async with async_session() as session:
             result = await session.execute(
                 select(StoreCookies).where(StoreCookies.store == Store.COLES)
@@ -237,6 +240,17 @@ class ColesScraper(BaseScraper):
     # ── Order History ────────────────────────────────────────────────
 
     async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
+        """Fetch up to `limit` past online and in-store orders from Coles.
+
+        Retrieves both "past"/"active" online orders and in-store orders
+        from the Coles BFF API, fetching item details for each order.
+
+        Args:
+            limit: Maximum number of online orders and in-store orders to fetch each.
+
+        Returns:
+            List of ScrapedOrder objects with items populated.
+        """
         PAGE_SIZE = 20
         orders: list[ScrapedOrder] = []
         online_count = 0
@@ -424,7 +438,7 @@ class ColesScraper(BaseScraper):
 
         return orders
 
-    async def stream_order_history(self, limit: int = 10):
+    async def stream_order_history(self, limit: int = 10) -> AsyncGenerator[ScrapedOrder, None]:
         """Yield ScrapedOrder one at a time as each order's items are fetched."""
         PAGE_SIZE = 20
         online_count = 0
@@ -527,6 +541,14 @@ class ColesScraper(BaseScraper):
     # ── Product Search ───────────────────────────────────────────────
 
     async def search_product(self, query: str) -> list[ScrapedProduct]:
+        """Search Coles for products matching the query via the BFF search endpoint.
+
+        Args:
+            query: Free-text search query.
+
+        Returns:
+            List of ScrapedProduct results from the Coles BFF search API.
+        """
         products: list[ScrapedProduct] = []
         try:
             # Use the bare client BFF search — same approach as get_product_price
@@ -593,6 +615,18 @@ class ColesScraper(BaseScraper):
         return None
 
     async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
+        """Fetch the current price for a specific Coles product.
+
+        Searches the BFF API by product name (or ID as fallback) and returns
+        the matching product entry for the given store_product_id.
+
+        Args:
+            store_product_id: Coles product ID to look up.
+            product_name: Optional product name to use as the search term.
+
+        Returns:
+            ScrapedProduct with current price, or None if not found.
+        """
         try:
             if self._bare_client is None or self._bare_client.is_closed:
                 self._bare_client = httpx.AsyncClient(
@@ -655,6 +689,14 @@ class ColesScraper(BaseScraper):
     # ── Add to Cart ──────────────────────────────────────────────────
 
     async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
+        """Add items to the Coles cart via the BFF trolley API.
+
+        Args:
+            items: List of (store_product_id, quantity) tuples to add.
+
+        Returns:
+            Dict mapping store_product_id to True if added successfully, False otherwise.
+        """
         store_num = COLES_STORE_ID.split(":")[-1]
         endpoint = f"/api/bff/trolley/store/{store_num}/items"
         results: dict[str, bool] = {}
@@ -688,6 +730,7 @@ class ColesScraper(BaseScraper):
         return results
 
     async def get_cart_url(self) -> str:
+        """Return the Coles homepage URL for the user to review/submit their cart."""
         return COLES_BASE
 
     # ── Parsing helpers ──────────────────────────────────────────────
@@ -871,6 +914,7 @@ class ColesScraper(BaseScraper):
             return None
 
     def _parse_search_result(self, data: dict) -> ScrapedProduct | None:
+        """Parse a product from a generic search result dict."""
         try:
             return ScrapedProduct(
                 store_product_id=str(data.get("id") or data.get("sku") or ""),

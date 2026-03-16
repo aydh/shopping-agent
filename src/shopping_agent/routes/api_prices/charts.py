@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/product-history/{product_id}")
-async def product_price_history(product_id: int, session: AsyncSession = Depends(get_session)):
+async def product_price_history(product_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Return a chart + table of price history for a single product."""
     product = await session.get(Product, product_id)
     if not product:
@@ -52,7 +52,7 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
 
 
 @router.get("/history/{match_id}")
-async def price_history(match_id: int, session: AsyncSession = Depends(get_session)):
+async def price_history(match_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Return a chart + table of price history for a matched product pair."""
     match = await session.get(ProductMatch, match_id, options=[selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b)])
     if not match:

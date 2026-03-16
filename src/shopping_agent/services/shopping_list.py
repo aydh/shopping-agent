@@ -139,6 +139,16 @@ async def generate_shopping_list(
 async def update_item_quantity(
     session: AsyncSession, item_id: int, quantity: int
 ) -> ShoppingListItem | None:
+    """Update the quantity of a shopping list item, or mark it removed if quantity <= 0.
+
+    Args:
+        session: Async database session.
+        item_id: ID of the ShoppingListItem to update.
+        quantity: New quantity; values <= 0 mark the item as removed.
+
+    Returns:
+        The updated ShoppingListItem, or None if not found.
+    """
     item = await session.get(ShoppingListItem, item_id)
     if item:
         if quantity <= 0:
@@ -152,6 +162,16 @@ async def update_item_quantity(
 async def update_item_store(
     session: AsyncSession, item_id: int, store: Store
 ) -> ShoppingListItem | None:
+    """Change the chosen store for a shopping list item.
+
+    Args:
+        session: Async database session.
+        item_id: ID of the ShoppingListItem to update.
+        store: The store to assign as the chosen store for this item.
+
+    Returns:
+        The updated ShoppingListItem, or None if not found.
+    """
     item = await session.get(ShoppingListItem, item_id)
     if item:
         item.chosen_store = store
@@ -160,6 +180,15 @@ async def update_item_store(
 
 
 async def remove_item(session: AsyncSession, item_id: int) -> bool:
+    """Soft-delete a shopping list item by marking it as removed.
+
+    Args:
+        session: Async database session.
+        item_id: ID of the ShoppingListItem to remove.
+
+    Returns:
+        True if the item was found and marked removed, False otherwise.
+    """
     item = await session.get(ShoppingListItem, item_id)
     if item:
         item.is_removed = True
@@ -169,6 +198,14 @@ async def remove_item(session: AsyncSession, item_id: int) -> bool:
 
 
 async def get_active_list(session: AsyncSession) -> ShoppingList | None:
+    """Return the most recent non-ordered shopping list with items eagerly loaded.
+
+    Args:
+        session: Async database session.
+
+    Returns:
+        The most recent ShoppingList not in ORDERED status, or None if none exist.
+    """
     result = await session.execute(
         select(ShoppingList)
         .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
@@ -179,6 +216,15 @@ async def get_active_list(session: AsyncSession) -> ShoppingList | None:
 
 
 async def confirm_list(session: AsyncSession, list_id: int) -> ShoppingList | None:
+    """Transition a shopping list to CONFIRMED status.
+
+    Args:
+        session: Async database session.
+        list_id: ID of the ShoppingList to confirm.
+
+    Returns:
+        The confirmed ShoppingList, or None if not found.
+    """
     shopping_list = await session.get(ShoppingList, list_id)
     if shopping_list:
         shopping_list.status = ListStatus.CONFIRMED

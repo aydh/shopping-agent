@@ -212,6 +212,7 @@ class WoolworthsScraper(BaseScraper):
     # ── Auth ─────────────────────────────────────────────────────────
 
     async def is_authenticated(self) -> bool:
+        """Return True if Woolworths cookies are stored in the database."""
         async with async_session() as session:
             result = await session.execute(
                 select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
@@ -297,6 +298,7 @@ class WoolworthsScraper(BaseScraper):
         return False
 
     async def logout(self) -> None:
+        """Delete stored Woolworths cookies and close the HTTP client."""
         async with async_session() as session:
             result = await session.execute(
                 select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
@@ -312,6 +314,16 @@ class WoolworthsScraper(BaseScraper):
     # ── Order History ────────────────────────────────────────────────
 
     async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
+        """Fetch up to `limit` past orders from Woolworths via the mobile API.
+
+        Retrieves the order list and then fetches full item details for each order.
+
+        Args:
+            limit: Maximum number of orders to return.
+
+        Returns:
+            List of ScrapedOrder objects with items populated.
+        """
         orders: list[ScrapedOrder] = []
         try:
             shopper_id = await self._get_shopper_id()
@@ -359,6 +371,14 @@ class WoolworthsScraper(BaseScraper):
     # ── Product Search ───────────────────────────────────────────────
 
     async def search_product(self, query: str) -> list[ScrapedProduct]:
+        """Search Woolworths for products matching the query.
+
+        Args:
+            query: Free-text search query.
+
+        Returns:
+            List of ScrapedProduct results from the Woolworths search API.
+        """
         products: list[ScrapedProduct] = []
         try:
             resp = await self._request(
@@ -396,6 +416,15 @@ class WoolworthsScraper(BaseScraper):
     # ── Product Price ────────────────────────────────────────────────
 
     async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
+        """Fetch the current price for a specific Woolworths product.
+
+        Args:
+            store_product_id: Woolworths stockcode to look up.
+            product_name: Unused; kept for interface compatibility.
+
+        Returns:
+            ScrapedProduct with current price, or None if not found.
+        """
         try:
             resp = await self._request(
                 "GET", f"/apis/ui/product/detail/{store_product_id}"
@@ -413,6 +442,16 @@ class WoolworthsScraper(BaseScraper):
     # ── Add to Cart ──────────────────────────────────────────────────
 
     async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
+        """Add items to the Woolworths cart, trying multiple payload formats.
+
+        Attempts several API payload structures in order until one succeeds.
+
+        Args:
+            items: List of (store_product_id, quantity) tuples to add.
+
+        Returns:
+            Dict mapping store_product_id to True if added successfully, False otherwise.
+        """
         attempts = [
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: {"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}),
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: [{"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}]),
@@ -452,6 +491,7 @@ class WoolworthsScraper(BaseScraper):
         return results
 
     async def get_cart_url(self) -> str:
+        """Return the Woolworths homepage URL for the user to review/submit their cart."""
         return WOOLWORTHS_BASE
 
     # ── Parsing helpers ──────────────────────────────────────────────
@@ -527,6 +567,7 @@ class WoolworthsScraper(BaseScraper):
             return None
 
     def _parse_api_order(self, data: dict) -> ScrapedOrder | None:
+        """Parse an order from the Woolworths REST API response format."""
         try:
             order_id = str(
                 data.get("OrderId")
@@ -611,6 +652,7 @@ class WoolworthsScraper(BaseScraper):
             return None
 
     def _parse_search_result(self, data: dict) -> ScrapedProduct | None:
+        """Parse a product from a Woolworths search or product detail response."""
         try:
             return ScrapedProduct(
                 store_product_id=str(

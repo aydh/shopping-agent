@@ -53,7 +53,9 @@ class BaseScraper(ABC):
     _cookie_domain: str = ""
 
     @abstractmethod
-    async def is_authenticated(self) -> bool: ...
+    async def is_authenticated(self) -> bool:
+        """Return True if valid credentials/cookies are stored for this store."""
+        ...
 
     @abstractmethod
     async def login_interactive(self) -> bool:
@@ -61,7 +63,16 @@ class BaseScraper(ABC):
         ...
 
     @abstractmethod
-    async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]: ...
+    async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
+        """Fetch up to `limit` past orders from this store.
+
+        Args:
+            limit: Maximum number of orders to return.
+
+        Returns:
+            List of ScrapedOrder objects with items populated.
+        """
+        ...
 
     async def stream_order_history(self, limit: int = 10) -> AsyncGenerator[ScrapedOrder, None]:
         """Yield orders one at a time. Default implementation wraps get_order_history."""
@@ -69,10 +80,29 @@ class BaseScraper(ABC):
             yield order
 
     @abstractmethod
-    async def search_product(self, query: str) -> list[ScrapedProduct]: ...
+    async def search_product(self, query: str) -> list[ScrapedProduct]:
+        """Search for products matching the given query string.
+
+        Args:
+            query: Free-text search query (e.g. product name or brand + name).
+
+        Returns:
+            List of ScrapedProduct results ordered by store relevance.
+        """
+        ...
 
     @abstractmethod
-    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None: ...
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
+        """Fetch current price and availability for a specific product.
+
+        Args:
+            store_product_id: Store-specific product identifier.
+            product_name: Optional product name to aid search-based lookups.
+
+        Returns:
+            ScrapedProduct with current price, or None if not found.
+        """
+        ...
 
     @abstractmethod
     async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:

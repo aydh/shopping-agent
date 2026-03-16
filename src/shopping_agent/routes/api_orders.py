@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/sync-stream/{store}")
-async def sync_orders_stream(store: str):
+async def sync_orders_stream(store: str) -> StreamingResponse:
     """SSE endpoint: fetches orders and streams each row as it's saved."""
     store_enum = Store(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
@@ -75,7 +75,7 @@ async def sync_orders_stream(store: str):
 
 
 @router.delete("/purge/{store}")
-async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)):
+async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     store_enum = Store(store)
 
     # Fetch order IDs for this store so we can delete items first
@@ -112,7 +112,7 @@ async def purge_store_orders(store: str, session: AsyncSession = Depends(get_ses
 
 
 @router.get("/{order_id}/items")
-async def get_order_items(order_id: int, session: AsyncSession = Depends(get_session)):
+async def get_order_items(order_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     result = await session.execute(
         select(Order)
         .options(selectinload(Order.items).selectinload(OrderItem.product))

@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import date as date_type
+from typing import TypedDict
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse
@@ -25,8 +26,16 @@ from ...scrapers.woolworths import WoolworthsScraper
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+class RefreshState(TypedDict, total=False):
+    done: int
+    total: int
+    running: bool
+    updated: int
+
+
 # In-memory progress tracking: store_value -> {done, total, running}
-_refresh_progress: dict[str, dict] = {}
+_refresh_progress: dict[str, RefreshState] = {}
 
 
 async def _do_price_refresh(store_enum: Store) -> None:
@@ -119,7 +128,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
 
 
 @router.post("/refresh/{store}")
-async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)):
+async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Kick off a background price refresh for the given store."""
     store_enum = Store(store)
     scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
@@ -144,7 +153,7 @@ async def refresh_prices(store: str, background_tasks: BackgroundTasks, session:
 
 
 @router.get("/refresh-progress/{store}")
-async def refresh_progress(store: str):
+async def refresh_progress(store: str) -> HTMLResponse:
     """Poll endpoint for price refresh progress."""
     state = _refresh_progress.get(store)
     if not state:

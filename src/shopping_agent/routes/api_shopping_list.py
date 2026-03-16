@@ -35,7 +35,7 @@ def _list_header_oob(shopping_list: ShoppingList | None) -> str:
 
 
 @router.delete("/current")
-async def delete_current_list(session: AsyncSession = Depends(get_session)):
+async def delete_current_list(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Delete the current active (non-ordered) shopping list."""
     shopping_list = (await session.execute(
         select(ShoppingList)
@@ -56,7 +56,7 @@ async def delete_current_list(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/new")
-async def new_list(session: AsyncSession = Depends(get_session)):
+async def new_list(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Create a new empty shopping list (disabled if one already exists)."""
     existing = (await session.execute(
         select(ShoppingList)
@@ -81,7 +81,7 @@ async def new_list(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/add-predictions")
-async def add_predictions(session: AsyncSession = Depends(get_session)):
+async def add_predictions(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Add predicted items to the current active list without replacing existing items."""
     from datetime import date
     from ..models import ConsumptionPrediction
@@ -152,7 +152,7 @@ async def add_predictions(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/generate")
-async def generate(session: AsyncSession = Depends(get_session)):
+async def generate(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     await generate_shopping_list(session)
     ctx = await _shopping_list_context(session)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
@@ -164,7 +164,7 @@ async def set_quantity(
     item_id: int,
     quantity: int = Form(...),
     session: AsyncSession = Depends(get_session),
-):
+) -> HTMLResponse:
     await update_item_quantity(session, item_id, quantity)
     ctx = await _shopping_list_context(session)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
@@ -176,7 +176,7 @@ async def set_store(
     item_id: int,
     store: str = Form(...),
     session: AsyncSession = Depends(get_session),
-):
+) -> HTMLResponse:
     await update_item_store(session, item_id, Store(store))
     ctx = await _shopping_list_context(session)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
@@ -184,7 +184,7 @@ async def set_store(
 
 
 @router.post("/set-store/{store}")
-async def set_all_store(store: str, session: AsyncSession = Depends(get_session)):
+async def set_all_store(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Set all items in the active list to the given store."""
     store_enum = Store(store)
     result = await session.execute(
@@ -213,7 +213,7 @@ async def set_all_store(store: str, session: AsyncSession = Depends(get_session)
 async def add_product_to_list(
     product_id: int = Form(...),
     session: AsyncSession = Depends(get_session),
-):
+) -> HTMLResponse:
     """Add a product (by id) to the active shopping list."""
     result = await session.execute(
         select(ShoppingList)
@@ -297,7 +297,7 @@ async def add_product_to_list(
 
 
 @router.delete("/items/{item_id}")
-async def delete_item(item_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_item(item_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     await remove_item(session, item_id)
     ctx = await _shopping_list_context(session)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
@@ -305,13 +305,13 @@ async def delete_item(item_id: int, session: AsyncSession = Depends(get_session)
 
 
 @router.post("/confirm/{list_id}")
-async def confirm(list_id: int, session: AsyncSession = Depends(get_session)):
+async def confirm(list_id: int, session: AsyncSession = Depends(get_session)) -> RedirectResponse:
     await confirm_list(session, list_id)
     return RedirectResponse("/confirm", status_code=303)
 
 
 @router.post("/close/{list_id}")
-async def close_list(list_id: int, session: AsyncSession = Depends(get_session)):
+async def close_list(list_id: int, session: AsyncSession = Depends(get_session)) -> RedirectResponse:
     """Mark the shopping list as ordered (closed)."""
     shopping_list = await session.get(ShoppingList, list_id)
     if shopping_list:
@@ -321,7 +321,7 @@ async def close_list(list_id: int, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/submit-store/{store}")
-async def submit_store(store: str, session: AsyncSession = Depends(get_session)):
+async def submit_store(store: str, session: AsyncSession = Depends(get_session)) -> RedirectResponse:
     """Set all items to a single store, confirm, and redirect to review."""
     store_enum = Store(store)
     result = await session.execute(
@@ -346,7 +346,7 @@ async def submit_store(store: str, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/submit-split")
-async def submit_split(session: AsyncSession = Depends(get_session)):
+async def submit_split(session: AsyncSession = Depends(get_session)) -> RedirectResponse:
     """Set each item to its cheapest available store, confirm, and redirect to review."""
     result = await session.execute(
         select(ShoppingList)
@@ -405,7 +405,7 @@ async def list_details(list_id: int, session: AsyncSession = Depends(get_session
 
 
 @router.post("/copy/{source_list_id}")
-async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_session)):
+async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Copy all items from a past list into the current active list."""
     active = (await session.execute(
         select(ShoppingList)
@@ -482,7 +482,7 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
 
 
 @router.delete("/purge")
-async def purge_shopping_lists(session: AsyncSession = Depends(get_session)):
+async def purge_shopping_lists(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     items = await session.execute(delete(ShoppingListItem))
     lists = await session.execute(delete(ShoppingList))
     await session.commit()

@@ -2,7 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,7 @@ async def search_match(
     request: Request,
     q: str = Query(default=""),
     session: AsyncSession = Depends(get_session),
-):
+) -> HTMLResponse:
     """Search the opposite store for products to match against the given product."""
     product = await session.get(Product, product_id)
     if not product:
@@ -66,7 +66,7 @@ async def confirm_search_match(
     image_url: str = Form(default=""),
     product_url: str = Form(default=""),
     session: AsyncSession = Depends(get_session),
-):
+) -> Response:
     """Upsert a searched product and create a manual match."""
     target_store = Store(store)
 

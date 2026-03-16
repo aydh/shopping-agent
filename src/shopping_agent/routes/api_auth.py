@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.post("/login/{store}")
-async def login(store: str):
+async def login(store: str) -> HTMLResponse:
     """Login is handled via cookie import for both stores."""
     return HTMLResponse(
         '<span class="text-yellow-600">Use "Import Cookies" below to connect</span>'
@@ -17,7 +17,7 @@ async def login(store: str):
 
 
 @router.post("/import-cookies/{store}")
-async def import_cookies(store: str, request: Request):
+async def import_cookies(store: str, request: Request) -> HTMLResponse:
     """Import cookies from browser DevTools or Cookie-Editor extension."""
     store_enum = Store(store)
     body = (await request.body()).decode("utf-8")
@@ -48,7 +48,7 @@ async def import_cookies(store: str, request: Request):
 
 
 @router.get("/validate/{store}")
-async def validate(store: str):
+async def validate(store: str) -> HTMLResponse:
     """Test stored cookies against the live API and report the result."""
     store_enum = Store(store)
     if store_enum == Store.COLES:
@@ -68,7 +68,7 @@ async def validate(store: str):
 
 
 @router.post("/logout/{store}")
-async def logout(store: str):
+async def logout(store: str) -> HTMLResponse:
     store_enum = Store(store)
     if store_enum == Store.WOOLWORTHS:
         await woolworths_scraper.logout()

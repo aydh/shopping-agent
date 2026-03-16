@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Order, OrderItem, PriceHistory, Product, Store
-from ..scrapers.base import ScrapedOrder
+from ..scrapers.base import ScrapedOrder, ScrapedOrderItem
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ async def sync_orders(
     return new_count
 
 
-async def _upsert_product(session: AsyncSession, item, store: Store, order_date: date) -> Product:
+async def _upsert_product(session: AsyncSession, item: ScrapedOrderItem, store: Store, order_date: date) -> Product:
     """Find or create a product from a scraped order item."""
     result = await session.execute(
         select(Product).where(

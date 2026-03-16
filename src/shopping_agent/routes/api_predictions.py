@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.post("/refresh")
-async def refresh(session: AsyncSession = Depends(get_session)):
+async def refresh(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     await refresh_predictions(session)
     predictions = await _predictions_list(session)
     html = templates.get_template("_predictions_grid.html").render(predictions=predictions)
@@ -21,7 +21,7 @@ async def refresh(session: AsyncSession = Depends(get_session)):
 
 
 @router.delete("/purge")
-async def purge_predictions(session: AsyncSession = Depends(get_session)):
+async def purge_predictions(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     result = await session.execute(delete(ConsumptionPrediction))
     await session.commit()
     return HTMLResponse(
