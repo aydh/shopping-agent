@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import COLES_COLOUR, MIN_MATCH_CONFIDENCE, PRICE_LINE_COLOUR, PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_COLOUR
+from ..config import COLES_COLOUR, PRICE_LINE_COLOUR, PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_COLOUR
 from ..database import async_session, get_session
 from ..models import PriceHistory, Product, ProductMatch, Store
 from ..services.price_comparison import matches_to_comparisons
