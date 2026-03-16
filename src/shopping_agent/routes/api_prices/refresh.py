@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func as sqlfunc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...config import PRICE_REFRESH_CONCURRENCY
+from ...config import PRICE_REFRESH_CONCURRENCY, settings
 from ...database import async_session, get_session
 from ...models import (
     ListStatus,
@@ -146,7 +146,7 @@ async def refresh_prices(store: str, background_tasks: BackgroundTasks, session:
     return HTMLResponse(
         f'<span id="refresh-progress-{store_val}" class="text-blue-600 text-sm"'
         f' hx-get="/api/prices/refresh-progress/{store_val}"'
-        f' hx-trigger="every 1s"'
+        f' hx-trigger="every {settings.price_refresh_poll_interval_ms}ms"'
         f' hx-target="#refresh-progress-{store_val}"'
         f' hx-swap="outerHTML">0/{count}</span>'
     )
@@ -165,7 +165,7 @@ async def refresh_progress(store: str) -> HTMLResponse:
         return HTMLResponse(
             f'<span id="refresh-progress-{store}" class="text-blue-600 text-sm"'
             f' hx-get="/api/prices/refresh-progress/{store}"'
-            f' hx-trigger="every 1s"'
+            f' hx-trigger="every {settings.price_refresh_poll_interval_ms}ms"'
             f' hx-target="#refresh-progress-{store}"'
             f' hx-swap="outerHTML">{done}/{total}</span>'
         )
