@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_session
+from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, Store
 from ...scrapers.coles import coles_scraper
 from ...scrapers.woolworths import woolworths_scraper
@@ -68,7 +69,7 @@ async def confirm_search_match(
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Upsert a searched product and create a manual match."""
-    target_store = Store(store)
+    target_store = store_from_string(store)
 
     # Upsert the searched product
     result = await session.execute(

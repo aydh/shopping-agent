@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from sqlalchemy import Select, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models.product import Product, Store
 
@@ -33,16 +32,3 @@ def visible_products_query() -> Select:
         SQLAlchemy Select statement filtered to non-hidden products.
     """
     return select(Product).where(Product.is_hidden.is_(False))
-
-
-async def get_visible_products(session: AsyncSession) -> list[Product]:
-    """Fetch all non-hidden products.
-
-    Args:
-        session: Active async database session.
-
-    Returns:
-        List of visible Product instances.
-    """
-    result = await session.execute(visible_products_query())
-    return list(result.scalars().all())
