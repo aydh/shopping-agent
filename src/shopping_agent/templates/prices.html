@@ -32,23 +32,23 @@
         <nav class="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto">
             <button id="tab-matched" onclick="switchTab('matched')"
                     class="tab-btn border-b-2 border-blue-500 text-blue-600 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Matched ({{ comparisons | length }})
+                Matched (<span id="count-matched">{{ comparisons | length }}</span>)
             </button>
             <button id="tab-unmatched" onclick="switchTab('unmatched')"
                     class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Unmatched ({{ (unmatched_coles | length) + (unmatched_woolworths | length) }})
-            </button>
-            <button id="tab-rejected" onclick="switchTab('rejected')"
-                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Rejected ({{ rejected_matches | length }})
-            </button>
-            <button id="tab-removed" onclick="switchTab('removed')"
-                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Removed ({{ hidden_products | length }})
+                Unmatched (<span id="count-unmatched">{{ (unmatched_coles | length) + (unmatched_woolworths | length) }}</span>)
             </button>
             <button id="tab-unavailable" onclick="switchTab('unavailable')"
                     class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
-                Unavailable ({{ unavailable_products | length }})
+                Unavailable (<span id="count-unavailable">{{ unavailable_products | length }}</span>)
+            </button>
+            <button id="tab-removed" onclick="switchTab('removed')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Inactive (<span id="count-removed">{{ hidden_products | length }}</span>)
+            </button>
+            <button id="tab-rejected" onclick="switchTab('rejected')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Rejected Matches (<span id="count-rejected">{{ rejected_matches | length }}</span>)
             </button>
         </nav>
     </div>
@@ -59,15 +59,15 @@
         <div class="flex flex-wrap gap-2 mb-3 items-center">
             <button onclick="setMatchFilter('all')" id="filter-all"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white">
-                All ({{ comparisons | length }})
+                All (<span id="count-filter-all">{{ comparisons | length }}</span>)
             </button>
             <button onclick="setMatchFilter('unconfirmed')" id="filter-unconfirmed"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
-                Needs Confirming ({{ comparisons | selectattr('is_confirmed', 'equalto', false) | selectattr('match_method', 'ne', 'manual') | list | length }})
+                Needs Confirming (<span id="count-filter-unconfirmed">{{ comparisons | selectattr('is_confirmed', 'equalto', false) | selectattr('match_method', 'ne', 'manual') | list | length }}</span>)
             </button>
             <button onclick="setMatchFilter('manual')" id="filter-manual"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
-                Manual ({{ comparisons | selectattr('match_method', 'equalto', 'manual') | list | length }})
+                Manual (<span id="count-filter-manual">{{ comparisons | selectattr('match_method', 'equalto', 'manual') | list | length }}</span>)
             </button>
             <div class="sm:ml-auto">
                 <button onclick="toggleAllHistory(this)"
@@ -200,6 +200,8 @@
                             <div class="flex flex-wrap justify-end gap-1">
                                 <button onclick="toggleProductHistory(this, '{{ product.id }}')"
                                         class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
+                                <a href="/prices/search-match/{{ product.id }}"
+                                   class="px-3 py-1.5 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200 whitespace-nowrap">Search Match</a>
                                 <span id="add-btn-{{ product.id }}">
                                     <button hx-post="/api/shopping-list/items/add-product"
                                             hx-vals='{"product_id": {{ product.id }}}'
@@ -210,7 +212,7 @@
                                 <button hx-post="/api/prices/product/{{ product.id }}/hide"
                                         hx-target="#urow-{{ product.id }}"
                                         hx-swap="outerHTML"
-                                        class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Remove</button>
+                                        class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Make Inactive</button>
                             </div>
                         </td>
                     </tr>
@@ -305,7 +307,7 @@
         {% endif %}
     </div>
 
-    <!-- Removed Products Tab -->
+    <!-- Inactive Products Tab -->
     <div id="panel-removed" class="hidden">
         {% if hidden_products %}
         <div class="bg-white rounded-lg shadow overflow-x-auto">
@@ -371,7 +373,7 @@
             </table>
         </div>
         {% else %}
-        <p class="text-sm text-gray-500">No removed products.</p>
+        <p class="text-sm text-gray-500">No inactive products.</p>
         {% endif %}
     </div>
 
@@ -421,7 +423,7 @@
                                 <button hx-post="/api/prices/product/{{ product.id }}/hide"
                                         hx-target="#unavailable-{{ product.id }}"
                                         hx-swap="outerHTML"
-                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Remove</button>
+                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Make Inactive</button>
                             </div>
                         </td>
                     </tr>
@@ -437,7 +439,7 @@
 
 <script>
 function switchTab(tab) {
-    ['matched', 'unmatched', 'rejected', 'removed', 'unavailable'].forEach(t => {
+    ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'].forEach(t => {
         document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
         const btn = document.getElementById('tab-' + t);
         if (t === tab) {
@@ -585,6 +587,41 @@ function applyMatchFilters() {
     }
 }
 
+function updateTabCounts() {
+    // Matched tab & sub-filter counts
+    const allRows = document.querySelectorAll('#prices-table-body tr[data-match-type]');
+    const unconfirmedRows = document.querySelectorAll('#prices-table-body tr[data-match-type="unconfirmed"]');
+    const manualRows = document.querySelectorAll('#prices-table-body tr[data-match-type="manual"]');
+    const el = id => document.getElementById(id);
+    if (el('count-matched')) el('count-matched').textContent = allRows.length;
+    if (el('count-filter-all')) el('count-filter-all').textContent = allRows.length;
+    if (el('count-filter-unconfirmed')) el('count-filter-unconfirmed').textContent = unconfirmedRows.length;
+    if (el('count-filter-manual')) el('count-filter-manual').textContent = manualRows.length;
+
+    // Unmatched tab count
+    const unmatchedRows = document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]');
+    if (el('count-unmatched')) el('count-unmatched').textContent = unmatchedRows.length;
+
+    // Rejected tab count
+    const rejectedRows = document.querySelectorAll('tr[id^="rejected-"]');
+    if (el('count-rejected')) el('count-rejected').textContent = rejectedRows.length;
+
+    // Removed tab count
+    const removedRows = document.querySelectorAll('tr[id^="hidden-"]');
+    if (el('count-removed')) el('count-removed').textContent = removedRows.length;
+
+    // Unavailable tab count
+    const unavailableRows = document.querySelectorAll('tr[id^="unavailable-"]');
+    if (el('count-unavailable')) el('count-unavailable').textContent = unavailableRows.length;
+}
+
+// Update counts whenever any tab panel's DOM changes (rows added/removed)
+const _tabObserver = new MutationObserver(updateTabCounts);
+['prices-table-body', 'all-products-table', 'panel-rejected', 'panel-removed', 'panel-unavailable'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) _tabObserver.observe(el, { childList: true, subtree: true });
+});
+
 document.getElementById('search-field').addEventListener('keyup', function() {
     const searchTerm = this.value.toLowerCase();
 
@@ -605,7 +642,12 @@ document.getElementById('search-field').addEventListener('keyup', function() {
         row.style.display = !searchTerm || row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
     });
 
-    // Removed tab - filter rows in pairs (data row + history row)
+    // Unavailable tab
+    document.querySelectorAll('tr[id^="unavailable-"]').forEach(row => {
+        row.style.display = !searchTerm || row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
+    });
+
+    // Inactive tab - filter rows in pairs (data row + history row)
     document.querySelectorAll('tr[id^="hidden-"]').forEach(row => {
         const visible = !searchTerm || row.textContent.toLowerCase().includes(searchTerm);
         row.style.display = visible ? '' : 'none';

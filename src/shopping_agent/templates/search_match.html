@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Search Match - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center gap-3">
+        <a href="/prices" class="text-gray-400 hover:text-gray-600 text-sm">← Back to Prices</a>
+        <h1 class="text-2xl font-bold text-gray-900">Find a Match</h1>
+    </div>
+
+    <!-- Source product -->
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs font-medium text-gray-500 uppercase mb-3">Matching from</p>
+        <div class="flex items-start gap-3">
+            {% if product.image_url %}
+            <img src="{{ product.image_url | product_image_url }}" alt="" class="w-14 h-14 rounded object-cover flex-shrink-0">
+            {% else %}
+            <div class="w-14 h-14 rounded bg-gray-100 flex-shrink-0"></div>
+            {% endif %}
+            <div>
+                {% set is_coles = product.store.value == 'coles' %}
+                {% if is_coles %}
+                {% set product_url = "https://www.coles.com.au/product/" ~ (product.name | lower | replace(' ', '-')) ~ "-" ~ product.store_product_id %}
+                {% else %}
+                {% set product_url = "https://www.woolworths.com.au/shop/productdetails/" ~ product.store_product_id %}
+                {% endif %}
+                <a href="{{ product_url }}" target="_blank" rel="noopener"
+                   class="font-semibold text-gray-900 hover:{% if is_coles %}text-red-600{% else %}text-green-600{% endif %} hover:underline">{{ product.name }}</a>
+                {% if product.brand %}<p class="text-xs text-gray-500">{{ product.brand }}</p>{% endif %}
+                {% if product.unit_size %}<p class="text-xs text-gray-400">{{ product.unit_size }}</p>{% endif %}
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if is_coles %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                        {{ product.store.value | title }}
+                    </span>
+                    {% if product.current_price is not none %}
+                    <span class="text-sm font-semibold text-gray-700">${{ "%.2f" | format(product.current_price) }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="bg-white rounded-lg shadow p-4">
+        {% set target_label = target_store | title %}
+        <p class="text-sm text-gray-600 mb-3">Search <strong>{{ target_label }}</strong> for a matching product:</p>
+        <div class="relative" hx-indicator="#search-spinner">
+            <input type="text"
+                   id="search-input"
+                   name="q"
+                   value="{{ product.name }}"
+                   placeholder="Type to search {{ target_label }} products…"
+                   hx-get="/api/prices/search-match/{{ product.id }}"
+                   hx-trigger="load, keyup changed delay:400ms"
+                   hx-target="#search-results"
+                   hx-include="[name='q']"
+                   autofocus
+                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm">
+            <span id="search-spinner" class="htmx-indicator absolute right-3 top-2.5 text-gray-400 text-sm">Searching…</span>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div id="search-results"></div>
+</div>
+{% endblock %}

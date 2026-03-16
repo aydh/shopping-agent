@@ -1,0 +1,57 @@
+{% if results %}
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <p class="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b">{{ results | length }} result{{ 's' if results | length != 1 }} found</p>
+    <ul class="divide-y divide-gray-100">
+        {% for r in results %}
+        {% set is_coles = target_store == 'coles' %}
+        <li class="flex items-start gap-3 px-4 py-3">
+            {% if r.image_url %}
+            <img src="{{ r.image_url | product_image_url }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0 mt-0.5">
+            {% else %}
+            <div class="w-12 h-12 rounded bg-gray-100 flex-shrink-0 mt-0.5"></div>
+            {% endif %}
+            <div class="flex-1 min-w-0">
+                {% if r.product_url %}
+                <a href="{{ r.product_url }}" target="_blank" rel="noopener"
+                   class="text-sm font-medium text-gray-900 hover:{% if is_coles %}text-red-600{% else %}text-green-600{% endif %} hover:underline">{{ r.name }}</a>
+                {% else %}
+                <p class="text-sm font-medium text-gray-900">{{ r.name }}</p>
+                {% endif %}
+                {% if r.brand %}<p class="text-xs text-gray-500">{{ r.brand }}</p>{% endif %}
+                {% if r.unit_size %}<p class="text-xs text-gray-400">{{ r.unit_size }}</p>{% endif %}
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if is_coles %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                        {{ target_store | title }}
+                    </span>
+                    {% if r.current_price is not none %}
+                    <span class="text-sm font-semibold text-gray-700">${{ "%.2f" | format(r.current_price) }}</span>
+                    {% endif %}
+                    {% if r.unit_price and r.unit_price_measure %}
+                    <span class="text-xs text-gray-400">${{ "%.2f" | format(r.unit_price) }}/{{ r.unit_price_measure }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <form method="POST" action="/api/prices/search-match/confirm" class="flex-shrink-0">
+                <input type="hidden" name="source_product_id" value="{{ source_product_id }}">
+                <input type="hidden" name="store_product_id" value="{{ r.store_product_id }}">
+                <input type="hidden" name="store" value="{{ target_store }}">
+                <input type="hidden" name="name" value="{{ r.name }}">
+                <input type="hidden" name="brand" value="{{ r.brand or '' }}">
+                <input type="hidden" name="unit_size" value="{{ r.unit_size or '' }}">
+                <input type="hidden" name="current_price" value="{{ r.current_price or 0 }}">
+                <input type="hidden" name="unit_price" value="{{ r.unit_price or 0 }}">
+                <input type="hidden" name="unit_price_measure" value="{{ r.unit_price_measure or '' }}">
+                <input type="hidden" name="image_url" value="{{ r.image_url or '' }}">
+                <input type="hidden" name="product_url" value="{{ r.product_url or '' }}">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 whitespace-nowrap">
+                    Match
+                </button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% else %}
+<p class="text-sm text-gray-500">No results found. Try a different search term.</p>
+{% endif %}

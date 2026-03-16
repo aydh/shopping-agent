@@ -467,6 +467,23 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     )
 
 
+@router.get("/prices/search-match/{product_id}")
+async def search_match_page(product_id: int, request: Request, session: AsyncSession = Depends(get_session)):
+    product = await session.get(Product, product_id)
+    if not product:
+        return HTMLResponse("Product not found", status_code=404)
+    target_store = Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
+    return templates.TemplateResponse(
+        "search_match.html",
+        {
+            "request": request,
+            "active_page": "prices",
+            "product": product,
+            "target_store": target_store.value,
+        },
+    )
+
+
 @router.get("/confirm")
 async def confirm_page(request: Request, session: AsyncSession = Depends(get_session)):
     query = (

@@ -639,45 +639,31 @@ class ColesScraper(BaseScraper):
     async def search_product(self, query: str) -> list[ScrapedProduct]:
         products: list[ScrapedProduct] = []
         try:
-            # Try GraphQL search first
-            gql_data = await self._graphql(
-                _GQL_SEARCH,
-                {"searchTerm": query, "storeId": COLES_STORE_ID, "pageNumber": 1, "pageSize": 48},
-                "SearchProducts",
+            # Use the bare client BFF search — same approach as get_product_price
+            # which is proven to work without triggering bot-detection.
+            if self._bare_client is None or self._bare_client.is_closed:
+                self._bare_client = httpx.AsyncClient(
+                    base_url=COLES_BASE,
+                    headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
+                    follow_redirects=True,
+                    timeout=15.0,
+                )
+            resp = await self._bare_client.get(
+                "/api/bff/products/search",
+                params={
+                    "searchTerm": query,
+                    "subscription-key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+                    "storeId": "0584",
+                    "start": 0,
+                    "pageSize": 24,
+                },
             )
-            if gql_data:
-                raw = (gql_data.get("searchProducts") or {}).get("results") or []
-                for item in raw:
+            if resp and resp.status_code == 200:
+                for item in resp.json().get("results") or []:
                     p = self._parse_graphql_product(item)
                     if p:
                         products.append(p)
-                if products:
-                    logger.info("[Coles] GraphQL search returned %d products", len(products))
-                    return products
-
-            # Fallback: BFF REST search
-            resp = await self._request(
-                "GET",
-                "/api/bff/products/search",
-                params={"query": query, "page": 1, "pageSize": 20},
-            )
-            if not resp or resp.status_code != 200:
-                resp = await self._request(
-                    "GET",
-                    "/api/v2/ui-api/retail-search-service/search/products",
-                    params={"q": query, "pageNo": 0, "pageSize": 20, "affiliates": "coles"},
-                )
-            if resp and resp.status_code == 200:
-                result = resp.json()
-                for item in (
-                    result.get("results")
-                    or result.get("products")
-                    or result.get("data")
-                    or []
-                ):
-                    p = self._parse_search_result(item)
-                    if p:
-                        products.append(p)
+                logger.info("[Coles] BFF search returned %d products for %r", len(products), query)
         except Exception:
             logger.exception("Coles search failed for: %s", query)
 
