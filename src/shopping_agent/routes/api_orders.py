@@ -4,7 +4,6 @@ import logging
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
@@ -17,6 +16,8 @@ from ..scrapers.woolworths import woolworths_scraper
 from ..services.order_sync import sync_orders
 from ..services.price_comparison import match_unmatched_products
 from ..templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -57,9 +58,9 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
                         row_html = templates.env.get_template("partials/order_row.html").render(order=order)
                         yield f"event: order\ndata: {json.dumps({'html': row_html, 'is_new': count > 0})}\n\n"
                 except Exception as exc:
-                    logger.exception("Unexpected error syncing order %s", scraped_order.store_order_id)
-                    yield f"event: error\ndata: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
-                    return
+                    logger.exception("Unexpected error syncing order %s — skipping", scraped_order.store_order_id)
+                    yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+                    continue
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
             return
