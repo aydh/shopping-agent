@@ -11,6 +11,7 @@ from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
+from .coles_queries import GQL_CROSS_CATEGORY, GQL_SEARCH
 
 logger = logging.getLogger(__name__)
 
@@ -39,127 +40,16 @@ DEFAULT_HEADERS = {
     "Sec-Fetch-Site": "same-origin",
 }
 
-# ── GraphQL queries ───────────────────────────────────────────────────────────
-
-_GQL_PRODUCT_FIELDS = """
-    id
-    name
-    brand
-    description
-    imageUris { uri }
-    size
-    pricing {
-        now
-        was
-        unit { price }
-        promotionType
-        saveAmount
-    }
-"""
-
-_GQL_SEARCH = """
-query SearchProducts(
-    $searchTerm: String!,
-    $storeId: BrandedId!,
-    $pageNumber: Int = 1,
-    $pageSize: Int = 48
-) {
-    searchProducts(input: {
-        searchTerm: $searchTerm
-        storeId: $storeId
-        pagination: { pageNumber: $pageNumber pageSize: $pageSize }
-    }) {
-        results {
-            """ + _GQL_PRODUCT_FIELDS + """
-        }
-    }
-}
-"""
-
-_GQL_CROSS_CATEGORY = """
-query GetCrossCategory(
-    $categoryIds: [ID!]!,
-    $storeId: BrandedId!,
-    $memoryToken: String
-) {
-    crossCategory(
-        categoryIds: $categoryIds
-        storeId: $storeId
-        memoryToken: $memoryToken
-    ) {
-        products {
-            """ + _GQL_PRODUCT_FIELDS + """
-        }
-        memoryToken
-    }
-}
-"""
-
 
 class ColesScraper(BaseScraper):
     store = Store.COLES
+    _cookie_domain: str = ".coles.com.au"
 
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
         self._bare_client: httpx.AsyncClient | None = None
         self._next_build_id: str | None = None
         self._build_id_lock: asyncio.Lock = asyncio.Lock()
-
-    async def _load_cookies(self) -> httpx.Cookies:
-        """Load cookies from the database into httpx.Cookies."""
-        jar = httpx.Cookies()
-        async with async_session() as session:
-            result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == Store.COLES)
-            )
-            row = result.scalar_one_or_none()
-            if row:
-                try:
-                    raw_cookies = json.loads(row.cookies_json)
-                    for c in raw_cookies:
-                        jar.set(
-                            c["name"],
-                            c["value"],
-                            domain=c.get("domain", ".coles.com.au"),
-                            path=c.get("path", "/"),
-                        )
-                    logger.info(
-                        "Loaded %d cookies for coles: %s",
-                        len(raw_cookies),
-                        [f"{c['name']}@{c.get('domain','?')}" for c in raw_cookies],
-                    )
-                except Exception:
-                    logger.warning("Failed to load Coles cookies", exc_info=True)
-        return jar
-
-    async def _save_cookies_from_client(self) -> None:
-        """Upsert current client cookies into the database."""
-        if not self._client:
-            return
-        cookie_list = []
-        for cookie in self._client.cookies.jar:
-            cookie_list.append(
-                {
-                    "name": cookie.name,
-                    "value": cookie.value,
-                    "domain": cookie.domain or ".coles.com.au",
-                    "path": cookie.path or "/",
-                    "secure": cookie.secure,
-                    "httpOnly": False,
-                }
-            )
-        cookies_json = json.dumps(cookie_list, indent=2)
-        async with async_session() as session:
-            result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == Store.COLES)
-            )
-            row = result.scalar_one_or_none()
-            if row:
-                row.cookies_json = cookies_json
-            else:
-                session.add(StoreCookies(store=Store.COLES, cookies_json=cookies_json))
-            await session.commit()
-        logger.info("Saved %d cookies for coles", len(cookie_list))
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the httpx client with current cookies."""
@@ -745,7 +635,7 @@ class ColesScraper(BaseScraper):
             variables: dict = {"categoryIds": category_ids, "storeId": COLES_STORE_ID}
             if memory_token:
                 variables["memoryToken"] = memory_token
-            gql_data = await self._graphql(_GQL_CROSS_CATEGORY, variables, "GetCrossCategory")
+            gql_data = await self._graphql(GQL_CROSS_CATEGORY, variables, "GetCrossCategory")
             if gql_data:
                 cross = gql_data.get("crossCategory") or {}
                 next_token = cross.get("memoryToken")

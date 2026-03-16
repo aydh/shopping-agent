@@ -1,7 +1,13 @@
+import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
 from typing import AsyncGenerator
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,6 +49,9 @@ class ScrapedProduct:
 
 
 class BaseScraper(ABC):
+    #: Default cookie domain for this store (e.g. ".coles.com.au").
+    _cookie_domain: str = ""
+
     @abstractmethod
     async def is_authenticated(self) -> bool: ...
 
@@ -83,3 +92,80 @@ class BaseScraper(ABC):
     async def logout(self) -> None:
         """Clear stored auth. Override in subclasses."""
         pass
+
+    async def _load_cookies(self) -> httpx.Cookies:
+        """Load persisted cookies for this store from the database.
+
+        Returns:
+            An httpx.Cookies jar populated with the stored cookies.
+        """
+        from ..database import async_session
+        from ..models.store_cookies import StoreCookies
+        from sqlalchemy import select
+
+        jar = httpx.Cookies()
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(StoreCookies.store == self.store)
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                try:
+                    raw_cookies = json.loads(row.cookies_json)
+                    for c in raw_cookies:
+                        jar.set(
+                            c["name"],
+                            c["value"],
+                            domain=c.get("domain", self._cookie_domain),
+                            path=c.get("path", "/"),
+                        )
+                    logger.info(
+                        "Loaded %d cookies for %s",
+                        len(raw_cookies),
+                        self.store.value,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to load %s cookies", self.store.value, exc_info=True
+                    )
+        return jar
+
+    async def _save_cookies_from_client(self) -> None:
+        """Persist current client cookies for this store to the database.
+
+        Reads cookies from `self._client`. Subclasses must set `self._client`
+        before calling this method. Does nothing if `self._client` is None.
+        """
+        from ..database import async_session
+        from ..models.store_cookies import StoreCookies
+        from sqlalchemy import select
+
+        client = getattr(self, "_client", None)
+        if not client:
+            return
+
+        cookie_list = [
+            {
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain or self._cookie_domain,
+                "path": cookie.path or "/",
+                "secure": cookie.secure,
+                "httpOnly": False,
+            }
+            for cookie in client.cookies.jar
+        ]
+        cookies_json = json.dumps(cookie_list, indent=2)
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(StoreCookies.store == self.store)
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                row.cookies_json = cookies_json
+            else:
+                session.add(StoreCookies(store=self.store, cookies_json=cookies_json))
+            await session.commit()
+
+        logger.info("Saved %d cookies for %s", len(cookie_list), self.store.value)

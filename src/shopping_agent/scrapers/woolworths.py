@@ -40,61 +40,10 @@ DEFAULT_HEADERS = {
 
 class WoolworthsScraper(BaseScraper):
     store = Store.WOOLWORTHS
+    _cookie_domain: str = ".woolworths.com.au"
 
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
-
-    async def _load_cookies(self) -> httpx.Cookies:
-        """Load cookies from the database into httpx.Cookies."""
-        jar = httpx.Cookies()
-        async with async_session() as session:
-            result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
-            )
-            row = result.scalar_one_or_none()
-            if row:
-                try:
-                    raw_cookies = json.loads(row.cookies_json)
-                    for c in raw_cookies:
-                        jar.set(
-                            c["name"],
-                            c["value"],
-                            domain=c.get("domain", ".woolworths.com.au"),
-                            path=c.get("path", "/"),
-                        )
-                    logger.info("Loaded %d cookies for woolworths", len(raw_cookies))
-                except Exception:
-                    logger.warning("Failed to load Woolworths cookies", exc_info=True)
-        return jar
-
-    async def _save_cookies_from_client(self) -> None:
-        """Upsert current client cookies into the database."""
-        if not self._client:
-            return
-        cookie_list = []
-        for cookie in self._client.cookies.jar:
-            cookie_list.append(
-                {
-                    "name": cookie.name,
-                    "value": cookie.value,
-                    "domain": cookie.domain or ".woolworths.com.au",
-                    "path": cookie.path or "/",
-                    "secure": cookie.secure,
-                    "httpOnly": False,
-                }
-            )
-        cookies_json = json.dumps(cookie_list, indent=2)
-        async with async_session() as session:
-            result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
-            )
-            row = result.scalar_one_or_none()
-            if row:
-                row.cookies_json = cookies_json
-            else:
-                session.add(StoreCookies(store=Store.WOOLWORTHS, cookies_json=cookies_json))
-            await session.commit()
-        logger.info("Saved %d cookies for woolworths", len(cookie_list))
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the httpx client with current cookies."""
