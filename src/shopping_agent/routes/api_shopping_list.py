@@ -7,6 +7,7 @@ from ..database import get_session
 from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from ..services.price_comparison import build_price_map
 from ..services.shopping_list import (
+    choose_best_store,
     confirm_list,
     generate_shopping_list,
     get_active_list,
@@ -139,10 +140,7 @@ async def add_predictions(session: AsyncSession = Depends(get_session)):
             prices = price_map[candidate.product_id]
             coles_price = prices["coles_price"]
             woolworths_price = prices["woolworths_price"]
-            if coles_price and woolworths_price:
-                chosen_store = Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
-            else:
-                chosen_store = product.store
+            chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
         else:
             coles_price = product.current_price if product.store == Store.COLES else None
             woolworths_price = product.current_price if product.store == Store.WOOLWORTHS else None
@@ -283,12 +281,7 @@ async def add_product_to_list(
         ww_p = pa if pa.store == Store.WOOLWORTHS else pb
         coles_price = coles_p.current_price
         woolworths_price = ww_p.current_price
-        if coles_price and woolworths_price:
-            chosen_store = Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
-        elif coles_price:
-            chosen_store = Store.COLES
-        else:
-            chosen_store = Store.WOOLWORTHS
+        chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
     else:
         if product.store == Store.COLES:
             coles_price = product.current_price
@@ -380,12 +373,9 @@ async def submit_split(session: AsyncSession = Depends(get_session)):
         )
     )
     for item in items_result.scalars().all():
-        if item.coles_price and item.woolworths_price:
-            item.chosen_store = Store.COLES if item.coles_price <= item.woolworths_price else Store.WOOLWORTHS
-        elif item.coles_price:
-            item.chosen_store = Store.COLES
-        else:
-            item.chosen_store = Store.WOOLWORTHS
+        item.chosen_store = choose_best_store(
+            item.coles_price, item.woolworths_price, item.chosen_store or Store.COLES
+        )
     shopping_list.status = ListStatus.CONFIRMED
     await session.commit()
     return RedirectResponse("/confirm", status_code=303)
@@ -492,7 +482,6 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
 
         coles_price = None
         woolworths_price = None
-        chosen_store = product.store
         if match:
             pa = await session.get(Product, match.product_a_id)
             pb = await session.get(Product, match.product_b_id)
@@ -500,17 +489,13 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
             ww_p = pa if pa.store == Store.WOOLWORTHS else pb
             coles_price = coles_p.current_price
             woolworths_price = ww_p.current_price
-            if coles_price and woolworths_price:
-                chosen_store = Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
-            elif coles_price:
-                chosen_store = Store.COLES
-            else:
-                chosen_store = Store.WOOLWORTHS
+            chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
         else:
             if product.store == Store.COLES:
                 coles_price = product.current_price
             else:
                 woolworths_price = product.current_price
+            chosen_store = product.store
 
         session.add(ShoppingListItem(
             shopping_list_id=active.id,

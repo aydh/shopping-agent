@@ -20,6 +20,30 @@ from .price_comparison import build_price_map
 logger = logging.getLogger(__name__)
 
 
+def choose_best_store(
+    coles_price: float | None,
+    woolworths_price: float | None,
+    fallback: Store,
+) -> Store:
+    """Choose the cheapest available store for an item.
+
+    Args:
+        coles_price: Current Coles price, or None if unavailable.
+        woolworths_price: Current Woolworths price, or None if unavailable.
+        fallback: Store to use when neither or only one price is available.
+
+    Returns:
+        The cheaper store, or fallback if prices are equal or unavailable.
+    """
+    if coles_price and woolworths_price:
+        return Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
+    if coles_price:
+        return Store.COLES
+    if woolworths_price:
+        return Store.WOOLWORTHS
+    return fallback
+
+
 async def generate_shopping_list(
     session: AsyncSession,
     target_date: date | None = None,
@@ -90,10 +114,7 @@ async def generate_shopping_list(
             coles_price = prices["coles_price"]
             woolworths_price = prices["woolworths_price"]
             # Default to cheapest store, or the store this product is from
-            if coles_price and woolworths_price:
-                chosen_store = Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
-            else:
-                chosen_store = product.store
+            chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
         else:
             coles_price = product.current_price if product.store == Store.COLES else None
             woolworths_price = product.current_price if product.store == Store.WOOLWORTHS else None
