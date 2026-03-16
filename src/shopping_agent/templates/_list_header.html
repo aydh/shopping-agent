@@ -1,6 +1,5 @@
 {# OOB header update fragment for the shopping list page.
-   Context: shopping_list (ShoppingList|None), has_list (bool), title (str),
-            new_cls, pred_cls, new_disabled, pred_disabled #}
+   Context: has_list (bool), title (str), new_cls, pred_cls, new_disabled, pred_disabled #}
 <div id="list-header" hx-swap-oob="innerHTML">
     <h1 class="text-2xl font-bold text-gray-900">{{ title }}</h1>
     <div class="flex flex-wrap gap-2 items-center">
