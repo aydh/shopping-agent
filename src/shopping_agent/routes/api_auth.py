@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from ..models.product import Store
+from ..db_helpers import store_from_string
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 
@@ -19,7 +19,7 @@ async def login(store: str) -> HTMLResponse:
 @router.post("/import-cookies/{store}")
 async def import_cookies(store: str, request: Request) -> HTMLResponse:
     """Import cookies from browser DevTools or Cookie-Editor extension."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     body = (await request.body()).decode("utf-8")
 
     if store_enum == Store.WOOLWORTHS:
@@ -50,7 +50,7 @@ async def import_cookies(store: str, request: Request) -> HTMLResponse:
 @router.get("/validate/{store}")
 async def validate(store: str) -> HTMLResponse:
     """Test stored cookies against the live API and report the result."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     if store_enum == Store.COLES:
         result = await coles_scraper.validate_cookies()
     elif store_enum == Store.WOOLWORTHS:
@@ -69,7 +69,7 @@ async def validate(store: str) -> HTMLResponse:
 
 @router.post("/logout/{store}")
 async def logout(store: str) -> HTMLResponse:
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     if store_enum == Store.WOOLWORTHS:
         await woolworths_scraper.logout()
     elif store_enum == Store.COLES:
