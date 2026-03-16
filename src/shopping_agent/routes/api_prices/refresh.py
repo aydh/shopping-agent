@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import PRICE_REFRESH_CONCURRENCY, settings
 from ...database import async_session, get_session
+from ...db_helpers import store_from_string, visible_products_query
 from ...models import (
     ListStatus,
     PriceHistory,
@@ -46,7 +47,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
 
     async with async_session() as session:
         result = await session.execute(
-            select(Product).where(Product.store == store_enum, Product.is_hidden == False)  # noqa: E712
+            visible_products_query().where(Product.store == store_enum)
         )
         products = list(result.scalars().all())
 
@@ -130,7 +131,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
 @router.post("/refresh/{store}")
 async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Kick off a background price refresh for the given store."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
 
     if not await scraper.is_authenticated():

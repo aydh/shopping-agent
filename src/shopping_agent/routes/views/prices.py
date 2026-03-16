@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...database import get_session
+from ...db_helpers import visible_products_query
 from ...models import Order, OrderItem, Product, ProductMatch, Store
 from ...services.price_comparison import matches_to_comparisons
 from ...templating import templates
@@ -22,8 +23,7 @@ async def prices_page(
     """Render the price comparison page."""
     # Fetch all visible products
     result = await session.execute(
-        select(Product)
-        .where(Product.is_hidden == False)  # noqa: E712
+        visible_products_query()
         .order_by(Product.store, Product.name)
     )
     all_products = list(result.scalars().all())
@@ -83,9 +83,8 @@ async def prices_page(
 
     # Fetch unavailable products (is_available=False, not hidden)
     unavailable_result = await session.execute(
-        select(Product)
+        visible_products_query()
         .where(Product.is_available == False)  # noqa: E712
-        .where(Product.is_hidden == False)  # noqa: E712
         .order_by(Product.store, Product.name)
     )
     unavailable_products = list(unavailable_result.scalars().all())

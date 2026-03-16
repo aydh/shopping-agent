@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_session
+from ...db_helpers import store_from_string
 from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, Store
 
 router = APIRouter()
@@ -60,7 +61,7 @@ async def restore_product(product_id: int, session: AsyncSession = Depends(get_s
 
 @router.delete("/products/purge/{store}")
 async def purge_products(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     product_ids = [r[0] for r in (await session.execute(
         select(Product.id).where(Product.store == store_enum)
     )).all()]

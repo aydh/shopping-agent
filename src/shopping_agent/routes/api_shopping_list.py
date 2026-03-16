@@ -4,6 +4,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
+from ..db_helpers import store_from_string
 from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from ..services.price_comparison import build_price_map
 from ..services.shopping_list import (
@@ -177,7 +178,7 @@ async def set_store(
     store: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
-    await update_item_store(session, item_id, Store(store))
+    await update_item_store(session, item_id, store_from_string(store))
     ctx = await _shopping_list_context(session)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
@@ -186,7 +187,7 @@ async def set_store(
 @router.post("/set-store/{store}")
 async def set_all_store(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Set all items in the active list to the given store."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     result = await session.execute(
         select(ShoppingList)
         .where(ShoppingList.status != ListStatus.ORDERED)
@@ -323,7 +324,7 @@ async def close_list(list_id: int, session: AsyncSession = Depends(get_session))
 @router.post("/submit-store/{store}")
 async def submit_store(store: str, session: AsyncSession = Depends(get_session)) -> RedirectResponse:
     """Set all items to a single store, confirm, and redirect to review."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     result = await session.execute(
         select(ShoppingList)
         .where(ShoppingList.status != ListStatus.ORDERED)

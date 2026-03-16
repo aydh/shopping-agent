@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
 
 from ..database import async_session, get_session
+from ..db_helpers import store_from_string
 from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
@@ -20,7 +21,7 @@ router = APIRouter()
 @router.get("/sync-stream/{store}")
 async def sync_orders_stream(store: str) -> StreamingResponse:
     """SSE endpoint: fetches orders and streams each row as it's saved."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
 
     async def generate():
@@ -76,7 +77,7 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
 
 @router.delete("/purge/{store}")
 async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
 
     # Fetch order IDs for this store so we can delete items first
     result = await session.execute(
