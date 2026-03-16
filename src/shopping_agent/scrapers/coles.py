@@ -32,7 +32,7 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-AU,en;q=0.9",
     "Origin": COLES_BASE,
     "Referer": f"{COLES_BASE}/",
-    "Ocp-Apim-Subscription-Key": settings.coles_api_key,
+    "Ocp-Apim-Subscription-Key": settings.coles_api_key or "",
     "dsch-channel": "coles.online.1site.desktop",
     "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
     "Sec-Ch-Ua-Mobile": "?0",

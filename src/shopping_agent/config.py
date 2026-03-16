@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     debug: bool = False
-    coles_api_key: str = Field(default="", description="Coles Ocp-Apim-Subscription-Key")
+    coles_api_key: str | None = Field(default=None, description="Coles Ocp-Apim-Subscription-Key (COLES_API_KEY)")
 
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
