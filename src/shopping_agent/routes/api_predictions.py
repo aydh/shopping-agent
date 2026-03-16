@@ -7,7 +7,7 @@ from ..database import get_session
 from ..models import ConsumptionPrediction
 from ..services.prediction import refresh_predictions
 from ..templating import templates
-from .views import _predictions_list
+from ..services.prediction import get_predictions_with_match_info as _predictions_list
 
 router = APIRouter()
 

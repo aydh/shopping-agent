@@ -184,3 +184,157 @@ async def confirm_list(session: AsyncSession, list_id: int) -> ShoppingList | No
         shopping_list.status = ListStatus.CONFIRMED
         await session.commit()
     return shopping_list
+
+
+async def resolve_display_names(
+    session: AsyncSession, items: list[ShoppingListItem]
+) -> tuple[dict[int, str], dict[int, dict], dict[int, dict]]:
+    """Resolve per-item display names and per-store product mappings.
+
+    For each non-removed item, looks up the cross-store match to determine
+    which store names and products are available.
+
+    Args:
+        session: Async database session.
+        items: Shopping list items to resolve.
+
+    Returns:
+        Tuple of (display_names, store_names, store_products) where each is
+        keyed by item.id:
+        - display_names: the chosen store's product name (fallback: canonical name)
+        - store_names: {'coles': name|None, 'woolworths': name|None}
+        - store_products: {'coles': Product|None, 'woolworths': Product|None}
+    """
+    display_names: dict[int, str] = {}
+    store_names: dict[int, dict] = {}
+    store_products: dict[int, dict] = {}
+    for item in items:
+        if item.is_removed:
+            continue
+        canonical = item.product
+        partner = None
+        match_result = await session.execute(
+            select(ProductMatch).where(
+                (
+                    (ProductMatch.product_a_id == canonical.id)
+                    | (ProductMatch.product_b_id == canonical.id)
+                ),
+                ProductMatch.is_rejected == False,  # noqa: E712
+            )
+        )
+        match = match_result.scalars().first()
+        if match:
+            partner_id = (
+                match.product_b_id if match.product_a_id == canonical.id else match.product_a_id
+            )
+            partner = await session.get(Product, partner_id)
+
+        if canonical.store == Store.COLES:
+            coles_product = canonical
+            ww_product = partner if partner and partner.store == Store.WOOLWORTHS else None
+        else:
+            ww_product = canonical
+            coles_product = partner if partner and partner.store == Store.COLES else None
+
+        coles_name = coles_product.name if coles_product else None
+        woolworths_name = ww_product.name if ww_product else None
+
+        store_names[item.id] = {"coles": coles_name, "woolworths": woolworths_name}
+        store_products[item.id] = {"coles": coles_product, "woolworths": ww_product}
+
+        if item.chosen_store == Store.COLES and coles_name:
+            display_names[item.id] = coles_name
+        elif item.chosen_store == Store.WOOLWORTHS and woolworths_name:
+            display_names[item.id] = woolworths_name
+        else:
+            display_names[item.id] = canonical.name
+
+    return display_names, store_names, store_products
+
+
+async def get_shopping_list_context(session: AsyncSession) -> dict:
+    """Build the full shopping list context dict for template rendering.
+
+    Returns a dict with keys: shopping_list, display_names, store_names,
+    store_products, single_store, coles_total, woolworths_total, best_total,
+    recommendation.
+    """
+    query = (
+        select(ShoppingList)
+        .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )
+    result = await session.execute(query)
+    shopping_list = result.scalars().first()
+
+    coles_total = 0.0
+    woolworths_total = 0.0
+    best_total = 0.0
+    display_names: dict[int, str] = {}
+    store_names: dict[int, dict] = {}
+    store_products: dict[int, dict] = {}
+    single_store: Store | None = None
+    if shopping_list:
+        display_names, store_names, store_products = await resolve_display_names(session, shopping_list.items)
+        active_items = [i for i in shopping_list.items if not i.is_removed]
+        stores_used = {i.chosen_store for i in active_items if i.chosen_store}
+        single_store = stores_used.pop() if len(stores_used) == 1 else None
+        for item in active_items:
+            cp = item.coles_price * item.quantity if item.coles_price else None
+            wp = item.woolworths_price * item.quantity if item.woolworths_price else None
+            # Each store total uses that store's price where available, falls back to
+            # the other store so all three totals always represent the full basket.
+            coles_total += cp if cp is not None else (wp or 0)
+            woolworths_total += wp if wp is not None else (cp or 0)
+            best_total += min(cp, wp) if cp is not None and wp is not None else (cp or wp or 0)
+
+    recommendation = ""
+    if coles_total and woolworths_total:
+        if coles_total < woolworths_total:
+            recommendation = f"Coles is ${woolworths_total - coles_total:.2f} cheaper overall"
+        elif woolworths_total < coles_total:
+            recommendation = f"Woolworths is ${coles_total - woolworths_total:.2f} cheaper overall"
+        else:
+            recommendation = "Same price at both stores"
+
+    return {
+        "shopping_list": shopping_list,
+        "display_names": display_names,
+        "store_names": store_names,
+        "store_products": store_products,
+        "single_store": single_store,
+        "coles_total": coles_total,
+        "woolworths_total": woolworths_total,
+        "best_total": best_total,
+        "recommendation": recommendation,
+    }
+
+
+async def get_list_history(session: AsyncSession) -> list[dict]:
+    """Return summary rows for past (ordered) shopping lists."""
+    result = await session.execute(
+        select(ShoppingList)
+        .options(selectinload(ShoppingList.items))
+        .where(ShoppingList.status == ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )
+    rows = []
+    for sl in result.scalars().all():
+        active = [i for i in sl.items if not i.is_removed]
+        stores = {i.chosen_store for i in active if i.chosen_store}
+        store = stores.pop() if len(stores) == 1 else None
+        total = 0.0
+        for i in active:
+            price = (i.coles_price if store == Store.COLES else i.woolworths_price) or 0
+            total += price * i.quantity
+        rows.append({
+            "id": sl.id,
+            "name": sl.name,
+            "created_at": sl.created_at,
+            "status": sl.status,
+            "store": store,
+            "item_count": len(active),
+            "total": total,
+        })
+    return rows

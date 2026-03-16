@@ -257,6 +257,62 @@ async def refresh_predictions(session: AsyncSession) -> int:
     return count
 
 
+async def get_predictions_with_match_info(
+    session: AsyncSession,
+    max_runout_date: date | None = None,
+) -> list[ConsumptionPrediction]:
+    """Load all predictions, annotating each with match info for template rendering.
+
+    Sets the following transient attributes on each prediction:
+    - days_until_runout (int)
+    - is_matched (bool)
+    - matched_product (Product | None)
+    - match_id (int | None)
+
+    Args:
+        session: Async database session.
+        max_runout_date: If provided, only return predictions with runout date <= this.
+
+    Returns:
+        List of annotated ConsumptionPrediction objects ordered by runout date.
+    """
+    today = date.today()
+    query = (
+        select(ConsumptionPrediction)
+        .options(selectinload(ConsumptionPrediction.product))
+        .order_by(ConsumptionPrediction.predicted_runout_date)
+    )
+    if max_runout_date is not None:
+        query = query.where(ConsumptionPrediction.predicted_runout_date <= max_runout_date)
+    result = await session.execute(query)
+
+    matches_result = await session.execute(
+        select(ProductMatch)
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
+        .options(
+            selectinload(ProductMatch.product_a),
+            selectinload(ProductMatch.product_b),
+        )
+    )
+    matched_product: dict[int, Product] = {}
+    match_id_map: dict[int, int] = {}
+    for m in matches_result.scalars().all():
+        matched_product[m.product_a_id] = m.product_b
+        matched_product[m.product_b_id] = m.product_a
+        match_id_map[m.product_a_id] = m.id
+        match_id_map[m.product_b_id] = m.id
+
+    predictions = []
+    for pred in result.scalars().all():
+        pred.days_until_runout = (pred.predicted_runout_date - today).days
+        other = matched_product.get(pred.product_id)
+        pred.is_matched = other is not None
+        pred.matched_product = other
+        pred.match_id = match_id_map.get(pred.product_id)
+        predictions.append(pred)
+    return predictions
+
+
 def generate_candidates(
     predictions: list[ConsumptionPrediction],
     target_date: date | None = None,
