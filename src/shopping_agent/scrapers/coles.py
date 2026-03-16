@@ -11,7 +11,7 @@ from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
-from .coles_queries import GQL_CROSS_CATEGORY, GQL_SEARCH
+from .coles_queries import GQL_CROSS_CATEGORY
 
 logger = logging.getLogger(__name__)
 
