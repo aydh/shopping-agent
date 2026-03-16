@@ -227,11 +227,16 @@ async def add_product_to_list(
     if not shopping_list:
         return HTMLResponse('<span class="text-red-600 text-xs">No active list — generate one first.</span>')
 
-    # Already in list? Check both the product and its matched partner.
-    # We fetch the partner product early so we can also reuse it for price resolution below.
-    partner_product_early = await get_partner_product(session, product_id, "")
+    product = await session.get(Product, product_id)
+    if not product:
+        return HTMLResponse('<span class="text-red-600 text-xs">Product not found.</span>')
+
+    # Determine the partner store (opposite of product's store)
+    partner_store = "woolworths" if product.store == Store.COLES else "coles"
+    partner_product_early = await get_partner_product(session, product_id, partner_store)
     partner_id = partner_product_early.id if partner_product_early else None
 
+    # Already in list? Check both the product and its matched partner.
     candidate_ids = [product_id] + ([partner_id] if partner_id else [])
     existing = (await session.execute(
         select(ShoppingListItem).where(
@@ -249,10 +254,6 @@ async def add_product_to_list(
             f'<span class="text-green-600 text-xs">Qty updated ✓</span>'
             f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>'
         )
-
-    product = await session.get(Product, product_id)
-    if not product:
-        return HTMLResponse('<span class="text-red-600 text-xs">Product not found.</span>')
 
     # partner_product_early and partner_id already resolved above
     coles_price = None
