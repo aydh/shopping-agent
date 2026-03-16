@@ -512,41 +512,26 @@ async def _get_counts(session: AsyncSession) -> dict:
     }
 
 
-def _counts_rows_html(counts: dict) -> str:
-    rows = [
-        ("Coles Orders", f"{counts['coles_orders']} orders, {counts['coles_order_items']} items", "price history", "/api/orders/purge/coles", "purge-coles"),
-        ("Woolworths Orders", f"{counts['woolworths_orders']} orders, {counts['woolworths_order_items']} items", "price history", "/api/orders/purge/woolworths", "purge-woolworths"),
-        ("Coles Products", str(counts["coles_products"]), "matches, price history, predictions", "/api/prices/products/purge/coles", "purge-coles-products"),
-        ("Woolworths Products", str(counts["woolworths_products"]), "matches, price history, predictions", "/api/prices/products/purge/woolworths", "purge-woolworths-products"),
-        ("Product Matches", str(counts["product_matches"]), "—", "/api/prices/matches/purge", "purge-matches"),
-        ("Price History", str(counts["price_history"]), "—", "/api/prices/history/purge", "purge-price-history"),
-        ("Predictions", str(counts["predictions"]), "—", "/api/predictions/purge", "purge-predictions"),
-        ("Shopping Lists", f"{counts['shopping_lists']} lists, {counts['shopping_list_items']} items", "—", "/api/shopping-list/purge", "purge-lists"),
+def _counts_rows(counts: dict) -> list[dict]:
+    """Build the data rows for the settings data-management table."""
+    return [
+        {"label": "Coles Orders", "count": f"{counts['coles_orders']} orders, {counts['coles_order_items']} items", "also_deletes": "price history", "endpoint": "/api/orders/purge/coles", "tid": "purge-coles"},
+        {"label": "Woolworths Orders", "count": f"{counts['woolworths_orders']} orders, {counts['woolworths_order_items']} items", "also_deletes": "price history", "endpoint": "/api/orders/purge/woolworths", "tid": "purge-woolworths"},
+        {"label": "Coles Products", "count": str(counts["coles_products"]), "also_deletes": "matches, price history, predictions", "endpoint": "/api/prices/products/purge/coles", "tid": "purge-coles-products"},
+        {"label": "Woolworths Products", "count": str(counts["woolworths_products"]), "also_deletes": "matches, price history, predictions", "endpoint": "/api/prices/products/purge/woolworths", "tid": "purge-woolworths-products"},
+        {"label": "Product Matches", "count": str(counts["product_matches"]), "also_deletes": "—", "endpoint": "/api/prices/matches/purge", "tid": "purge-matches"},
+        {"label": "Price History", "count": str(counts["price_history"]), "also_deletes": "—", "endpoint": "/api/prices/history/purge", "tid": "purge-price-history"},
+        {"label": "Predictions", "count": str(counts["predictions"]), "also_deletes": "—", "endpoint": "/api/predictions/purge", "tid": "purge-predictions"},
+        {"label": "Shopping Lists", "count": f"{counts['shopping_lists']} lists, {counts['shopping_list_items']} items", "also_deletes": "—", "endpoint": "/api/shopping-list/purge", "tid": "purge-lists"},
     ]
-    html = ""
-    for label, count, also, endpoint, tid in rows:
-        html += f"""<tr>
-            <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900">{label}</td>
-            <td class="px-3 sm:px-6 py-3 text-sm text-gray-500" id="{tid}-count">{count}</td>
-            <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden sm:table-cell">{also}</td>
-            <td class="px-3 sm:px-6 py-3 text-right">
-                <span id="{tid}-result" class="mr-2 text-sm"></span>
-                <button
-                    hx-delete="{endpoint}"
-                    hx-target="#{tid}-result"
-                    hx-on:htmx:after-request="htmx.trigger('#data-mgmt-body', 'countsRefresh')"
-                    class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">
-                    Purge
-                </button>
-            </td>
-        </tr>"""
-    return html
 
 
 @router.get("/api/settings/counts")
-async def settings_counts(session: AsyncSession = Depends(get_session)):
+async def settings_counts(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    """Return OOB HTML fragment of data management counts."""
     counts = await _get_counts(session)
-    return HTMLResponse(_counts_rows_html(counts))
+    html = templates.env.get_template("_settings_counts.html").render(rows=_counts_rows(counts))
+    return HTMLResponse(html)
 
 
 @router.get("/settings")
@@ -554,6 +539,7 @@ async def settings_page(request: Request, session: AsyncSession = Depends(get_se
     coles_connected = await coles_scraper.is_authenticated()
     woolworths_connected = await woolworths_scraper.is_authenticated()
     counts = await _get_counts(session)
+    counts_rows_html = templates.env.get_template("_settings_counts.html").render(rows=_counts_rows(counts))
 
     return templates.TemplateResponse(
         "settings.html",
@@ -563,6 +549,6 @@ async def settings_page(request: Request, session: AsyncSession = Depends(get_se
             "coles_connected": coles_connected,
             "woolworths_connected": woolworths_connected,
             "counts": counts,
-            "counts_rows_html": _counts_rows_html(counts),
+            "counts_rows_html": counts_rows_html,
         },
     )

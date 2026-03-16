@@ -392,48 +392,20 @@ async def list_details(list_id: int, session: AsyncSession = Depends(get_session
     )
     items = items_result.scalars().all()
 
-    rows = ""
+    items_data = []
     for item in items:
         product = await session.get(Product, item.product_id)
         if not product:
             continue
-        name = product.name
-        cp = f"${item.coles_price:.2f}" if item.coles_price else "—"
-        wp = f"${item.woolworths_price:.2f}" if item.woolworths_price else "—"
-        rows += f"""
-        <tr>
-            <td class="px-4 py-2 text-sm text-gray-900">{name}</td>
-            <td class="px-4 py-2 text-sm text-gray-500 text-center">{item.quantity}</td>
-            <td class="px-4 py-2 text-sm text-red-600 text-center">{cp}</td>
-            <td class="px-4 py-2 text-sm text-green-600 text-center">{wp}</td>
-            <td class="px-4 py-2 text-right">
-                <span id="add-result-{item.product_id}">
-                    <button hx-post="/api/shopping-list/items/add-product"
-                            hx-vals='{{"product_id": {item.product_id}}}'
-                            hx-target="#add-result-{item.product_id}"
-                            hx-swap="innerHTML"
-                            class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200">
-                        Add to list
-                    </button>
-                </span>
-            </td>
-        </tr>"""
+        items_data.append({
+            "name": product.name,
+            "quantity": item.quantity,
+            "coles_price": item.coles_price,
+            "woolworths_price": item.woolworths_price,
+            "product_id": item.product_id,
+        })
 
-    html = f"""
-    <div class="bg-gray-50 rounded-lg my-2 overflow-hidden border border-gray-200">
-        <table class="min-w-full">
-            <thead>
-                <tr class="bg-gray-100 text-xs font-medium text-gray-500 uppercase">
-                    <th class="px-4 py-2 text-left">Product</th>
-                    <th class="px-4 py-2 text-center">Qty</th>
-                    <th class="px-4 py-2 text-center">Coles</th>
-                    <th class="px-4 py-2 text-center">Woolworths</th>
-                    <th class="px-4 py-2"></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200">{rows}</tbody>
-        </table>
-    </div>"""
+    html = templates.env.get_template("_past_list_details.html").render(items=items_data)
     return HTMLResponse(html)
 
 

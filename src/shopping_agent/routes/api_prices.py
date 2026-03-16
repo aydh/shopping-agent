@@ -395,7 +395,6 @@ async def restore_product(product_id: int, session: AsyncSession = Depends(get_s
 @router.get("/product-history/{product_id}")
 async def product_price_history(product_id: int, session: AsyncSession = Depends(get_session)):
     """Return a chart + table of price history for a single product."""
-    import json
     from ..models import PriceHistory
 
     product = await session.get(Product, product_id)
@@ -415,7 +414,6 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
     def fmt(dt_str, f): return date_type.fromisoformat(dt_str).strftime(f)
 
     is_coles = product.store == Store.COLES
-    color = COLES_COLOUR if is_coles else WOOLWORTHS_COLOUR
     label = "Coles" if is_coles else "Woolworths"
 
     points = [{"x": fmt(dt, "%d-%b"), "y": price} for dt, price in rows]
@@ -423,65 +421,19 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
     if not points:
         return HTMLResponse('<div class="bg-gray-50 px-6 py-3 text-xs text-gray-400">No price history recorded yet.</div>')
 
-    canvas_id = f"pchart-{product_id}"
-    html = f"""
-    <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
-      <div style="position:relative;max-width:100%">
-      <canvas id="{canvas_id}" height="100"></canvas>
-      </div>
-      <script>
-      (function() {{
-        const ctx = document.getElementById('{canvas_id}').getContext('2d');
-        new Chart(ctx, {{
-          type: 'line',
-          data: {{
-            datasets: [{{
-              label: '{label}',
-              data: {json.dumps(points)},
-              borderColor: '{color}',
-              borderWidth: 1,
-              pointBackgroundColor: '{color}',
-              pointBorderColor: '{color}',
-              pointRadius: 2,
-              pointHoverRadius: 3,
-              tension: 0.2,
-              parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
-            }}]
-          }},
-          options: {{
-            responsive: true,
-            scales: {{
-              x: {{ type: 'category', title: {{ display: false }} }},
-              y: {{ title: {{ display: true, text: 'Price ($)' }}, beginAtZero: false }}
-            }},
-            plugins: {{
-              legend: {{
-                position: 'top',
-                labels: {{
-                  usePointStyle: true,
-                  font: {{ size: 9 }},
-                  boxWidth: 6,
-                  boxHeight: 6,
-                  padding: 4,
-                  generateLabels: () => [
-                    {{ text: '{label}', pointStyle: 'circle', fillStyle: '{color}', strokeStyle: '{color}' }}
-                  ]
-                }}
-              }}
-            }}
-          }}
-        }});
-      }})();
-      </script>
-    </div>"""
+    colour = COLES_COLOUR if is_coles else WOOLWORTHS_COLOUR
+    html = templates.env.get_template("_chart_single.html").render(
+        canvas_id=f"pchart-{product_id}",
+        points=points,
+        colour=colour,
+        label=label,
+    )
     return HTMLResponse(html)
 
 
 @router.get("/history/{match_id}")
-
 async def price_history(match_id: int, session: AsyncSession = Depends(get_session)):
     """Return a chart + table of price history for a matched product pair."""
-    import json
     from ..models import PriceHistory
     from sqlalchemy.orm import selectinload as sil
 
@@ -533,104 +485,17 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
     all_combined = [{"x": fmt(dt, "%d-%b"), "y": price}
                     for dt, price in sorted(list(coles_rows) + list(ww_rows), key=lambda r: r[0])]
 
-    canvas_id = f"chart-{match_id}"
-    html = f"""
-    <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
-      <div style="position:relative;max-width:100%">
-      <canvas id="{canvas_id}" height="100"></canvas>
-      </div>
-      <script>
-        (function() {{
-          const ctx = document.getElementById('{canvas_id}').getContext('2d');
-          const allPoints = {json.dumps(all_combined)};
-          const equalDates = new Set({json.dumps(equal_labels)});
-
-          const splitCanvas = (() => {{
-            const c = document.createElement('canvas');
-            c.width = 14; c.height = 14;
-            const cx = c.getContext('2d');
-            cx.beginPath(); cx.moveTo(7, 7);
-            cx.arc(7, 7, 6, Math.PI / 2, 3 * Math.PI / 2);
-            cx.closePath(); cx.fillStyle = '{COLES_COLOUR}'; cx.fill();
-            cx.beginPath(); cx.moveTo(7, 7);
-            cx.arc(7, 7, 6, -Math.PI / 2, Math.PI / 2);
-            cx.closePath(); cx.fillStyle = '{WOOLWORTHS_COLOUR}'; cx.fill();
-            return c;
-          }})();
-
-          new Chart(ctx, {{
-            type: 'line',
-            data: {{
-              datasets: [
-                {{
-                  label: 'Price',
-                  data: allPoints,
-                  borderColor: '{PRICE_LINE_COLOUR}',
-                  borderWidth: 1,
-                  pointRadius: 0,
-                  tension: 0.2,
-                  parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
-                }},
-                {{
-                  label: 'Coles',
-                  data: {json.dumps(coles_points)},
-                  borderColor: 'transparent',
-                  pointBackgroundColor: '{COLES_COLOUR}',
-                  pointBorderColor: '{COLES_COLOUR}',
-                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
-                  showLine: false,
-                  parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
-                }},
-                {{
-                  label: 'Woolworths',
-                  data: {json.dumps(ww_points)},
-                  borderColor: 'transparent',
-                  pointBackgroundColor: '{WOOLWORTHS_COLOUR}',
-                  pointBorderColor: '{WOOLWORTHS_COLOUR}',
-                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
-                  showLine: false,
-                  parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
-                }},
-                {{
-                  label: 'Same Price',
-                  data: {json.dumps(equal_points)},
-                  borderColor: 'transparent',
-                  pointStyle: splitCanvas,
-                  pointRadius: 2,
-                  showLine: false,
-                  parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
-                }}
-              ]
-            }},
-            options: {{
-              responsive: true,
-              scales: {{
-                x: {{ type: 'category', title: {{ display: false }} }},
-                y: {{ title: {{ display: true, text: 'Price ($)' }}, beginAtZero: false }}
-              }},
-              plugins: {{
-                legend: {{
-                  position: 'top',
-                  labels: {{
-                    usePointStyle: true,
-                    font: {{ size: 9 }},
-                    boxWidth: 6,
-                    boxHeight: 6,
-                    padding: 4,
-                    generateLabels: (chart) => [
-                      {{ text: 'Price', pointStyle: 'line', strokeStyle: '{PRICE_LINE_COLOUR}', lineWidth: 1, datasetIndex: 0 }},
-                      {{ text: 'Coles', pointStyle: 'circle', fillStyle: '{COLES_COLOUR}', strokeStyle: '{COLES_COLOUR}', datasetIndex: 1 }},
-                      {{ text: 'Woolworths', pointStyle: 'circle', fillStyle: '{WOOLWORTHS_COLOUR}', strokeStyle: '{WOOLWORTHS_COLOUR}', datasetIndex: 2 }},
-                      {{ text: 'Same Price', pointStyle: splitCanvas, datasetIndex: 3 }},
-                    ]
-                  }}
-                }}
-              }}
-            }}
-          }});
-        }})();
-        </script>
-    </div>"""
+    html = templates.env.get_template("_chart_match.html").render(
+        canvas_id=f"chart-{match_id}",
+        coles_points=coles_points,
+        ww_points=ww_points,
+        equal_points=equal_points,
+        equal_labels=equal_labels,
+        all_combined=all_combined,
+        coles_colour=COLES_COLOUR,
+        ww_colour=WOOLWORTHS_COLOUR,
+        price_line_colour=PRICE_LINE_COLOUR,
+    )
     return HTMLResponse(html)
 
 

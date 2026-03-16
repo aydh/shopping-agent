@@ -1,0 +1,19 @@
+{# Fragment: data management rows for the settings page.
+   Context: rows (list of dicts with label, count, also_deletes, endpoint, tid) #}
+{% for row in rows %}
+<tr>
+    <td class="px-3 sm:px-6 py-3 text-sm font-medium text-gray-900">{{ row.label }}</td>
+    <td class="px-3 sm:px-6 py-3 text-sm text-gray-500" id="{{ row.tid }}-count">{{ row.count }}</td>
+    <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden sm:table-cell">{{ row.also_deletes }}</td>
+    <td class="px-3 sm:px-6 py-3 text-right">
+        <span id="{{ row.tid }}-result" class="mr-2 text-sm"></span>
+        <button
+            hx-delete="{{ row.endpoint }}"
+            hx-target="#{{ row.tid }}-result"
+            hx-on:htmx:after-request="htmx.trigger('#data-mgmt-body', 'countsRefresh')"
+            class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">
+            Purge
+        </button>
+    </td>
+</tr>
+{% endfor %}
