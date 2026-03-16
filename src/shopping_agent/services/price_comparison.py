@@ -6,6 +6,13 @@ from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import (
+    BRAND_MATCH_THRESHOLD,
+    FUZZY_MATCH_THRESHOLD,
+    FUZZY_SEARCH_THRESHOLD,
+    SIZE_MATCH_BONUS,
+    SIZE_MISMATCH_PENALTY,
+)
 from ..models import Product, ProductMatch, Store
 from ..scrapers.base import BaseScraper, ScrapedProduct
 
@@ -83,20 +90,20 @@ def sizes_compatible(a: str | None, b: str | None) -> int:
         return 0
     # Try exact string match first (handles multi-packs like "3pk" etc.)
     if normalize_size(a) == normalize_size(b):
-        return 15
+        return SIZE_MATCH_BONUS
     # Try numeric comparison
     av, bv = size_to_grams(a), size_to_grams(b)
     if av is not None and bv is not None:
         if abs(av - bv) < 1:  # essentially equal (float rounding)
-            return 15
-        return -20  # both parseable but genuinely different sizes
+            return SIZE_MATCH_BONUS
+        return SIZE_MISMATCH_PENALTY  # both parseable but genuinely different sizes
     return 0
 
 
 def find_best_match(
     source: Product,
     candidates: list[Product],
-    threshold: float = 70.0,
+    threshold: float = FUZZY_MATCH_THRESHOLD,
 ) -> tuple[Product, float] | None:
     """Find the best matching product from candidates."""
     source_name = normalize_product_name(source.name)
@@ -109,7 +116,7 @@ def find_best_match(
         # Filter by brand first if available
         if source.brand and candidate.brand:
             brand_score = fuzz.ratio(source.brand.lower(), candidate.brand.lower())
-            if brand_score < 60:
+            if brand_score < BRAND_MATCH_THRESHOLD:
                 continue
 
         # Use both algorithms — token_set handles subset matches (e.g. "milk full cream 2L" vs "full cream milk 2L")
@@ -180,7 +187,7 @@ async def find_or_create_match(
                     search_products.append(p)
 
                 search_products = [p for p in search_products if p.id not in rejected_partner_ids]
-                search_match = find_best_match(product, search_products, threshold=65.0)
+                search_match = find_best_match(product, search_products, threshold=FUZZY_SEARCH_THRESHOLD)
                 if search_match:
                     matched_product, confidence = search_match
                     pm = await _insert_match_or_fetch_existing(

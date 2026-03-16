@@ -8,6 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..config import (
+    MIN_PREDICTION_CONFIDENCE,
+    PREDICTION_LEAD_TIME_DAYS,
+    PREDICTION_LOOKAHEAD_DAYS,
+    PREDICTION_PURCHASE_COUNT_MIN,
+    PRODUCT_RECENCY_DAYS,
+)
 from ..models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch
 
 logger = logging.getLogger(__name__)
@@ -170,7 +177,7 @@ async def refresh_predictions(session: AsyncSession) -> int:
     count = 0
 
     today = date.today()
-    recency_cutoff = today - timedelta(days=120)  # 4 months
+    recency_cutoff = today - timedelta(days=PRODUCT_RECENCY_DAYS)  # 4 months
 
     for initial_canon_id, member_ids in groups.items():
         # Collect combined purchase records from all members that have order history
@@ -253,9 +260,9 @@ async def refresh_predictions(session: AsyncSession) -> int:
 def generate_candidates(
     predictions: list[ConsumptionPrediction],
     target_date: date | None = None,
-    lookahead_days: int = 7,
-    lead_time_days: int = 7,
-    min_confidence: float = 0.3,
+    lookahead_days: int = PREDICTION_LOOKAHEAD_DAYS,
+    lead_time_days: int = PREDICTION_LEAD_TIME_DAYS,
+    min_confidence: float = MIN_PREDICTION_CONFIDENCE,
 ) -> list[ShoppingListCandidate]:
     """Generate shopping list candidates from predictions."""
     target_date = target_date or date.today()
@@ -264,7 +271,7 @@ def generate_candidates(
 
     candidates = []
     for pred in predictions:
-        if pred.confidence_score < min_confidence or pred.purchase_count < 3:
+        if pred.confidence_score < min_confidence or pred.purchase_count < PREDICTION_PURCHASE_COUNT_MIN:
             continue
         if window_start <= pred.predicted_runout_date <= window_end:
             qty = math.ceil(pred.estimated_daily_consumption * lookahead_days)

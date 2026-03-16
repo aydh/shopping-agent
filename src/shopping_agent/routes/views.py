@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..config import MIN_PREDICTION_CONFIDENCE
 from ..database import get_session
 from ..models import (
     ConsumptionPrediction,
@@ -59,7 +60,7 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
         select(ConsumptionPrediction)
         .options(selectinload(ConsumptionPrediction.product))
         .where(ConsumptionPrediction.predicted_runout_date <= week_ahead)
-        .where(ConsumptionPrediction.confidence_score >= 0.3)
+        .where(ConsumptionPrediction.confidence_score >= MIN_PREDICTION_CONFIDENCE)
         .order_by(ConsumptionPrediction.predicted_runout_date)
     )
     matches_result = await session.execute(

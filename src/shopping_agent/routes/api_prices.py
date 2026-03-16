@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import COLES_COLOUR, MIN_MATCH_CONFIDENCE, PRICE_LINE_COLOUR, PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_COLOUR
 from ..database import async_session, get_session
 from ..models import PriceHistory, Product, ProductMatch, Store
 from ..services.price_comparison import matches_to_comparisons
@@ -40,7 +41,7 @@ async def image_proxy(url: str):
 async def _do_price_refresh(store_enum: Store) -> None:
     """Background task: refresh prices for all products of a given store."""
     scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
-    concurrency = 10
+    concurrency = PRICE_REFRESH_CONCURRENCY
     key = store_enum.value
 
     async with async_session() as session:
@@ -414,7 +415,7 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
     def fmt(dt_str, f): return date_type.fromisoformat(dt_str).strftime(f)
 
     is_coles = product.store == Store.COLES
-    color = "#dc2626" if is_coles else "#16a34a"
+    color = COLES_COLOUR if is_coles else WOOLWORTHS_COLOUR
     label = "Coles" if is_coles else "Woolworths"
 
     points = [{"x": fmt(dt, "%d-%b"), "y": price} for dt, price in rows]
@@ -550,10 +551,10 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
             const cx = c.getContext('2d');
             cx.beginPath(); cx.moveTo(7, 7);
             cx.arc(7, 7, 6, Math.PI / 2, 3 * Math.PI / 2);
-            cx.closePath(); cx.fillStyle = '#dc2626'; cx.fill();
+            cx.closePath(); cx.fillStyle = '{COLES_COLOUR}'; cx.fill();
             cx.beginPath(); cx.moveTo(7, 7);
             cx.arc(7, 7, 6, -Math.PI / 2, Math.PI / 2);
-            cx.closePath(); cx.fillStyle = '#16a34a'; cx.fill();
+            cx.closePath(); cx.fillStyle = '{WOOLWORTHS_COLOUR}'; cx.fill();
             return c;
           }})();
 
@@ -564,7 +565,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                 {{
                   label: 'Price',
                   data: allPoints,
-                  borderColor: '#111827',
+                  borderColor: '{PRICE_LINE_COLOUR}',
                   borderWidth: 1,
                   pointRadius: 0,
                   tension: 0.2,
@@ -574,8 +575,8 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   label: 'Coles',
                   data: {json.dumps(coles_points)},
                   borderColor: 'transparent',
-                  pointBackgroundColor: '#dc2626',
-                  pointBorderColor: '#dc2626',
+                  pointBackgroundColor: '{COLES_COLOUR}',
+                  pointBorderColor: '{COLES_COLOUR}',
                   pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
@@ -584,8 +585,8 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   label: 'Woolworths',
                   data: {json.dumps(ww_points)},
                   borderColor: 'transparent',
-                  pointBackgroundColor: '#16a34a',
-                  pointBorderColor: '#16a34a',
+                  pointBackgroundColor: '{WOOLWORTHS_COLOUR}',
+                  pointBorderColor: '{WOOLWORTHS_COLOUR}',
                   pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
@@ -617,9 +618,9 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                     boxHeight: 6,
                     padding: 4,
                     generateLabels: (chart) => [
-                      {{ text: 'Price', pointStyle: 'line', strokeStyle: '#111827', lineWidth: 1, datasetIndex: 0 }},
-                      {{ text: 'Coles', pointStyle: 'circle', fillStyle: '#dc2626', strokeStyle: '#dc2626', datasetIndex: 1 }},
-                      {{ text: 'Woolworths', pointStyle: 'circle', fillStyle: '#16a34a', strokeStyle: '#16a34a', datasetIndex: 2 }},
+                      {{ text: 'Price', pointStyle: 'line', strokeStyle: '{PRICE_LINE_COLOUR}', lineWidth: 1, datasetIndex: 0 }},
+                      {{ text: 'Coles', pointStyle: 'circle', fillStyle: '{COLES_COLOUR}', strokeStyle: '{COLES_COLOUR}', datasetIndex: 1 }},
+                      {{ text: 'Woolworths', pointStyle: 'circle', fillStyle: '{WOOLWORTHS_COLOUR}', strokeStyle: '{WOOLWORTHS_COLOUR}', datasetIndex: 2 }},
                       {{ text: 'Same Price', pointStyle: splitCanvas, datasetIndex: 3 }},
                     ]
                   }}
