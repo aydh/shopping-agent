@@ -2,7 +2,7 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,9 +26,17 @@ async def image_proxy(url: str) -> Response:
             })
             if resp.status_code == 200:
                 return StreamingResponse(iter([resp.content]), media_type=resp.headers.get("content-type", "image/jpeg"))
-    except Exception:
-        pass
-    return Response(status_code=404)
+            raise httpx.HTTPStatusError(
+                f"Upstream returned {resp.status_code}", request=resp.request, response=resp
+            )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Image not found")
+        logger.warning("Image proxy upstream error: %d", exc.response.status_code)
+        raise HTTPException(status_code=502, detail="Upstream error fetching image")
+    except httpx.RequestError:
+        logger.exception("Network error fetching image")
+        raise HTTPException(status_code=502, detail="Network error fetching image")
 
 
 @router.post("/product/{product_id}/hide")

@@ -155,6 +155,7 @@ class ColesScraper(BaseScraper):
             try:
                 return len(json.loads(row.cookies_json)) > 0
             except Exception:
+                logger.warning("Failed to parse stored Coles cookies JSON", exc_info=True)
                 return False
 
     async def import_cookies(self, cookie_json: str) -> bool:
@@ -931,6 +932,7 @@ class ColesScraper(BaseScraper):
                 is_available=data.get("availability", True),
             )
         except Exception:
+            logger.debug("Failed to parse Coles search result", exc_info=True)
             return None
 
 

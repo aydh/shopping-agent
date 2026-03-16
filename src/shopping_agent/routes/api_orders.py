@@ -1,7 +1,10 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
@@ -53,8 +56,10 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
                     if order:
                         row_html = templates.env.get_template("partials/order_row.html").render(order=order)
                         yield f"event: order\ndata: {json.dumps({'html': row_html, 'is_new': count > 0})}\n\n"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.exception("Unexpected error syncing order %s", scraped_order.store_order_id)
+                    yield f"event: error\ndata: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+                    return
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
             return
@@ -65,6 +70,7 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
             async with async_session() as session:
                 matched_count = await match_unmatched_products(session, store_enum)
         except Exception:
+            logger.exception("Unexpected error during product matching after order sync")
             matched_count = 0
 
         yield f"event: done\ndata: {json.dumps({'new_count': new_count, 'matched': matched_count})}\n\n"
