@@ -7,6 +7,7 @@ from ..database import get_session
 from ..db_helpers import store_from_string
 from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from ..services.price_comparison import build_price_map
+from ..services.product_resolution import get_partner_product
 from ..services.shopping_list import (
     choose_best_store,
     confirm_list,
@@ -227,16 +228,9 @@ async def add_product_to_list(
         return HTMLResponse('<span class="text-red-600 text-xs">No active list — generate one first.</span>')
 
     # Already in list? Check both the product and its matched partner.
-    match_result = await session.execute(
-        select(ProductMatch).where(
-            (ProductMatch.product_a_id == product_id) | (ProductMatch.product_b_id == product_id),
-            ProductMatch.is_rejected == False,  # noqa: E712
-        )
-    )
-    match = match_result.scalars().first()
-    partner_id = None
-    if match:
-        partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
+    # We fetch the partner product early so we can also reuse it for price resolution below.
+    partner_product_early = await get_partner_product(session, product_id, "")
+    partner_id = partner_product_early.id if partner_product_early else None
 
     candidate_ids = [product_id] + ([partner_id] if partner_id else [])
     existing = (await session.execute(
@@ -260,18 +254,16 @@ async def add_product_to_list(
     if not product:
         return HTMLResponse('<span class="text-red-600 text-xs">Product not found.</span>')
 
-    # match and partner_id already resolved above
+    # partner_product_early and partner_id already resolved above
     coles_price = None
     woolworths_price = None
     chosen_store = product.store
 
-    if match:
-        pa = await session.get(Product, match.product_a_id)
-        pb = await session.get(Product, match.product_b_id)
-        coles_p = pa if pa.store == Store.COLES else pb
-        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
-        coles_price = coles_p.current_price
-        woolworths_price = ww_p.current_price
+    if partner_product_early:
+        coles_p = product if product.store == Store.COLES else partner_product_early
+        ww_p = product if product.store == Store.WOOLWORTHS else partner_product_early
+        coles_price = coles_p.current_price if coles_p else None
+        woolworths_price = ww_p.current_price if ww_p else None
         chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
     else:
         if product.store == Store.COLES:
@@ -441,20 +433,14 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
         product = await session.get(Product, src.product_id)
         if not product:
             continue
-        match = (await session.execute(
-            select(ProductMatch).where(
-                (ProductMatch.product_a_id == src.product_id) | (ProductMatch.product_b_id == src.product_id),
-                ProductMatch.is_rejected == False,  # noqa: E712
-            )
-        )).scalars().first()
+
+        partner = await get_partner_product(session, src.product_id, product.store.value)
 
         coles_price = None
         woolworths_price = None
-        if match:
-            pa = await session.get(Product, match.product_a_id)
-            pb = await session.get(Product, match.product_b_id)
-            coles_p = pa if pa.store == Store.COLES else pb
-            ww_p = pa if pa.store == Store.WOOLWORTHS else pb
+        if partner:
+            coles_p = product if product.store == Store.COLES else partner
+            ww_p = product if product.store == Store.WOOLWORTHS else partner
             coles_price = coles_p.current_price
             woolworths_price = ww_p.current_price
             chosen_store = choose_best_store(coles_price, woolworths_price, product.store)

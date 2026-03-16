@@ -16,13 +16,13 @@ from ...models import (
     ListStatus,
     PriceHistory,
     Product,
-    ProductMatch,
     ShoppingList,
     ShoppingListItem,
     Store,
 )
 from ...scrapers.coles import ColesScraper
 from ...scrapers.woolworths import WoolworthsScraper
+from ...services.product_resolution import get_partner_product
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -85,15 +85,9 @@ async def _do_price_refresh(store_enum: Store) -> None:
                             # Sync active shopping list items that reference this product
                             # or items for the matched partner product
                             affected_product_ids = [product_id]
-                            match = (await session.execute(
-                                select(ProductMatch).where(
-                                    (ProductMatch.product_a_id == product_id) | (ProductMatch.product_b_id == product_id),
-                                    ProductMatch.is_rejected == False,  # noqa: E712
-                                )
-                            )).scalars().first()
-                            if match:
-                                partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
-                                affected_product_ids.append(partner_id)
+                            partner = await get_partner_product(session, product_id, store_enum.value)
+                            if partner:
+                                affected_product_ids.append(partner.id)
                             active_items = (await session.execute(
                                 select(ShoppingListItem)
                                 .join(ShoppingList, ShoppingListItem.shopping_list_id == ShoppingList.id)

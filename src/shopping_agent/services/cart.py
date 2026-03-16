@@ -4,9 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
+from ..models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
+from .product_resolution import get_partner_product
 
 logger = logging.getLogger(__name__)
 
@@ -22,23 +23,7 @@ async def _resolve_store_product_id(
     if canonical_product.store == store:
         return canonical_product.store_product_id
 
-    result = await session.execute(
-        select(ProductMatch).where(
-            (
-                (ProductMatch.product_a_id == canonical_product.id)
-                | (ProductMatch.product_b_id == canonical_product.id)
-            ),
-            ProductMatch.is_rejected == False,  # noqa: E712
-        )
-    )
-    match = result.scalars().first()
-    if not match:
-        return None
-
-    partner_id = (
-        match.product_b_id if match.product_a_id == canonical_product.id else match.product_a_id
-    )
-    partner = await session.get(Product, partner_id)
+    partner = await get_partner_product(session, canonical_product.id, store.value)
     if partner and partner.store == store:
         return partner.store_product_id
 
