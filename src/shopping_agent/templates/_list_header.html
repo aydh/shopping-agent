@@ -1,0 +1,18 @@
+{# OOB header update fragment for the shopping list page.
+   Context: shopping_list (ShoppingList|None), has_list (bool), title (str),
+            new_cls, pred_cls, new_disabled, pred_disabled #}
+<div id="list-header" hx-swap-oob="innerHTML">
+    <h1 class="text-2xl font-bold text-gray-900">{{ title }}</h1>
+    <div class="flex flex-wrap gap-2 items-center">
+        <button hx-post="/api/shopping-list/new" hx-target="#list-content" hx-swap="innerHTML"
+                {{ new_disabled }} class="px-4 py-2 text-sm rounded {{ new_cls }}">New List</button>
+        <button hx-post="/api/shopping-list/add-predictions" hx-target="#list-content" hx-swap="innerHTML"
+                hx-indicator="#pred-spinner" {{ pred_disabled }}
+                class="px-4 py-2 text-sm rounded {{ pred_cls }}">Add Predicted Items</button>
+        <span id="pred-spinner" class="htmx-indicator text-gray-400 self-center text-sm">adding...</span>
+        {% if has_list %}
+        <button hx-delete="/api/shopping-list/current" hx-target="#list-content" hx-swap="innerHTML"
+                class="px-4 py-2 text-sm rounded bg-red-100 text-red-600 hover:bg-red-200">Delete List</button>
+        {% endif %}
+    </div>
+</div>

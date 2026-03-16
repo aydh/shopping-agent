@@ -21,27 +21,17 @@ from ..templating import templates
 router = APIRouter()
 
 
-def _list_header_oob(shopping_list) -> str:
-    """Render an OOB swap for #list-header reflecting the current list state."""
+def _list_header_oob(shopping_list: ShoppingList | None) -> str:
+    """Render the OOB list-header fragment."""
     has_list = shopping_list is not None
-    name = shopping_list.name if has_list else None
-    title = name if name else "Shopping List"
-    new_cls = "bg-gray-200 text-gray-400 cursor-not-allowed" if has_list else "bg-blue-600 text-white hover:bg-blue-700"
-    pred_cls = "bg-gray-200 text-gray-400 cursor-not-allowed" if not has_list else "bg-green-600 text-white hover:bg-green-700"
-    new_disabled = "disabled" if has_list else ""
-    pred_disabled = "disabled" if not has_list else ""
-    return f"""<div id="list-header" hx-swap-oob="innerHTML">
-    <h1 class="text-2xl font-bold text-gray-900">{title}</h1>
-    <div class="flex flex-wrap gap-2 items-center">
-        <button hx-post="/api/shopping-list/new" hx-target="#list-content" hx-swap="innerHTML"
-                {new_disabled} class="px-4 py-2 text-sm rounded {new_cls}">New List</button>
-        <button hx-post="/api/shopping-list/add-predictions" hx-target="#list-content" hx-swap="innerHTML"
-                hx-indicator="#pred-spinner" {pred_disabled}
-                class="px-4 py-2 text-sm rounded {pred_cls}">Add Predicted Items</button>
-        <span id="pred-spinner" class="htmx-indicator text-gray-400 self-center text-sm">adding...</span>
-        {'<button hx-delete="/api/shopping-list/current" hx-target="#list-content" hx-swap="innerHTML" class="px-4 py-2 text-sm rounded bg-red-100 text-red-600 hover:bg-red-200">Delete List</button>' if has_list else ''}
-    </div>
-</div>"""
+    return templates.get_template("_list_header.html").render(
+        has_list=has_list,
+        title=(shopping_list.name if has_list else None) or "Shopping List",
+        new_cls="bg-gray-200 text-gray-400 cursor-not-allowed" if has_list else "bg-blue-600 text-white hover:bg-blue-700",
+        pred_cls="bg-gray-200 text-gray-400 cursor-not-allowed" if not has_list else "bg-green-600 text-white hover:bg-green-700",
+        new_disabled="disabled" if has_list else "",
+        pred_disabled="disabled" if not has_list else "",
+    )
 
 
 @router.delete("/current")
@@ -382,29 +372,34 @@ async def submit_split(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/details/{list_id}")
-async def list_details(list_id: int, session: AsyncSession = Depends(get_session)):
+async def list_details(list_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Return an HTML fragment listing all items in a past shopping list."""
     items_result = await session.execute(
-        select(ShoppingListItem).where(
+        select(ShoppingListItem)
+        .where(
             ShoppingListItem.shopping_list_id == list_id,
             ShoppingListItem.is_removed == False,  # noqa: E712
         )
     )
     items = items_result.scalars().all()
+    product_ids = [i.product_id for i in items]
 
-    items_data = []
-    for item in items:
-        product = await session.get(Product, item.product_id)
-        if not product:
-            continue
-        items_data.append({
-            "name": product.name,
-            "quantity": item.quantity,
-            "coles_price": item.coles_price,
-            "woolworths_price": item.woolworths_price,
-            "product_id": item.product_id,
-        })
+    products_result = await session.execute(
+        select(Product).where(Product.id.in_(product_ids))
+    )
+    products_by_id = {p.id: p for p in products_result.scalars().all()}
 
+    items_data = [
+        {
+            "name": products_by_id[i.product_id].name,
+            "quantity": i.quantity,
+            "coles_price": i.coles_price,
+            "woolworths_price": i.woolworths_price,
+            "product_id": i.product_id,
+        }
+        for i in items
+        if i.product_id in products_by_id
+    ]
     html = templates.get_template("_past_list_details.html").render(items=items_data)
     return HTMLResponse(html)
 
