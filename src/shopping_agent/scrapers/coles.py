@@ -8,6 +8,7 @@ from datetime import datetime
 import httpx
 from sqlalchemy import select
 
+from ..config import settings
 from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
@@ -31,7 +32,7 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-AU,en;q=0.9",
     "Origin": COLES_BASE,
     "Referer": f"{COLES_BASE}/",
-    "Ocp-Apim-Subscription-Key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+    "Ocp-Apim-Subscription-Key": settings.coles_api_key,
     "dsch-channel": "coles.online.1site.desktop",
     "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
     "Sec-Ch-Ua-Mobile": "?0",
@@ -564,7 +565,7 @@ class ColesScraper(BaseScraper):
                 "/api/bff/products/search",
                 params={
                     "searchTerm": query,
-                    "subscription-key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+                    "subscription-key": settings.coles_api_key,
                     "storeId": "0584",
                     "start": 0,
                     "pageSize": 24,
@@ -640,7 +641,7 @@ class ColesScraper(BaseScraper):
                 "/api/bff/products/search",
                 params={
                     "searchTerm": search_term,
-                    "subscription-key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+                    "subscription-key": settings.coles_api_key,
                     "storeId": "0584",
                     "start": 0,
                 },
