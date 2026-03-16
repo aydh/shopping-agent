@@ -6,13 +6,13 @@
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
         <div class="flex flex-wrap gap-2 items-center">
-            <button hx-post="/api/orders/sync/coles" hx-target="#sync-progress-coles" hx-swap="outerHTML"
+            <button id="sync-btn-coles" onclick="syncOrders('coles')"
                     class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Sync Coles</button>
-            <button hx-post="/api/orders/sync/woolworths" hx-target="#sync-progress-woolworths" hx-swap="outerHTML"
+            <button id="sync-btn-woolworths" onclick="syncOrders('woolworths')"
                     class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Sync Woolworths</button>
         </div>
     </div>
-    <div class="flex gap-4">
+    <div class="flex gap-6 text-sm">
         <span id="sync-progress-coles"></span>
         <span id="sync-progress-woolworths"></span>
     </div>
@@ -55,6 +55,7 @@
     </div>
 </div>
 
+{% block scripts %}
 <script>
 function toggleOrderDetail(orderId, btn) {
     const row = document.getElementById('order-detail-row-' + orderId);
@@ -67,5 +68,85 @@ function toggleOrderDetail(orderId, btn) {
     row.classList.remove('hidden');
     htmx.ajax('GET', '/api/orders/' + orderId + '/items', {target: detail, swap: 'innerHTML'});
 }
+
+function syncOrders(store) {
+    const btn = document.getElementById('sync-btn-' + store);
+    const progress = document.getElementById('sync-progress-' + store);
+    btn.disabled = true;
+    progress.innerHTML = '<span class="text-blue-600">Connecting…</span>';
+
+    const es = new EventSource(`/api/orders/sync-stream/${store}`);
+    const tbody = document.getElementById('orders-table');
+    let seenIds = new Set();
+
+    // Track existing order IDs to avoid duplicates
+    tbody.querySelectorAll('tr[data-order-id]').forEach(tr => seenIds.add(tr.dataset.orderId));
+
+    es.addEventListener('fetching', () => {
+        progress.innerHTML = '<span class="text-blue-600">Fetching orders…</span>';
+    });
+
+    es.addEventListener('progress', (e) => {
+        const {fetched} = JSON.parse(e.data);
+        progress.innerHTML = `<span class="text-blue-600">${fetched} orders fetched…</span>`;
+    });
+
+    es.addEventListener('order', (e) => {
+        const {html, is_new} = JSON.parse(e.data);
+        if (!is_new) return;
+        // Remove empty-state row if present
+        const empty = tbody.querySelector('td[colspan]');
+        if (empty) empty.closest('tr').remove();
+        // Insert in date-descending order
+        const tmp = document.createElement('tbody');
+        tmp.innerHTML = html;
+        const newRow = tmp.firstElementChild;
+        const newDate = newRow.dataset.orderDate || '';
+        const rows = [...tbody.querySelectorAll('tr[data-order-date]')];
+        const after = rows.find(r => (r.dataset.orderDate || '') < newDate);
+        if (after) {
+            tbody.insertBefore(newRow, after);
+            // also insert the detail row (next sibling from tmp)
+            const detailRow = tmp.firstElementChild;
+            if (detailRow) tbody.insertBefore(detailRow, after);
+        } else {
+            tbody.appendChild(newRow);
+            const detailRow = tmp.firstElementChild;
+            if (detailRow) tbody.appendChild(detailRow);
+        }
+    });
+
+    es.addEventListener('matching', () => {
+        progress.innerHTML = '<span class="text-blue-600">Matching products…</span>';
+    });
+
+    es.addEventListener('done', (e) => {
+        es.close();
+        btn.disabled = false;
+        const {new_count, matched} = JSON.parse(e.data);
+        const matchMsg = matched ? `, ${matched} matched` : '';
+        progress.innerHTML = `<span class="text-green-600">Done — ${new_count} new orders${matchMsg}</span>`;
+    });
+
+    es.addEventListener('error', (e) => {
+        es.close();
+        btn.disabled = false;
+        try {
+            const {message} = JSON.parse(e.data);
+            progress.innerHTML = `<span class="text-red-600">${message}</span>`;
+        } catch {
+            progress.innerHTML = '<span class="text-red-600">Sync failed</span>';
+        }
+    });
+
+    es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        if (!progress.innerHTML.includes('Done') && !progress.innerHTML.includes('failed')) {
+            progress.innerHTML = '<span class="text-red-600">Connection lost</span>';
+        }
+    };
+}
 </script>
+{% endblock %}
 {% endblock %}

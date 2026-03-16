@@ -56,24 +56,74 @@ async def _do_price_refresh(store_enum: Store) -> None:
         async with sem:
             try:
                 scraped = await scraper.get_product_price(store_product_id, product_name)
-                if scraped:
-                    async with async_session() as session:
-                        product = await session.get(Product, product_id)
-                        if product:
+                async with async_session() as session:
+                    from datetime import date as date_type
+                    from sqlalchemy import func as sqlfunc
+                    from ..models import ListStatus, ProductMatch, ShoppingList, ShoppingListItem
+                    product = await session.get(Product, product_id)
+                    if product:
+                        if scraped and scraped.current_price:
                             product.current_price = scraped.current_price
-                            product.is_available = scraped.is_available
+                            product.is_available = True
                             if scraped.unit_price:
                                 product.unit_price = scraped.unit_price
                             if scraped.unit_price_measure:
                                 product.unit_price_measure = scraped.unit_price_measure
                             if scraped.image_url:
                                 product.image_url = scraped.image_url
-                            session.add(PriceHistory(product_id=product_id, store=store_enum, price=scraped.current_price))
-                            await session.commit()
-                    _refresh_progress[key]["done"] += 1
-                    return True
+                            # Upsert: update today's record if it exists, else insert
+                            existing_ph = (await session.execute(
+                                select(PriceHistory)
+                                .where(PriceHistory.product_id == product_id)
+                                .where(sqlfunc.date(PriceHistory.recorded_at) == date_type.today())
+                            )).scalars().first()
+                            if existing_ph:
+                                existing_ph.price = scraped.current_price
+                            else:
+                                session.add(PriceHistory(product_id=product_id, store=store_enum, price=scraped.current_price))
+                            # Sync active shopping list items that reference this product
+                            # or items for the matched partner product
+                            affected_product_ids = [product_id]
+                            match = (await session.execute(
+                                select(ProductMatch).where(
+                                    (ProductMatch.product_a_id == product_id) | (ProductMatch.product_b_id == product_id),
+                                    ProductMatch.is_rejected == False,  # noqa: E712
+                                )
+                            )).scalars().first()
+                            if match:
+                                partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
+                                affected_product_ids.append(partner_id)
+                            active_items = (await session.execute(
+                                select(ShoppingListItem)
+                                .join(ShoppingList, ShoppingListItem.shopping_list_id == ShoppingList.id)
+                                .where(
+                                    ShoppingList.status != ListStatus.ORDERED,
+                                    ShoppingListItem.is_removed == False,  # noqa: E712
+                                    ShoppingListItem.product_id.in_(affected_product_ids),
+                                )
+                            )).scalars().all()
+                            for sli in active_items:
+                                if store_enum == Store.COLES:
+                                    sli.coles_price = scraped.current_price
+                                else:
+                                    sli.woolworths_price = scraped.current_price
+                        else:
+                            # No response or no price returned — mark unavailable
+                            product.is_available = False
+                            product.current_price = None
+                        await session.commit()
+                _refresh_progress[key]["done"] += 1
+                return bool(scraped and scraped.current_price)
             except Exception as e:
                 logger.error("[PriceRefresh] Error for product %s: %s", store_product_id, e)
+                try:
+                    async with async_session() as session:
+                        product = await session.get(Product, product_id)
+                        if product:
+                            product.is_available = False
+                            await session.commit()
+                except Exception:
+                    pass
             _refresh_progress[key]["done"] += 1
             return False
 
@@ -126,9 +176,11 @@ async def refresh_progress(store: str):
             f' hx-swap="outerHTML">{done}/{total}</span>'
         )
     updated = state.get("updated", done)
-    return HTMLResponse(
+    response = HTMLResponse(
         f'<span class="text-green-600 text-sm">Done — {updated}/{total} updated</span>'
     )
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.post("/confirm-match/{match_id}")
@@ -312,7 +364,8 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
               borderWidth: 1,
               pointBackgroundColor: '{color}',
               pointBorderColor: '{color}',
-              pointRadius: 4,
+              pointRadius: 2,
+              pointHoverRadius: 3,
               tension: 0.2,
               parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
             }}]
@@ -328,6 +381,10 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
                 position: 'top',
                 labels: {{
                   usePointStyle: true,
+                  font: {{ size: 9 }},
+                  boxWidth: 6,
+                  boxHeight: 6,
+                  padding: 4,
                   generateLabels: () => [
                     {{ text: '{label}', pointStyle: 'circle', fillStyle: '{color}', strokeStyle: '{color}' }}
                   ]
@@ -442,7 +499,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   borderColor: 'transparent',
                   pointBackgroundColor: '#dc2626',
                   pointBorderColor: '#dc2626',
-                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 6,
+                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }},
@@ -452,7 +509,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   borderColor: 'transparent',
                   pointBackgroundColor: '#16a34a',
                   pointBorderColor: '#16a34a',
-                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 6,
+                  pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }},
@@ -461,7 +518,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   data: {json.dumps(equal_points)},
                   borderColor: 'transparent',
                   pointStyle: splitCanvas,
-                  pointRadius: 7,
+                  pointRadius: 2,
                   showLine: false,
                   parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }}
                 }}
@@ -478,6 +535,10 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
                   position: 'top',
                   labels: {{
                     usePointStyle: true,
+                    font: {{ size: 9 }},
+                    boxWidth: 6,
+                    boxHeight: 6,
+                    padding: 4,
                     generateLabels: (chart) => [
                       {{ text: 'Price', pointStyle: 'line', strokeStyle: '#111827', lineWidth: 1, datasetIndex: 0 }},
                       {{ text: 'Coles', pointStyle: 'circle', fillStyle: '#dc2626', strokeStyle: '#dc2626', datasetIndex: 1 }},

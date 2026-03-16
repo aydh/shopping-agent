@@ -463,40 +463,44 @@ class WoolworthsScraper(BaseScraper):
 
     # ── Add to Cart ──────────────────────────────────────────────────
 
-    async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
-        # (endpoint, method, payload_factory)
+    async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
         attempts = [
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: {"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}),
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: [{"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}]),
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: {"items": [{"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}]}),
         ]
+        results: dict[str, bool] = {}
         try:
             for product_id, quantity in items:
                 success = False
-                for endpoint, method, make_payload in attempts:
-                    payload = make_payload(int(product_id), quantity)
-                    resp = await self._request(method, endpoint, json=payload)
-                    body = resp.text[:300] if resp else None
-                    logger.info(
-                        "Woolworths add-to-cart %s %s product=%s status=%s body=%s",
-                        method, endpoint, product_id,
-                        resp.status_code if resp else None,
-                        body,
-                    )
-                    if resp and resp.status_code == 200 and resp.text.strip().startswith("{"):
-                        data = resp.json()
-                        if data.get("AvailableItems") or data.get("BundleItems"):
-                            success = True
-                            break
+                try:
+                    for endpoint, method, make_payload in attempts:
+                        payload = make_payload(int(product_id), quantity)
+                        resp = await self._request(method, endpoint, json=payload)
+                        body = resp.text[:300] if resp else None
+                        logger.info(
+                            "Woolworths add-to-cart %s %s product=%s status=%s body=%s",
+                            method, endpoint, product_id,
+                            resp.status_code if resp else None,
+                            body,
+                        )
+                        if resp and resp.status_code == 200 and resp.text.strip().startswith("{"):
+                            data = resp.json()
+                            if data.get("AvailableItems") or data.get("BundleItems"):
+                                success = True
+                                break
+                except Exception:
+                    logger.exception("Woolworths add to cart failed for product %s", product_id)
                 if not success:
                     logger.warning("Failed to add Woolworths product %s to cart", product_id)
-                    return False
-
+                results[str(product_id)] = success
             await self._save_cookies_from_client()
-            return True
         except Exception:
             logger.exception("Woolworths add to cart failed")
-            return False
+            for product_id, _ in items:
+                if str(product_id) not in results:
+                    results[str(product_id)] = False
+        return results
 
     async def get_cart_url(self) -> str:
         return WOOLWORTHS_BASE
@@ -678,7 +682,13 @@ class WoolworthsScraper(BaseScraper):
                 unit_price_measure=data.get("CupMeasure")
                 or data.get("cupMeasure"),
                 image_url=data.get("MediumImageFile") or data.get("imageUrl"),
-                product_url=data.get("UrlFriendlyName"),
+                product_url=(
+                    f"{WOOLWORTHS_BASE}/shop/productdetails/"
+                    f"{data.get('Stockcode') or data.get('stockcode')}/"
+                    f"{data.get('UrlFriendlyName')}"
+                    if (data.get("Stockcode") or data.get("stockcode")) and data.get("UrlFriendlyName")
+                    else None
+                ),
                 is_available=data.get("IsAvailable", True),
             )
         except Exception:

@@ -1,101 +1,178 @@
 {% if shopping_list and shopping_list.items %}
+{% set active_items_list = shopping_list.items | selectattr('is_removed', 'equalto', false) | list %}
+{% set all_have_coles = active_items_list | rejectattr('coles_price') | list | length == 0 %}
+{% set all_have_ww = active_items_list | rejectattr('woolworths_price') | list | length == 0 %}
+
 <!-- Price Summary -->
 <div id="list-totals" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-    <div class="bg-red-50 rounded-lg p-4 border border-red-200">
+
+    <!-- Coles Total -->
+    <div class="bg-red-50 rounded-lg p-4 border border-red-200 flex flex-col">
         <p class="text-sm text-red-600 font-medium">Coles Total</p>
-        <p class="text-2xl font-bold text-red-700">${{ "%.2f" | format(coles_total) }}</p>
+        <p class="text-2xl font-bold text-red-700 mb-3">${{ "%.2f" | format(coles_total) }}</p>
+        <div class="mt-auto">
+            {% if not all_have_coles %}
+            <p class="text-xs text-red-400 mb-1">Some items unavailable at Coles</p>
+            {% endif %}
+            <form method="post" action="/api/shopping-list/submit-store/coles">
+                <button type="submit" {% if not all_have_coles %}disabled{% endif %}
+                        class="w-full px-4 py-2 rounded font-medium text-sm {% if all_have_coles %}bg-red-600 text-white hover:bg-red-700{% else %}bg-red-200 text-red-400 cursor-not-allowed{% endif %}">
+                    Review &amp; Submit Coles Order
+                </button>
+            </form>
+        </div>
     </div>
-    <div class="bg-green-50 rounded-lg p-4 border border-green-200">
+
+    <!-- Woolworths Total -->
+    <div class="bg-green-50 rounded-lg p-4 border border-green-200 flex flex-col">
         <p class="text-sm text-green-600 font-medium">Woolworths Total</p>
-        <p class="text-2xl font-bold text-green-700">${{ "%.2f" | format(woolworths_total) }}</p>
+        <p class="text-2xl font-bold text-green-700 mb-3">${{ "%.2f" | format(woolworths_total) }}</p>
+        <div class="mt-auto">
+            {% if not all_have_ww %}
+            <p class="text-xs text-green-500 mb-1">Some items unavailable at Woolworths</p>
+            {% endif %}
+            <form method="post" action="/api/shopping-list/submit-store/woolworths">
+                <button type="submit" {% if not all_have_ww %}disabled{% endif %}
+                        class="w-full px-4 py-2 rounded font-medium text-sm {% if all_have_ww %}bg-green-600 text-white hover:bg-green-700{% else %}bg-green-200 text-green-400 cursor-not-allowed{% endif %}">
+                    Review &amp; Submit Woolworths Order
+                </button>
+            </form>
+        </div>
     </div>
-    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <p class="text-sm text-blue-600 font-medium">Recommended</p>
-        <p class="text-2xl font-bold text-blue-700">${{ "%.2f" | format(best_total) }}</p>
-        <p class="text-xs text-blue-500">{{ recommendation }}</p>
+
+    <!-- Split Shop -->
+    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200 flex flex-col">
+        <p class="text-sm text-blue-600 font-medium">Split Shop for Minimum Cost</p>
+        <p class="text-2xl font-bold text-blue-700 mb-1">${{ "%.2f" | format(best_total) }}</p>
+        <p class="text-xs text-blue-500 mb-3">{{ recommendation }}</p>
+        <div class="mt-auto">
+            <form method="post" action="/api/shopping-list/submit-split">
+                <button type="submit"
+                        class="w-full px-4 py-2 bg-blue-600 text-white rounded font-medium text-sm hover:bg-blue-700">
+                    Review &amp; Submit Split Order
+                </button>
+            </form>
+        </div>
     </div>
+
 </div>
 
-<!-- Items List -->
-<div class="bg-white rounded-lg shadow divide-y divide-gray-200">
-    {% for item in shopping_list.items %}
-    {% if not item.is_removed %}
-    {% set names = store_names[item.id] %}
-    {% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price <= item.woolworths_price) %}
-    {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price <= item.coles_price) %}
-    <div id="item-{{ item.id }}" class="px-4 py-3 space-y-2">
+<!-- Items Table -->
+<style>
+    @media (min-width: 768px) {
+        .sl-header, .sl-row { display: grid; grid-template-columns: 1fr 1fr 8rem 3rem; gap: 1rem; align-items: center; }
+        .sl-products { display: contents; }
+        .sl-actions { display: contents; }
+    }
+</style>
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <!-- Column headers (desktop only) -->
+    <div class="sl-header hidden md:grid px-4 sm:px-6 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
+        <div>Coles</div>
+        <div>Woolworths</div>
+        <div class="text-center">Qty</div>
+        <div></div>
+    </div>
 
-        <!-- Row 1: Coles -->
-        <div class="flex items-center justify-between rounded px-2 py-1 {% if coles_cheaper %}ring-2 ring-red-400 bg-red-50{% endif %}">
-            <span class="text-sm font-medium text-red-700">{{ names.coles or display_names[item.id] }}</span>
-            <span class="text-sm font-semibold text-red-700 ml-3 shrink-0">
-                {% if item.coles_price %}${{ "%.2f" | format(item.coles_price) }}{% else %}—{% endif %}
-            </span>
+    <div class="divide-y divide-gray-200">
+        {% for item in shopping_list.items %}
+        {% if not item.is_removed %}
+        {% set sp = store_products.get(item.id, {}) %}
+        {% set coles_p = sp.get('coles') %}
+        {% set ww_p = sp.get('woolworths') %}
+        {% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price < item.woolworths_price) %}
+        {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
+
+        <div class="sl-row px-4 sm:px-6 py-3">
+
+            <!-- Products: side-by-side on mobile, grid cells on desktop -->
+            <div class="sl-products flex gap-3 mb-3 md:mb-0">
+
+                <!-- Coles cell -->
+                {% set coles_unavailable = not item.coles_price %}
+                <div class="flex-1 min-w-0 rounded-lg p-2 {% if coles_cheaper %}ring-2 ring-blue-400 bg-blue-50{% elif coles_unavailable %}ring-2 ring-yellow-400 bg-yellow-50{% endif %}">
+                    {% if coles_p %}
+                    {% set url = coles_p.product_url | product_url(coles_p.store_product_id, coles_p.store.value, coles_p.name) %}
+                    <div class="flex items-start gap-2">
+                        {% if coles_p.image_url %}
+                        {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="flex-shrink-0"><img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover hover:opacity-80"></a>
+                        {% else %}<img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">{% endif %}
+                        {% else %}<div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>{% endif %}
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-medium text-red-600 md:hidden">Coles</p>
+                            {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline line-clamp-2 block">{{ coles_p.name }}</a>
+                            {% else %}<p class="text-sm font-medium text-gray-900 line-clamp-2">{{ coles_p.name }}</p>{% endif %}
+                            {% if coles_p.brand or coles_p.unit_size %}<p class="text-xs text-gray-400">{{ [coles_p.brand, coles_p.unit_size] | select | join(' · ') }}</p>{% endif %}
+                            {% if item.coles_price %}
+                            <p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(item.coles_price) }}</p>
+                            {% else %}
+                            <p class="text-xs font-medium text-yellow-600">Unavailable</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="text-xs text-gray-400 md:hidden font-medium">Coles</p>
+                    <p class="text-xs font-medium text-yellow-600 mt-1">Unavailable</p>
+                    {% endif %}
+                </div>
+
+                <!-- Woolworths cell -->
+                {% set ww_unavailable = not item.woolworths_price %}
+                <div class="flex-1 min-w-0 rounded-lg p-2 {% if ww_cheaper %}ring-2 ring-blue-400 bg-blue-50{% elif ww_unavailable %}ring-2 ring-yellow-400 bg-yellow-50{% endif %}">
+                    {% if ww_p %}
+                    {% set url = ww_p.product_url | product_url(ww_p.store_product_id, ww_p.store.value, ww_p.name) %}
+                    <div class="flex items-start gap-2">
+                        {% if ww_p.image_url %}
+                        {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="flex-shrink-0"><img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover hover:opacity-80"></a>
+                        {% else %}<img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">{% endif %}
+                        {% else %}<div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>{% endif %}
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-medium text-green-600 md:hidden">Woolworths</p>
+                            {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline line-clamp-2 block">{{ ww_p.name }}</a>
+                            {% else %}<p class="text-sm font-medium text-gray-900 line-clamp-2">{{ ww_p.name }}</p>{% endif %}
+                            {% if ww_p.brand or ww_p.unit_size %}<p class="text-xs text-gray-400">{{ [ww_p.brand, ww_p.unit_size] | select | join(' · ') }}</p>{% endif %}
+                            {% if item.woolworths_price %}
+                            <p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(item.woolworths_price) }}</p>
+                            {% else %}
+                            <p class="text-xs font-medium text-yellow-600">Unavailable</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="text-xs text-gray-400 md:hidden font-medium">Woolworths</p>
+                    <p class="text-xs font-medium text-yellow-600 mt-1">Unavailable</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Actions: inline on mobile, grid cells on desktop -->
+            <div class="sl-actions flex items-center gap-3 md:gap-0">
+
+                <!-- Quantity stepper -->
+                <div class="flex items-center rounded-lg border border-gray-300 overflow-hidden text-sm">
+                    <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
+                            hx-vals='{"quantity": {{ item.quantity - 1 }}}'
+                            hx-target="#list-content" hx-swap="innerHTML"
+                            class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-r border-gray-300 leading-none">−</button>
+                    <span class="px-3 py-1.5 text-gray-900 font-medium min-w-[2rem] text-center">{{ item.quantity }}</span>
+                    <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
+                            hx-vals='{"quantity": {{ item.quantity + 1 }}}'
+                            hx-target="#list-content" hx-swap="innerHTML"
+                            class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-l border-gray-300 leading-none">+</button>
+                </div>
+
+                <!-- Remove -->
+                <button hx-delete="/api/shopping-list/items/{{ item.id }}"
+                        hx-target="#list-content" hx-swap="innerHTML"
+                        class="text-red-400 hover:text-red-600 text-xs ml-auto md:ml-0">✕</button>
+            </div>
+
         </div>
-
-        <!-- Row 2: Woolworths -->
-        <div class="flex items-center justify-between rounded px-2 py-1 {% if ww_cheaper %}ring-2 ring-green-500 bg-green-50{% endif %}">
-            <span class="text-sm font-medium text-green-700">{{ names.woolworths or display_names[item.id] }}</span>
-            <span class="text-sm font-semibold text-green-700 ml-3 shrink-0">
-                {% if item.woolworths_price %}${{ "%.2f" | format(item.woolworths_price) }}{% else %}—{% endif %}
-            </span>
-        </div>
-
-        <!-- Row 3: Qty, store selector, remove -->
-        <div class="flex items-center gap-3">
-            <input type="number" value="{{ item.quantity }}" min="1" max="99"
-                   hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
-                   hx-trigger="change" hx-target="#list-content" hx-swap="innerHTML"
-                   name="quantity"
-                   class="w-14 border border-gray-300 rounded px-2 py-1 text-sm">
-            <select hx-post="/api/shopping-list/items/{{ item.id }}/store"
-                    hx-target="#list-content" hx-swap="innerHTML"
-                    name="store"
-                    class="border border-gray-300 rounded px-2 py-1 text-sm">
-                <option value="coles" {% if item.chosen_store and item.chosen_store.value == 'coles' %}selected{% endif %}>Coles</option>
-                <option value="woolworths" {% if item.chosen_store and item.chosen_store.value == 'woolworths' %}selected{% endif %}>Woolworths</option>
-            </select>
-            <button hx-delete="/api/shopping-list/items/{{ item.id }}"
-                    hx-target="#item-{{ item.id }}" hx-swap="outerHTML"
-                    class="text-red-400 hover:text-red-600 text-sm ml-auto">Remove</button>
-        </div>
-
-        <!-- Row 4: Reason -->
-        {% if item.reason %}
-        <p class="text-xs text-gray-400 px-2">{{ item.reason }}</p>
         {% endif %}
-
+        {% endfor %}
     </div>
-    {% endif %}
-    {% endfor %}
 </div>
 
-<!-- Store selector + Confirm -->
-<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
-    <div class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-gray-500">Shop at:</span>
-        <button hx-post="/api/shopping-list/set-store/coles"
-                hx-target="#list-content" hx-swap="innerHTML"
-                class="px-3 py-1.5 text-sm rounded border {% if single_store and single_store.value == 'coles' %}bg-red-600 text-white border-red-600{% else %}bg-white text-red-700 border-red-300 hover:bg-red-50{% endif %}">
-            Coles
-        </button>
-        <button hx-post="/api/shopping-list/set-store/woolworths"
-                hx-target="#list-content" hx-swap="innerHTML"
-                class="px-3 py-1.5 text-sm rounded border {% if single_store and single_store.value == 'woolworths' %}bg-green-600 text-white border-green-600{% else %}bg-white text-green-700 border-green-300 hover:bg-green-50{% endif %}">
-            Woolworths
-        </button>
-        {% if not single_store %}
-        <span class="text-xs text-amber-600">Select a single store to continue</span>
-        {% endif %}
-    </div>
-    <form method="post" action="/api/shopping-list/confirm/{{ shopping_list.id }}">
-        <button type="submit"
-                {% if not single_store %}disabled{% endif %}
-                class="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded font-medium {% if single_store %}hover:bg-blue-700{% else %}opacity-40 cursor-not-allowed{% endif %}">
-            Review & Create Order
-        </button>
-    </form>
-</div>
 {% else %}
 <div class="text-center py-12 text-gray-500">
     No shopping list yet. Click "Generate List" to create one based on your purchase patterns.

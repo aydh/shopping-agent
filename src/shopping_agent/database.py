@@ -13,32 +13,6 @@ async def get_session() -> AsyncSession:
 
 async def init_db() -> None:
     from .models.base import Base
-    from sqlalchemy import text
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Add is_rejected column if it doesn't exist (idempotent migration)
-        try:
-            await conn.execute(text(
-                "ALTER TABLE product_matches ADD COLUMN is_rejected BOOLEAN NOT NULL DEFAULT 0"
-            ))
-        except Exception:
-            pass  # Column already exists
-        try:
-            await conn.execute(text(
-                "ALTER TABLE products ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0"
-            ))
-        except Exception:
-            pass  # Column already exists
-        try:
-            await conn.execute(text(
-                "ALTER TABLE orders ADD COLUMN store_name VARCHAR(256)"
-            ))
-        except Exception:
-            pass  # Column already exists
-        try:
-            await conn.execute(text(
-                "ALTER TABLE orders ADD COLUMN store_id VARCHAR(64)"
-            ))
-        except Exception:
-            pass  # Column already exists

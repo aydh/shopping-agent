@@ -534,6 +534,106 @@ class ColesScraper(BaseScraper):
 
         return orders
 
+    async def stream_order_history(self, limit: int = 10):
+        """Yield ScrapedOrder one at a time as each order's items are fetched."""
+        PAGE_SIZE = 20
+        online_count = 0
+        instore_count = 0
+        try:
+            for status in ("past", "active"):
+                page = 1
+                while online_count < limit:
+                    resp = await self._request(
+                        "GET", "/api/bff/orders",
+                        params={"status": status, "pageNumber": page, "pageSize": PAGE_SIZE},
+                    )
+                    if not resp or resp.status_code != 200:
+                        break
+                    data = resp.json()
+                    order_list = (
+                        data.get("orders")
+                        or data.get("data", {}).get("orders")
+                        or (data if isinstance(data, list) else [])
+                    )
+                    if not order_list:
+                        break
+                    for order_data in order_list:
+                        if online_count >= limit:
+                            break
+                        order_id = str(
+                            order_data.get("id") or order_data.get("orderId")
+                            or order_data.get("orderNumber") or ""
+                        )
+                        if not order_id:
+                            continue
+                        items_resp = await self._request("GET", f"/api/bff/orders/{order_id}/items")
+                        items = []
+                        if items_resp and items_resp.status_code == 200:
+                            items_data = items_resp.json()
+                            raw_items = (
+                                items_data.get("items") or items_data.get("orderItems")
+                                or items_data.get("lineItems")
+                                or (items_data if isinstance(items_data, list) else [])
+                            )
+                            for item_data in raw_items:
+                                item = self._parse_order_item(item_data)
+                                if item:
+                                    items.append(item)
+                        order = self._parse_bff_order(order_data, items)
+                        if order:
+                            yield order
+                            online_count += 1
+                    if len(order_list) < PAGE_SIZE:
+                        break
+                    page += 1
+
+            page = 1
+            while instore_count < limit:
+                resp = await self._request(
+                    "GET", "/api/bff/orders",
+                    params={"status": "in-store", "pageNumber": page, "pageSize": PAGE_SIZE},
+                )
+                if not resp or resp.status_code != 200:
+                    break
+                data = resp.json()
+                order_list = (
+                    data.get("orders") or data.get("data", {}).get("orders")
+                    or (data if isinstance(data, list) else [])
+                )
+                if not order_list:
+                    break
+                for order_data in order_list:
+                    if instore_count >= limit:
+                        break
+                    order_id = str(order_data.get("orderId") or order_data.get("id") or "")
+                    txn_id = str(order_data.get("transactionId") or order_data.get("transactionBarcode") or "")
+                    if not order_id or not txn_id:
+                        continue
+                    detail_resp = await self._request(
+                        "GET", f"/api/bff/orders/{order_id}",
+                        headers={"x-api-version": "2", "x-transaction-id": txn_id},
+                    )
+                    items = []
+                    if detail_resp and detail_resp.status_code == 200:
+                        detail = detail_resp.json()
+                        for item_data in detail.get("items", []):
+                            item = self._parse_instore_item(item_data)
+                            if item:
+                                items.append(item)
+                    instore_data = dict(order_data)
+                    instore_data["orderId"] = f"instore-{txn_id}"
+                    order = self._parse_bff_order(instore_data, items)
+                    if order:
+                        yield order
+                        instore_count += 1
+                if len(order_list) < PAGE_SIZE:
+                    break
+                page += 1
+
+            await self._save_cookies_from_client()
+        except Exception:
+            logger.exception("Failed to stream Coles order history")
+
     # ── Product Search ───────────────────────────────────────────────
 
     async def search_product(self, query: str) -> list[ScrapedProduct]:
@@ -678,31 +778,38 @@ class ColesScraper(BaseScraper):
 
     # ── Add to Cart ──────────────────────────────────────────────────
 
-    async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
-        # Extract numeric store ID from "COL:7674" -> "7674"
+    async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
         store_num = COLES_STORE_ID.split(":")[-1]
         endpoint = f"/api/bff/trolley/store/{store_num}/items"
+        results: dict[str, bool] = {}
         try:
             for product_id, quantity in items:
-                resp = await self._request(
-                    "POST",
-                    endpoint,
-                    json={"items": [{"productId": int(product_id), "quantity": quantity}]},
-                )
-                if not resp or resp.status_code not in (200, 201):
-                    logger.warning(
-                        "Failed to add Coles product %s to cart (status=%s body=%s)",
-                        product_id,
-                        resp.status_code if resp else None,
-                        resp.text[:300] if resp else None,
+                try:
+                    resp = await self._request(
+                        "POST",
+                        endpoint,
+                        json={"items": [{"productId": int(product_id), "quantity": quantity}]},
                     )
-                    return False
-
+                    if resp and resp.status_code in (200, 201):
+                        results[str(product_id)] = True
+                    else:
+                        logger.warning(
+                            "Failed to add Coles product %s to cart (status=%s body=%s)",
+                            product_id,
+                            resp.status_code if resp else None,
+                            resp.text[:300] if resp else None,
+                        )
+                        results[str(product_id)] = False
+                except Exception:
+                    logger.exception("Coles add to cart failed for product %s", product_id)
+                    results[str(product_id)] = False
             await self._save_cookies_from_client()
-            return True
         except Exception:
             logger.exception("Coles add to cart failed")
-            return False
+            for product_id, _ in items:
+                if str(product_id) not in results:
+                    results[str(product_id)] = False
+        return results
 
     async def get_cart_url(self) -> str:
         return COLES_BASE
@@ -780,7 +887,7 @@ class ColesScraper(BaseScraper):
             product = data.get("product") or {}
             image_uri = (product.get("imageUris") or [{}])[0].get("uri") or ""
             image_url = (
-                f"https://productimages.coles.com.au/productimages/1-E1{image_uri}"
+                f"https://cdn.productimages.coles.com.au/productimages{image_uri}"
                 if image_uri else None
             )
 
@@ -838,7 +945,7 @@ class ColesScraper(BaseScraper):
             image_uris = data.get("imageUris") or []
             image_uri = image_uris[0].get("uri") if image_uris else None
             image_url = (
-                f"https://productimages.coles.com.au/productimages/1-E1{image_uri}"
+                f"https://cdn.productimages.coles.com.au/productimages{image_uri}"
                 if image_uri else None
             )
 
@@ -863,7 +970,7 @@ class ColesScraper(BaseScraper):
             image_uris = data.get("imageUris") or []
             image_uri = image_uris[0].get("uri") if image_uris else None
             image_url = (
-                f"https://productimages.coles.com.au/productimages/1-E1{image_uri}"
+                f"https://cdn.productimages.coles.com.au/productimages{image_uri}"
                 if image_uri else None
             )
             product_id = str(data.get("id") or "")

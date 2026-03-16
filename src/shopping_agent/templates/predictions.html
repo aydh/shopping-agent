@@ -6,6 +6,10 @@
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 class="text-2xl font-bold text-gray-900">Consumption Predictions</h1>
         <div class="flex items-center gap-2">
+            <button id="show-all-ph-btn" onclick="toggleAllPriceHistories(this)"
+                    class="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                Show All Price Histories
+            </button>
             <button hx-post="/api/predictions/refresh" hx-target="#predictions-grid" hx-indicator="#refresh-spinner"
                     class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
                 Refresh Predictions
@@ -31,5 +35,44 @@ document.getElementById('predictions-search').addEventListener('keyup', function
         card.style.display = card.textContent.toLowerCase().includes(term) ? '' : 'none';
     });
 });
+
+async function loadAllPriceHistories(btn) {
+    const cards = document.querySelectorAll('#predictions-grid [data-ph-url]');
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+
+    await Promise.all(Array.from(cards).map(async card => {
+        const d = card.querySelector('.ph-content');
+        if (!d) return;
+        if (d.dataset.loaded) { d.classList.remove('hidden'); return; }
+        // Show first so canvas has real dimensions when Chart.js renders
+        d.classList.remove('hidden');
+        try {
+            const resp = await fetch(card.dataset.phUrl);
+            const html = await resp.text();
+            d.innerHTML = html;
+            // Re-execute scripts (innerHTML doesn't run them)
+            d.querySelectorAll('script').forEach(s => {
+                const ns = document.createElement('script');
+                ns.textContent = s.textContent;
+                s.replaceWith(ns);
+            });
+            d.dataset.loaded = '1';
+        } catch(e) { d.classList.add('hidden'); }
+    }));
+
+    btn.disabled = false;
+    btn.textContent = 'Hide All Price Histories';
+}
+
+function toggleAllPriceHistories(btn) {
+    const anyVisible = !!document.querySelector('#predictions-grid .ph-content:not(.hidden)');
+    if (anyVisible) {
+        document.querySelectorAll('#predictions-grid .ph-content').forEach(d => d.classList.add('hidden'));
+        btn.textContent = 'Show All Price Histories';
+    } else {
+        loadAllPriceHistories(btn);
+    }
+}
 </script>
 {% endblock %}

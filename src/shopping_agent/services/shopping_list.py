@@ -126,7 +126,10 @@ async def update_item_quantity(
 ) -> ShoppingListItem | None:
     item = await session.get(ShoppingListItem, item_id)
     if item:
-        item.quantity = max(1, quantity)
+        if quantity <= 0:
+            item.is_removed = True
+        else:
+            item.quantity = quantity
         await session.commit()
     return item
 

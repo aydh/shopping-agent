@@ -1,5 +1,7 @@
-from fastapi import APIRouter, BackgroundTasks, Depends
-from fastapi.responses import HTMLResponse
+import json
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
@@ -10,74 +12,66 @@ from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from ..services.order_sync import sync_orders
 from ..services.price_comparison import match_unmatched_products
+from ..templating import templates
 
 router = APIRouter()
 
-# In-memory progress tracking: store_value -> {phase, fetched, new_count, matched, running, error}
-_sync_progress: dict[str, dict] = {}
 
-
-def _progress_span(store: str, state: dict) -> str:
-    sid = f"sync-progress-{store}"
-    if state.get("running"):
-        phase = state.get("phase", "running")
-        fetched = state.get("fetched", 0)
-        msg = f"Fetching orders… {fetched} found" if phase == "fetching" else f"Saving {fetched} orders…" if phase == "saving" else f"Matching products…"
-        return (
-            f'<span id="{sid}" class="text-blue-600 text-sm"'
-            f' hx-get="/api/orders/sync-progress/{store}"'
-            f' hx-trigger="every 1s" hx-target="#{sid}" hx-swap="outerHTML">{msg}</span>'
-        )
-    if state.get("error"):
-        return f'<span id="{sid}" class="text-red-600 text-sm">Sync failed: {state["error"]}</span>'
-    new_count = state.get("new_count", 0)
-    matched = state.get("matched", 0)
-    match_msg = f", {matched} matched" if matched else ""
-    return f'<span id="{sid}" class="text-green-600 text-sm">Done — {new_count} new orders{match_msg}</span>'
-
-
-async def _do_sync(store_enum: Store) -> None:
-    key = store_enum.value
-    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
-    _sync_progress[key] = {"running": True, "phase": "fetching", "fetched": 0}
-    try:
-        scraped_orders = await scraper.get_order_history(limit=100)
-        _sync_progress[key].update({"phase": "saving", "fetched": len(scraped_orders)})
-
-        async with async_session() as session:
-            new_count = await sync_orders(session, scraped_orders, store_enum)
-
-        _sync_progress[key].update({"phase": "matching", "new_count": new_count})
-
-        async with async_session() as session:
-            matched_count = await match_unmatched_products(session, store_enum)
-
-        _sync_progress[key] = {"running": False, "new_count": new_count, "matched": matched_count}
-    except Exception as e:
-        _sync_progress[key] = {"running": False, "error": str(e)}
-
-
-@router.post("/sync/{store}")
-async def sync_store_orders(store: str, background_tasks: BackgroundTasks):
+@router.get("/sync-stream/{store}")
+async def sync_orders_stream(store: str):
+    """SSE endpoint: fetches orders and streams each row as it's saved."""
     store_enum = Store(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
 
-    if not await scraper.is_authenticated():
-        return HTMLResponse(
-            f'<span class="text-red-600 text-sm">Not connected to {store_enum.value.title()}.</span>'
-        )
+    async def generate():
+        if not await scraper.is_authenticated():
+            yield f"event: error\ndata: {json.dumps({'message': f'Not connected to {store_enum.value.title()}'})}\n\n"
+            return
 
-    background_tasks.add_task(_do_sync, store_enum)
-    _sync_progress[store_enum.value] = {"running": True, "phase": "fetching", "fetched": 0}
-    return HTMLResponse(_progress_span(store_enum.value, _sync_progress[store_enum.value]))
+        yield f"event: fetching\ndata: {{}}\n\n"
 
+        new_count = 0
+        fetched = 0
+        try:
+            async for scraped_order in scraper.stream_order_history(limit=100):
+                fetched += 1
+                yield f"event: progress\ndata: {json.dumps({'fetched': fetched})}\n\n"
+                try:
+                    async with async_session() as session:
+                        count = await sync_orders(session, [scraped_order], store_enum)
+                        new_count += count
+                        result = await session.execute(
+                            select(Order)
+                            .options(selectinload(Order.items))
+                            .where(
+                                Order.store_order_id == scraped_order.store_order_id,
+                                Order.store == store_enum,
+                            )
+                        )
+                        order = result.scalars().first()
+                    if order:
+                        row_html = templates.env.get_template("partials/order_row.html").render(order=order)
+                        yield f"event: order\ndata: {json.dumps({'html': row_html, 'is_new': count > 0})}\n\n"
+                except Exception:
+                    pass
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+            return
 
-@router.get("/sync-progress/{store}")
-async def sync_progress(store: str):
-    state = _sync_progress.get(store)
-    if not state:
-        return HTMLResponse("")
-    return HTMLResponse(_progress_span(store, state))
+        yield f"event: matching\ndata: {{}}\n\n"
+
+        try:
+            async with async_session() as session:
+                matched_count = await match_unmatched_products(session, store_enum)
+        except Exception:
+            matched_count = 0
+
+        yield f"event: done\ndata: {json.dumps({'new_count': new_count, 'matched': matched_count})}\n\n"
+
+    return StreamingResponse(
+        generate(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.delete("/purge/{store}")

@@ -59,8 +59,10 @@ async def add_to_cart(session: AsyncSession, store: Store) -> dict:
         return {"success": False, "error": "No confirmed shopping list found"}
 
     # Collect items for this store, resolving the correct store_product_id for each
-    items_to_add = []
-    skipped = 0
+    items_to_add: list[tuple[str, int]] = []
+    spid_to_item_id: dict[str, int] = {}
+    skipped_names: list[str] = []
+
     for item in shopping_list.items:
         if item.is_removed or item.chosen_store != store:
             continue
@@ -81,31 +83,49 @@ async def add_to_cart(session: AsyncSession, store: Store) -> dict:
                 item.id,
                 item.product.name,
             )
-            skipped += 1
+            skipped_names.append(item.product.name)
             continue
         items_to_add.append((store_product_id, item.quantity))
+        spid_to_item_id[str(store_product_id)] = item.id
 
     if not items_to_add:
         msg = f"No items to add to {store.value} cart"
-        if skipped:
-            msg += f" ({skipped} items had no {store.value} product match)"
-        return {"success": True, "message": msg, "count": 0}
+        if skipped_names:
+            msg += f" ({len(skipped_names)} items had no {store.value} product match)"
+        return {"success": True, "message": msg, "count": 0, "failed_item_ids": []}
 
     scraper = coles_scraper if store == Store.COLES else woolworths_scraper
 
-    success = await scraper.add_to_cart(items_to_add)
+    results = await scraper.add_to_cart(items_to_add)
     cart_url = await scraper.get_cart_url()
 
-    if success:
-        shopping_list.status = ListStatus.ORDERED
-        await session.commit()
+    # Mark individual items as ordered based on per-item results
+    failed_item_ids: list[int] = []
+    succeeded = 0
+    for spid, success in results.items():
+        item_id = spid_to_item_id.get(spid)
+        if item_id:
+            item = await session.get(ShoppingListItem, item_id)
+            if item:
+                if success:
+                    item.is_ordered = True
+                    succeeded += 1
+                else:
+                    failed_item_ids.append(item_id)
 
-    msg = f"Added {len(items_to_add)} items to {store.value} cart"
-    if skipped:
-        msg += f" ({skipped} items skipped — no {store.value} product match)"
+    # Also count items skipped due to no product match as failed
+    # (they won't be in results, but we should report them)
+
+    await session.commit()
+
+    overall_success = len(failed_item_ids) == 0 and not skipped_names
+    msg = f"Added {succeeded}/{len(items_to_add)} items to {store.value} cart"
+    if skipped_names:
+        msg += f" ({len(skipped_names)} items had no {store.value} product match)"
     return {
-        "success": success,
-        "count": len(items_to_add),
+        "success": overall_success,
+        "count": succeeded,
         "cart_url": cart_url,
-        "message": msg if success else f"Failed to add items to {store.value} cart",
+        "message": msg,
+        "failed_item_ids": failed_item_ids,
     }

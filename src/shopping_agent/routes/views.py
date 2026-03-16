@@ -66,40 +66,96 @@ def _matches_to_comparisons(matches: list) -> list[PriceComparison]:
 
 @router.get("/")
 async def dashboard(request: Request, session: AsyncSession = Depends(get_session)):
-    product_count = (await session.execute(select(func.count(Product.id)))).scalar() or 0
-    order_count = (await session.execute(select(func.count(Order.id)))).scalar() or 0
-
     today = date.today()
     week_ahead = today + timedelta(days=7)
-    runout_query = (
+
+    # Orders per store
+    coles_orders = (await session.execute(select(func.count(Order.id)).where(Order.store == Store.COLES))).scalar() or 0
+    ww_orders = (await session.execute(select(func.count(Order.id)).where(Order.store == Store.WOOLWORTHS))).scalar() or 0
+
+    # Products per store
+    coles_products = (await session.execute(select(func.count(Product.id)).where(Product.store == Store.COLES))).scalar() or 0
+    ww_products = (await session.execute(select(func.count(Product.id)).where(Product.store == Store.WOOLWORTHS))).scalar() or 0
+
+    # Removed (hidden) products
+    removed_count = (await session.execute(
+        select(func.count(Product.id)).where(Product.is_hidden == True)  # noqa: E712
+    )).scalar() or 0
+
+    # Matches
+    matched_count = (await session.execute(
+        select(func.count(ProductMatch.id)).where(ProductMatch.is_rejected == False)  # noqa: E712
+    )).scalar() or 0
+    rejected_count = (await session.execute(
+        select(func.count(ProductMatch.id)).where(ProductMatch.is_rejected == True)  # noqa: E712
+    )).scalar() or 0
+
+    # Predictions + running low
+    pred_count = (await session.execute(select(func.count(ConsumptionPrediction.id)))).scalar() or 0
+    runout_result = await session.execute(
         select(ConsumptionPrediction)
         .options(selectinload(ConsumptionPrediction.product))
         .where(ConsumptionPrediction.predicted_runout_date <= week_ahead)
         .where(ConsumptionPrediction.confidence_score >= 0.3)
         .order_by(ConsumptionPrediction.predicted_runout_date)
     )
-    runout_result = await session.execute(runout_query)
+    matches_result = await session.execute(
+        select(ProductMatch)
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
+        .options(
+            selectinload(ProductMatch.product_a),
+            selectinload(ProductMatch.product_b),
+        )
+    )
+    matched_product_map: dict[int, Product] = {}
+    match_id_map_runout: dict[int, int] = {}
+    for m in matches_result.scalars().all():
+        matched_product_map[m.product_a_id] = m.product_b
+        matched_product_map[m.product_b_id] = m.product_a
+        match_id_map_runout[m.product_a_id] = m.id
+        match_id_map_runout[m.product_b_id] = m.id
     upcoming_runouts = []
     for pred in runout_result.scalars().all():
         pred.days_until_runout = (pred.predicted_runout_date - today).days
+        other = matched_product_map.get(pred.product_id)
+        pred.is_matched = other is not None
+        pred.matched_product = other
+        pred.match_id = match_id_map_runout.get(pred.product_id)
         upcoming_runouts.append(pred)
 
-    coles_connected = await coles_scraper.is_authenticated()
-    woolworths_connected = await woolworths_scraper.is_authenticated()
+    # Shopping lists
+    list_count = (await session.execute(select(func.count(ShoppingList.id)))).scalar() or 0
+
+    # Last sync per store (latest order date)
+    coles_last_sync = (await session.execute(
+        select(func.max(Order.order_date)).where(Order.store == Store.COLES)
+    )).scalar()
+    ww_last_sync = (await session.execute(
+        select(func.max(Order.order_date)).where(Order.store == Store.WOOLWORTHS)
+    )).scalar()
+
+    # Current shopping list context
+    sl_ctx = await _shopping_list_context(session)
 
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "active_page": "dashboard",
-            "product_count": product_count,
-            "order_count": order_count,
+            "coles_orders": coles_orders,
+            "ww_orders": ww_orders,
+            "coles_products": coles_products,
+            "ww_products": ww_products,
+            "removed_count": removed_count,
+            "matched_count": matched_count,
+            "rejected_count": rejected_count,
+            "pred_count": pred_count,
             "runout_count": len(upcoming_runouts),
             "upcoming_runouts": upcoming_runouts,
-            "coles_connected": coles_connected,
-            "woolworths_connected": woolworths_connected,
-            "coles_last_sync": None,
-            "woolworths_last_sync": None,
+            "list_count": list_count,
+            "coles_last_sync": coles_last_sync,
+            "ww_last_sync": ww_last_sync,
+            **sl_ctx,
         },
     )
 
@@ -135,18 +191,32 @@ async def _predictions_list(session: AsyncSession) -> list:
         .order_by(ConsumptionPrediction.predicted_runout_date)
     )
 
-    # Build a set of product IDs that appear in any match, so the template
-    # can show "Both stores" instead of a single store name.
-    matches_result = await session.execute(select(ProductMatch))
-    matched_ids: set[int] = set()
+    # Load non-rejected matches with both products eager-loaded so the template
+    # can show both store products when a prediction covers a matched pair.
+    matches_result = await session.execute(
+        select(ProductMatch)
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
+        .options(
+            selectinload(ProductMatch.product_a),
+            selectinload(ProductMatch.product_b),
+        )
+    )
+    # Map each product_id to its matched counterpart and match id
+    matched_product: dict[int, Product] = {}
+    match_id_map: dict[int, int] = {}
     for m in matches_result.scalars().all():
-        matched_ids.add(m.product_a_id)
-        matched_ids.add(m.product_b_id)
+        matched_product[m.product_a_id] = m.product_b
+        matched_product[m.product_b_id] = m.product_a
+        match_id_map[m.product_a_id] = m.id
+        match_id_map[m.product_b_id] = m.id
 
     predictions = []
     for pred in result.scalars().all():
         pred.days_until_runout = (pred.predicted_runout_date - today).days
-        pred.is_matched = pred.product_id in matched_ids
+        other = matched_product.get(pred.product_id)
+        pred.is_matched = other is not None
+        pred.matched_product = other
+        pred.match_id = match_id_map.get(pred.product_id)
         predictions.append(pred)
     return predictions
 
@@ -162,13 +232,15 @@ async def predictions_page(request: Request, session: AsyncSession = Depends(get
 
 async def _resolve_display_names(
     session: AsyncSession, items: list
-) -> tuple[dict[int, str], dict[int, dict]]:
-    """Return (display_names, store_names) dicts.
+) -> tuple[dict[int, str], dict[int, dict], dict[int, dict]]:
+    """Return (display_names, store_names, store_products) dicts.
     display_names: {item_id: name} using chosen store's product name.
     store_names: {item_id: {'coles': name|None, 'woolworths': name|None}}
+    store_products: {item_id: {'coles': Product|None, 'woolworths': Product|None}}
     """
     display_names: dict[int, str] = {}
     store_names: dict[int, dict] = {}
+    store_products: dict[int, dict] = {}
     for item in items:
         if item.is_removed:
             continue
@@ -191,13 +263,17 @@ async def _resolve_display_names(
             partner = await session.get(Product, partner_id)
 
         if canonical.store == Store.COLES:
-            coles_name = canonical.name
-            woolworths_name = partner.name if partner and partner.store == Store.WOOLWORTHS else None
+            coles_product = canonical
+            ww_product = partner if partner and partner.store == Store.WOOLWORTHS else None
         else:
-            woolworths_name = canonical.name
-            coles_name = partner.name if partner and partner.store == Store.COLES else None
+            ww_product = canonical
+            coles_product = partner if partner and partner.store == Store.COLES else None
+
+        coles_name = coles_product.name if coles_product else None
+        woolworths_name = ww_product.name if ww_product else None
 
         store_names[item.id] = {"coles": coles_name, "woolworths": woolworths_name}
+        store_products[item.id] = {"coles": coles_product, "woolworths": ww_product}
 
         if item.chosen_store == Store.COLES and coles_name:
             display_names[item.id] = coles_name
@@ -206,7 +282,7 @@ async def _resolve_display_names(
         else:
             display_names[item.id] = canonical.name
 
-    return display_names, store_names
+    return display_names, store_names, store_products
 
 
 async def _shopping_list_context(session: AsyncSession) -> dict:
@@ -224,18 +300,21 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
     best_total = 0.0
     display_names: dict[int, str] = {}
     store_names: dict[int, dict] = {}
+    store_products: dict[int, dict] = {}
     single_store: Store | None = None
     if shopping_list:
-        display_names, store_names = await _resolve_display_names(session, shopping_list.items)
+        display_names, store_names, store_products = await _resolve_display_names(session, shopping_list.items)
         active_items = [i for i in shopping_list.items if not i.is_removed]
         stores_used = {i.chosen_store for i in active_items if i.chosen_store}
         single_store = stores_used.pop() if len(stores_used) == 1 else None
         for item in active_items:
-            cp = (item.coles_price or 0) * item.quantity
-            wp = (item.woolworths_price or 0) * item.quantity
-            coles_total += cp
-            woolworths_total += wp
-            best_total += min(cp, wp) if cp and wp else (cp or wp)
+            cp = item.coles_price * item.quantity if item.coles_price else None
+            wp = item.woolworths_price * item.quantity if item.woolworths_price else None
+            # Each store total uses that store's price where available, falls back to
+            # the other store so all three totals always represent the full basket.
+            coles_total += cp if cp is not None else (wp or 0)
+            woolworths_total += wp if wp is not None else (cp or 0)
+            best_total += min(cp, wp) if cp is not None and wp is not None else (cp or wp or 0)
 
     recommendation = ""
     if coles_total and woolworths_total:
@@ -250,6 +329,7 @@ async def _shopping_list_context(session: AsyncSession) -> dict:
         "shopping_list": shopping_list,
         "display_names": display_names,
         "store_names": store_names,
+        "store_products": store_products,
         "single_store": single_store,
         "coles_total": coles_total,
         "woolworths_total": woolworths_total,
@@ -362,6 +442,15 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
         p.last_ordered_date = max(dates) if dates else None
         hidden_products.append(p)
 
+    # Fetch unavailable products (is_available=False, not hidden)
+    unavailable_result = await session.execute(
+        select(Product)
+        .where(Product.is_available == False)  # noqa: E712
+        .where(Product.is_hidden == False)  # noqa: E712
+        .order_by(Product.store, Product.name)
+    )
+    unavailable_products = list(unavailable_result.scalars().all())
+
     return templates.TemplateResponse(
         "prices.html",
         {
@@ -372,6 +461,7 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
             "unmatched_woolworths": unmatched_woolworths,
             "rejected_matches": rejected_matches,
             "hidden_products": hidden_products,
+            "unavailable_products": unavailable_products,
             "last_ordered": last_ordered,
         },
     )
@@ -396,7 +486,7 @@ async def confirm_page(request: Request, session: AsyncSession = Depends(get_ses
     display_names: dict[int, str] = {}
     if shopping_list:
         all_items = [i for i in shopping_list.items if not i.is_removed]
-        display_names, _ = await _resolve_display_names(session, all_items)
+        display_names, _, _sp = await _resolve_display_names(session, all_items)
         for item in all_items:
             if item.chosen_store == Store.COLES:
                 coles_items.append(item)

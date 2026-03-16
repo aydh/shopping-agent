@@ -1,22 +1,44 @@
 <tr id="match-row-{{ comp.match_id }}" data-match-type="{% if comp.match_method == 'manual' %}manual{% elif comp.is_confirmed %}confirmed{% else %}unconfirmed{% endif %}">
     <td class="px-3 sm:px-6 py-3">
         {% if comp.coles_product %}
-        <p class="text-sm font-medium text-gray-900">{{ comp.coles_product.name }}</p>
-        {% if comp.coles_product.brand %}<p class="text-xs text-gray-500">{{ comp.coles_product.brand }}</p>{% endif %}
-        {% if comp.coles_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.coles_product.unit_size }}</p>{% endif %}
-        {% if comp.coles_price is not none %}
-        <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.coles_price) }}</p>
-        {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
+        <div class="flex items-start">
+            {% if comp.coles_product.image_url %}
+            <img src="{{ comp.coles_product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5 mr-2">
+            {% else %}
+            <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5 mr-2"></div>
+            {% endif %}
+            <div class="min-w-0">
+                <a href="https://www.coles.com.au/product/{{ comp.coles_product.name | lower | replace(' ', '-') }}-{{ comp.coles_product.store_product_id }}"
+                   target="_blank"
+                   class="text-sm font-medium text-gray-900 hover:text-red-600 hover:underline">{{ comp.coles_product.name }}</a>
+                {% if comp.coles_product.brand %}<p class="text-xs text-gray-500">{{ comp.coles_product.brand }}</p>{% endif %}
+                {% if comp.coles_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.coles_product.unit_size }}</p>{% endif %}
+                {% if comp.coles_price is not none %}
+                <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'coles' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.coles_price) }}</p>
+                {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
+            </div>
+        </div>
         {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
     </td>
     <td class="px-3 sm:px-6 py-3">
         {% if comp.woolworths_product %}
-        <p class="text-sm font-medium text-gray-900">{{ comp.woolworths_product.name }}</p>
-        {% if comp.woolworths_product.brand %}<p class="text-xs text-gray-500">{{ comp.woolworths_product.brand }}</p>{% endif %}
-        {% if comp.woolworths_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.unit_size }}</p>{% endif %}
-        {% if comp.woolworths_price is not none %}
-        <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.woolworths_price) }}</p>
-        {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
+        <div class="flex items-start">
+            {% if comp.woolworths_product.image_url %}
+            <img src="{{ comp.woolworths_product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5 mr-2">
+            {% else %}
+            <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5 mr-2"></div>
+            {% endif %}
+            <div class="min-w-0">
+                <a href="https://www.woolworths.com.au/shop/productdetails/{{ comp.woolworths_product.store_product_id }}"
+                   target="_blank"
+                   class="text-sm font-medium text-gray-900 hover:text-green-600 hover:underline">{{ comp.woolworths_product.name }}</a>
+                {% if comp.woolworths_product.brand %}<p class="text-xs text-gray-500">{{ comp.woolworths_product.brand }}</p>{% endif %}
+                {% if comp.woolworths_product.unit_size %}<p class="text-xs text-gray-400">{{ comp.woolworths_product.unit_size }}</p>{% endif %}
+                {% if comp.woolworths_price is not none %}
+                <p class="text-sm font-semibold {% if comp.cheaper_store and comp.cheaper_store.value == 'woolworths' %}text-green-600{% else %}text-gray-700{% endif %} mt-1">${{ "%.2f" | format(comp.woolworths_price) }}</p>
+                {% else %}<p class="text-xs text-gray-400 mt-1">no price</p>{% endif %}
+            </div>
+        </div>
         {% else %}<p class="text-sm text-gray-300">—</p>{% endif %}
     </td>
     <td class="px-3 sm:px-6 py-3 text-sm hidden sm:table-cell">
@@ -52,11 +74,12 @@
         {% set lo = [coles_lo, ww_lo] | select | max %}
         {% if lo %}{{ lo.strftime('%d %b %Y') }}{% else %}—{% endif %}
     </td>
-    <td class="px-3 sm:px-6 py-3 text-right space-x-2">
+    <td class="px-3 sm:px-6 py-3 text-right">
+        <div class="flex flex-wrap justify-end gap-1">
         {% if comp.match_id %}
         <button
             onclick="toggleHistory(this, '{{ comp.match_id }}')"
-            class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200">Price History</button>
+            class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
         {% endif %}
         {% if comp.product_id %}
         <span id="add-btn-{{ comp.product_id }}">
@@ -64,13 +87,13 @@
                 hx-vals='{"product_id": {{ comp.product_id }}}'
                 hx-target="#add-btn-{{ comp.product_id }}"
                 hx-swap="innerHTML"
-                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200">Add to List</button>
+                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">Add to List</button>
         </span>
         {% endif %}
         {% if comp.match_confidence is not none and not comp.is_confirmed %}
         <button hx-post="/api/prices/confirm-match/{{ comp.match_id }}"
                 hx-target="closest tr" hx-swap="outerHTML"
-                class="text-blue-600 hover:text-blue-800 text-xs">Confirm</button>
+                class="text-blue-600 hover:text-blue-800 text-xs whitespace-nowrap">Confirm</button>
         {% endif %}
         {% if comp.match_id %}
         <button hx-delete="/api/prices/match/{{ comp.match_id }}"
@@ -78,7 +101,8 @@
                 hx-target="closest tr"
                 hx-swap="outerHTML"
                 hx-on::after-request="document.getElementById('history-body-{{ comp.match_id }}').closest('tr').remove()"
-                class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">Reject</button>
+                class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Reject</button>
         {% endif %}
+        </div>
     </td>
 </tr>

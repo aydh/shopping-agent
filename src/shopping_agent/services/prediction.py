@@ -128,8 +128,10 @@ async def refresh_predictions(session: AsyncSession) -> int:
     result = await session.execute(query)
     products = {p.id: p for p in result.scalars().all()}
 
-    # Load all matches to merge purchase histories
-    matches_result = await session.execute(select(ProductMatch))
+    # Load all non-rejected matches to merge purchase histories
+    matches_result = await session.execute(
+        select(ProductMatch).where(ProductMatch.is_rejected == False)  # noqa: E712
+    )
     matches = matches_result.scalars().all()
 
     # Union-find to correctly group transitively-matched products.

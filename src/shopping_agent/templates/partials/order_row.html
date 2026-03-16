@@ -1,4 +1,4 @@
-<tr>
+<tr data-order-id="{{ order.id }}" data-store-order-id="{{ order.store_order_id }}" data-order-date="{{ order.order_date }}">
     <td class="px-3 sm:px-6 py-3 text-sm text-gray-900">{{ order.order_date }}</td>
     <td class="px-3 sm:px-6 py-3 text-sm">
         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if order.store.value == 'coles' %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
+from typing import AsyncGenerator
 
 
 @dataclass
@@ -53,6 +54,11 @@ class BaseScraper(ABC):
     @abstractmethod
     async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]: ...
 
+    async def stream_order_history(self, limit: int = 10) -> AsyncGenerator[ScrapedOrder, None]:
+        """Yield orders one at a time. Default implementation wraps get_order_history."""
+        for order in await self.get_order_history(limit=limit):
+            yield order
+
     @abstractmethod
     async def search_product(self, query: str) -> list[ScrapedProduct]: ...
 
@@ -60,8 +66,9 @@ class BaseScraper(ABC):
     async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None: ...
 
     @abstractmethod
-    async def add_to_cart(self, items: list[tuple[str, int]]) -> bool:
-        """Add items to cart. items = [(store_product_id, quantity), ...]"""
+    async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
+        """Add items to cart. items = [(store_product_id, quantity), ...]
+        Returns a dict of {store_product_id: success}."""
         ...
 
     @abstractmethod

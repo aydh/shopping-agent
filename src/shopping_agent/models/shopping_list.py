@@ -42,6 +42,7 @@ class ShoppingListItem(TimestampMixin, Base):
     chosen_store: Mapped[Store | None] = mapped_column(SAEnum(Store), nullable=True)
     is_user_added: Mapped[bool] = mapped_column(Boolean, default=False)
     is_removed: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_ordered: Mapped[bool] = mapped_column(Boolean, default=False)
 
     shopping_list: Mapped["ShoppingList"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship()
