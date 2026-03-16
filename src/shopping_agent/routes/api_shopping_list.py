@@ -405,7 +405,7 @@ async def list_details(list_id: int, session: AsyncSession = Depends(get_session
             "product_id": item.product_id,
         })
 
-    html = templates.env.get_template("_past_list_details.html").render(items=items_data)
+    html = templates.get_template("_past_list_details.html").render(items=items_data)
     return HTMLResponse(html)
 
 
