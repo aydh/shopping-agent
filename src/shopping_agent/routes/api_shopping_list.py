@@ -11,12 +11,12 @@ from ..services.shopping_list import (
     confirm_list,
     generate_shopping_list,
     get_active_list,
+    get_shopping_list_context as _shopping_list_context,
     remove_item,
     update_item_quantity,
     update_item_store,
 )
 from ..templating import templates
-from ..services.shopping_list import get_shopping_list_context as _shopping_list_context
 
 router = APIRouter()
 
@@ -481,8 +481,6 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
         added += 1
 
     await session.commit()
-    from ..services.shopping_list import get_shopping_list_context as _shopping_list_context
-    from ..templating import templates
     ctx = await _shopping_list_context(session)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
