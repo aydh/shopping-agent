@@ -35,11 +35,11 @@ def choose_best_store(
     Returns:
         The cheaper store, or fallback if prices are equal or unavailable.
     """
-    if coles_price and woolworths_price:
+    if coles_price is not None and woolworths_price is not None:
         return Store.COLES if coles_price <= woolworths_price else Store.WOOLWORTHS
-    if coles_price:
+    if coles_price is not None:
         return Store.COLES
-    if woolworths_price:
+    if woolworths_price is not None:
         return Store.WOOLWORTHS
     return fallback
 
