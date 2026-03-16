@@ -13,7 +13,32 @@ class Settings(BaseSettings):
     debug: bool = False
 
     def ensure_dirs(self) -> None:
+        """Create required data directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
+
+
+# Matching / prediction thresholds
+MIN_MATCH_CONFIDENCE: float = 0.3
+FUZZY_MATCH_THRESHOLD: float = 70.0
+FUZZY_SEARCH_THRESHOLD: float = 65.0
+SIZE_MATCH_BONUS: int = 15
+SIZE_MISMATCH_PENALTY: int = -20
+BRAND_MATCH_THRESHOLD: float = 60.0
+
+# Prediction parameters
+PRODUCT_RECENCY_DAYS: int = 120
+MIN_PREDICTION_CONFIDENCE: float = 0.3
+PREDICTION_LOOKAHEAD_DAYS: int = 7
+PREDICTION_LEAD_TIME_DAYS: int = 7
+PREDICTION_PURCHASE_COUNT_MIN: int = 3
+
+# Price refresh
+PRICE_REFRESH_CONCURRENCY: int = 10
+
+# Chart colours
+COLES_COLOUR: str = "#dc2626"
+WOOLWORTHS_COLOUR: str = "#16a34a"
+PRICE_LINE_COLOUR: str = "#111827"
 
 
 settings = Settings()
