@@ -18,50 +18,13 @@ from ..models import (
     ShoppingListItem,
     Store,
 )
-from ..services.price_comparison import PriceComparison
+from ..services.price_comparison import PriceComparison, matches_to_comparisons
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from ..templating import templates
 
 router = APIRouter()
 
-
-def _matches_to_comparisons(matches: list) -> list[PriceComparison]:
-    """Convert ProductMatch rows into PriceComparison dataclasses."""
-    comparisons = []
-    for match in matches:
-        pa, pb = match.product_a, match.product_b
-        coles_p = pa if pa.store == Store.COLES else pb
-        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
-
-        cp = coles_p.current_price
-        wp = ww_p.current_price
-        cheaper = None
-        savings = 0.0
-        if cp and wp:
-            if cp < wp:
-                cheaper = Store.COLES
-                savings = wp - cp
-            elif wp < cp:
-                cheaper = Store.WOOLWORTHS
-                savings = cp - wp
-
-        comparisons.append(PriceComparison(
-            product_name=coles_p.name,
-            unit_size=coles_p.unit_size,
-            product_id=coles_p.id,
-            coles_product=coles_p,
-            woolworths_product=ww_p,
-            coles_price=cp,
-            woolworths_price=wp,
-            cheaper_store=cheaper,
-            savings=savings,
-            match_id=match.id,
-            match_confidence=match.confidence,
-            is_confirmed=match.is_confirmed,
-            match_method=match.match_method,
-        ))
-    return comparisons
 
 
 @router.get("/")
@@ -399,7 +362,7 @@ async def prices_page(request: Request, session: AsyncSession = Depends(get_sess
     )
     matches = [m for m in match_result.scalars().all()
                if m.product_a_id in visible_ids and m.product_b_id in visible_ids]
-    comparisons = _matches_to_comparisons(matches)
+    comparisons = matches_to_comparisons(matches)
 
     matched_ids = set()
     for m in matches:

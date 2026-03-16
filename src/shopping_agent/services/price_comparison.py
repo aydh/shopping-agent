@@ -411,3 +411,77 @@ async def compare_product_prices(
         )
 
     return comparisons
+
+
+def matches_to_comparisons(matches: list[ProductMatch]) -> list[PriceComparison]:
+    """Convert a list of ProductMatch ORM rows into PriceComparison dataclasses.
+
+    Args:
+        matches: ProductMatch rows with product_a and product_b eagerly loaded.
+
+    Returns:
+        List of PriceComparison dataclasses ready for template rendering.
+    """
+    comparisons = []
+    for match in matches:
+        pa, pb = match.product_a, match.product_b
+        coles_p = pa if pa.store == Store.COLES else pb
+        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
+
+        cp = coles_p.current_price
+        wp = ww_p.current_price
+        cheaper: Store | None = None
+        savings = 0.0
+        if cp and wp:
+            if cp < wp:
+                cheaper = Store.COLES
+                savings = wp - cp
+            elif wp < cp:
+                cheaper = Store.WOOLWORTHS
+                savings = cp - wp
+
+        comparisons.append(
+            PriceComparison(
+                product_name=coles_p.name,
+                unit_size=coles_p.unit_size,
+                product_id=coles_p.id,
+                coles_product=coles_p,
+                woolworths_product=ww_p,
+                coles_price=cp,
+                woolworths_price=wp,
+                cheaper_store=cheaper,
+                savings=savings,
+                match_id=match.id,
+                match_confidence=match.confidence,
+                is_confirmed=match.is_confirmed,
+                match_method=match.match_method,
+            )
+        )
+    return comparisons
+
+
+def build_price_map(matches: list[ProductMatch]) -> dict[int, dict[str, float | None]]:
+    """Build a product_id → {coles_price, woolworths_price} lookup from match rows.
+
+    Both product_a and product_b must be eagerly loaded on each match.
+    Both products in a pair share the same entry so either product_id can be used
+    as the key.
+
+    Args:
+        matches: ProductMatch rows with product_a and product_b eagerly loaded.
+
+    Returns:
+        Dict mapping product_id to a dict with 'coles_price' and 'woolworths_price'.
+    """
+    price_map: dict[int, dict[str, float | None]] = {}
+    for match in matches:
+        pa, pb = match.product_a, match.product_b
+        coles_p = pa if pa.store == Store.COLES else pb
+        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
+        entry: dict[str, float | None] = {
+            "coles_price": coles_p.current_price,
+            "woolworths_price": ww_p.current_price,
+        }
+        price_map[coles_p.id] = entry
+        price_map[ww_p.id] = entry
+    return price_map

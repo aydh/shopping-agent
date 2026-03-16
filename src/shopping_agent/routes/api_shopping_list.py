@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
 from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
+from ..services.price_comparison import build_price_map
 from ..services.shopping_list import (
     confirm_list,
     generate_shopping_list,
@@ -114,19 +115,11 @@ async def add_predictions(session: AsyncSession = Depends(get_session)):
     candidates = generate_candidates(predictions, target_date=date.today(), lookahead_days=7)
 
     # Build price map from matches
-    from ..models import ProductMatch
     from sqlalchemy.orm import selectinload as sil
     matches = (await session.execute(
         select(ProductMatch).options(sil(ProductMatch.product_a), sil(ProductMatch.product_b))
     )).scalars().all()
-    price_map: dict[int, dict] = {}
-    for m in matches:
-        pa, pb = m.product_a, m.product_b
-        coles_p = pa if pa.store == Store.COLES else pb
-        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
-        entry = {"coles_price": coles_p.current_price, "woolworths_price": ww_p.current_price}
-        price_map[coles_p.id] = entry
-        price_map[ww_p.id] = entry
+    price_map = build_price_map(list(matches))
 
     # Existing product ids in the active list
     existing_ids = {r[0] for r in (await session.execute(

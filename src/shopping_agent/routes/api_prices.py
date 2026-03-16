@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import async_session, get_session
 from ..models import PriceHistory, Product, ProductMatch, Store
+from ..services.price_comparison import matches_to_comparisons
 from ..scrapers.coles import ColesScraper, coles_scraper
 from ..scrapers.woolworths import WoolworthsScraper, woolworths_scraper
 from ..templating import templates
@@ -181,9 +182,6 @@ async def refresh_progress(store: str):
 @router.post("/confirm-match/{match_id}")
 async def confirm_match(match_id: int, session: AsyncSession = Depends(get_session)):
     from sqlalchemy.orm import selectinload as sil
-    from ..models import Store
-    from ..services.price_comparison import PriceComparison
-    from ..templating import templates
 
     match = await session.get(ProductMatch, match_id, options=[sil(ProductMatch.product_a), sil(ProductMatch.product_b)])
     if not match:
@@ -192,38 +190,7 @@ async def confirm_match(match_id: int, session: AsyncSession = Depends(get_sessi
     match.is_confirmed = True
     await session.commit()
 
-    pa, pb = match.product_a, match.product_b
-    coles_p = pa if pa.store == Store.COLES else pb
-    ww_p = pa if pa.store == Store.WOOLWORTHS else pb
-
-    cp = coles_p.current_price
-    wp = ww_p.current_price
-    cheaper = None
-    savings = 0.0
-    if cp and wp:
-        if cp < wp:
-            cheaper = Store.COLES
-            savings = wp - cp
-        elif wp < cp:
-            cheaper = Store.WOOLWORTHS
-            savings = cp - wp
-
-    comp = PriceComparison(
-        product_name=coles_p.name,
-        unit_size=coles_p.unit_size,
-        product_id=coles_p.id,
-        coles_product=coles_p,
-        woolworths_product=ww_p,
-        coles_price=cp,
-        woolworths_price=wp,
-        cheaper_store=cheaper,
-        savings=savings,
-        match_id=match.id,
-        match_confidence=match.confidence,
-        is_confirmed=match.is_confirmed,
-        match_method=match.match_method,
-    )
-
+    comp = matches_to_comparisons([match])[0]
     html = templates.env.get_template("_match_row.html").render(comp=comp)
     return HTMLResponse(html)
 

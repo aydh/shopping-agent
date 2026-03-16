@@ -15,6 +15,7 @@ from ..models import (
     Store,
 )
 from .prediction import generate_candidates
+from .price_comparison import build_price_map
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +49,7 @@ async def generate_shopping_list(
             selectinload(ProductMatch.product_b),
         )
     )
-    price_map: dict[int, dict] = {}
-    for match in matches_result.scalars().all():
-        pa, pb = match.product_a, match.product_b
-        coles_p = pa if pa.store == Store.COLES else pb
-        ww_p = pa if pa.store == Store.WOOLWORTHS else pb
-        entry = {"coles_price": coles_p.current_price, "woolworths_price": ww_p.current_price}
-        price_map[coles_p.id] = entry
-        price_map[ww_p.id] = entry
+    price_map = build_price_map(list(matches_result.scalars().all()))
 
     # Create or update shopping list
     existing = await session.execute(
