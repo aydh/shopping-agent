@@ -565,7 +565,7 @@ class ColesScraper(BaseScraper):
                 "/api/bff/products/search",
                 params={
                     "searchTerm": query,
-                    "subscription-key": settings.coles_api_key,
+                    "subscription-key": settings.coles_api_key or "",
                     "storeId": "0584",
                     "start": 0,
                     "pageSize": 24,
@@ -641,7 +641,7 @@ class ColesScraper(BaseScraper):
                 "/api/bff/products/search",
                 params={
                     "searchTerm": search_term,
-                    "subscription-key": settings.coles_api_key,
+                    "subscription-key": settings.coles_api_key or "",
                     "storeId": "0584",
                     "start": 0,
                 },
