@@ -6,8 +6,9 @@ from typing import TypedDict
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse
-from sqlalchemy import func as sqlfunc, select
+from sqlalchemy import or_, func as sqlfunc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ...config import PRICE_REFRESH_CONCURRENCY, settings
 from ...database import async_session, get_session
@@ -16,13 +17,13 @@ from ...models import (
     ListStatus,
     PriceHistory,
     Product,
+    ProductMatch,
     ShoppingList,
     ShoppingListItem,
     Store,
 )
 from ...scrapers.coles import ColesScraper
 from ...scrapers.woolworths import WoolworthsScraper
-from ...services.product_resolution import get_partner_product
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -50,73 +51,111 @@ async def _do_price_refresh(store_enum: Store) -> None:
             visible_products_query().where(Product.store == store_enum)
         )
         products = list(result.scalars().all())
+        product_ids = [p.id for p in products]
+        product_map = {p.id: p for p in products}
+
+        # Pre-load today's price history entries
+        today = date_type.today()
+        ph_rows = await session.execute(
+            select(PriceHistory)
+            .where(
+                PriceHistory.product_id.in_(product_ids),
+                sqlfunc.date(PriceHistory.recorded_at) == today,
+            )
+        )
+        today_ph: dict[int, PriceHistory] = {ph.product_id: ph for ph in ph_rows.scalars()}
+
+        # Pre-load partner products via ProductMatch
+        match_rows = await session.execute(
+            select(ProductMatch)
+            .options(selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b))
+            .where(
+                or_(
+                    ProductMatch.product_a_id.in_(product_ids),
+                    ProductMatch.product_b_id.in_(product_ids),
+                ),
+                ProductMatch.is_rejected == False,  # noqa: E712
+            )
+        )
+        partner_map: dict[int, Product] = {}
+        for m in match_rows.scalars():
+            if m.product_a_id in product_map:
+                partner_map[m.product_a_id] = m.product_b
+            if m.product_b_id in product_map:
+                partner_map[m.product_b_id] = m.product_a
+
+        # Pre-load active shopping list items for affected products
+        all_affected_ids = set(product_ids) | {p.id for p in partner_map.values()}
+        sli_rows = await session.execute(
+            select(ShoppingListItem)
+            .join(ShoppingList, ShoppingListItem.shopping_list_id == ShoppingList.id)
+            .where(
+                ShoppingList.status != ListStatus.ORDERED,
+                ShoppingListItem.is_removed == False,  # noqa: E712
+                ShoppingListItem.product_id.in_(all_affected_ids),
+            )
+        )
+        items_by_product: dict[int, list[ShoppingListItem]] = {}
+        for sli in sli_rows.scalars():
+            items_by_product.setdefault(sli.product_id, []).append(sli)
 
     _refresh_progress[key] = {"done": 0, "total": len(products), "running": True}
     logger.info("[PriceRefresh] Starting %s refresh for %d products", store_enum.value, len(products))
 
     sem = asyncio.Semaphore(concurrency)
 
-    async def fetch_one(product_id: int, store_product_id: str, product_name: str):
+    async def fetch_one(product: Product):
         async with sem:
             try:
-                scraped = await scraper.get_product_price(store_product_id, product_name)
+                scraped = await scraper.get_product_price(product.store_product_id, product.name)
                 async with async_session() as session:
-                    product = await session.get(Product, product_id)
-                    if product:
+                    db_product = await session.get(Product, product.id)
+                    if db_product:
                         if scraped and scraped.current_price:
-                            product.current_price = scraped.current_price
-                            product.is_available = True
+                            db_product.current_price = scraped.current_price
+                            db_product.is_available = True
                             if scraped.unit_price:
-                                product.unit_price = scraped.unit_price
+                                db_product.unit_price = scraped.unit_price
                             if scraped.unit_price_measure:
-                                product.unit_price_measure = scraped.unit_price_measure
+                                db_product.unit_price_measure = scraped.unit_price_measure
                             if scraped.image_url:
-                                product.image_url = scraped.image_url
-                            # Upsert: update today's record if it exists, else insert
-                            existing_ph = (await session.execute(
-                                select(PriceHistory)
-                                .where(PriceHistory.product_id == product_id)
-                                .where(sqlfunc.date(PriceHistory.recorded_at) == date_type.today())
-                            )).scalars().first()
+                                db_product.image_url = scraped.image_url
+
+                            # Upsert today's price history (pre-loaded — no extra query)
+                            existing_ph = today_ph.get(product.id)
                             if existing_ph:
-                                existing_ph.price = scraped.current_price
+                                merged_ph = await session.merge(existing_ph)
+                                merged_ph.price = scraped.current_price
                             else:
-                                session.add(PriceHistory(product_id=product_id, store=store_enum, price=scraped.current_price))
-                            # Sync active shopping list items that reference this product
-                            # or items for the matched partner product
-                            affected_product_ids = [product_id]
-                            partner = await get_partner_product(session, product_id, store_enum.value)
+                                session.add(PriceHistory(
+                                    product_id=product.id, store=store_enum, price=scraped.current_price
+                                ))
+
+                            # Sync active shopping list items (pre-loaded — no extra queries)
+                            affected_ids = [product.id]
+                            partner = partner_map.get(product.id)
                             if partner:
-                                affected_product_ids.append(partner.id)
-                            active_items = (await session.execute(
-                                select(ShoppingListItem)
-                                .join(ShoppingList, ShoppingListItem.shopping_list_id == ShoppingList.id)
-                                .where(
-                                    ShoppingList.status != ListStatus.ORDERED,
-                                    ShoppingListItem.is_removed == False,  # noqa: E712
-                                    ShoppingListItem.product_id.in_(affected_product_ids),
-                                )
-                            )).scalars().all()
-                            for sli in active_items:
-                                if store_enum == Store.COLES:
-                                    sli.coles_price = scraped.current_price
-                                else:
-                                    sli.woolworths_price = scraped.current_price
+                                affected_ids.append(partner.id)
+                            for pid in affected_ids:
+                                for sli in items_by_product.get(pid, []):
+                                    merged_sli = await session.merge(sli)
+                                    if store_enum == Store.COLES:
+                                        merged_sli.coles_price = scraped.current_price
+                                    else:
+                                        merged_sli.woolworths_price = scraped.current_price
+
                         elif scraped is not None and not scraped.is_available:
-                            # Scraper explicitly says product is gone — mark unavailable
-                            product.is_available = False
-                            product.current_price = None
-                        # else: scraper returned None (network/auth failure) — leave product unchanged
+                            db_product.is_available = False
+                            db_product.current_price = None
                         await session.commit()
                 _refresh_progress[key]["done"] += 1
                 return bool(scraped and scraped.current_price)
             except Exception as e:
-                logger.error("[PriceRefresh] Error for product %s: %s", store_product_id, e)
-                # Don't mark unavailable on exceptions — could be a transient network issue
+                logger.error("[PriceRefresh] Error for product %s: %s", product.store_product_id, e)
             _refresh_progress[key]["done"] += 1
             return False
 
-    results = await asyncio.gather(*[fetch_one(p.id, p.store_product_id, p.name) for p in products])
+    results = await asyncio.gather(*[fetch_one(p) for p in products])
     updated = sum(results)
     _refresh_progress[key] = {"done": len(products), "total": len(products), "running": False, "updated": updated}
     logger.info("[PriceRefresh] %s done: %d/%d updated", store_enum.value, updated, len(products))
