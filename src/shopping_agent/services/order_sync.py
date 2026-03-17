@@ -64,7 +64,22 @@ async def sync_orders(
 
 
 async def _upsert_product(session: AsyncSession, item: ScrapedOrderItem, store: Store, order_date: date) -> Product:
-    """Find or create a product from a scraped order item."""
+    """Find or create a Product from a scraped order item, and record its price history.
+
+    If the product already exists (matched by store + store_product_id), updates
+    mutable fields (name, brand, unit_size, image_url). Always records a
+    PriceHistory entry for the order date if a price is available, skipping
+    duplicates (one entry per product per day).
+
+    Args:
+        session: Async database session.
+        item: Scraped order item containing product details and price paid.
+        store: The store this item was purchased from.
+        order_date: Date of the order, used for price history timestamping.
+
+    Returns:
+        The existing or newly created Product ORM instance.
+    """
     result = await session.execute(
         select(Product).where(
             Product.store == store,

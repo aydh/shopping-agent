@@ -1,4 +1,5 @@
 import logging
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,22 @@ from ..models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from .product_resolution import get_partner_product
+
+
+class CartResult(TypedDict, total=False):
+    """Result dict returned by add_to_cart.
+
+    All keys except ``success`` are optional — error responses only include
+    ``success`` and ``error``, while success responses include ``count``,
+    ``cart_url``, ``message``, and ``failed_item_ids``.
+    """
+
+    success: bool
+    error: str
+    count: int
+    cart_url: str | None
+    message: str
+    failed_item_ids: list[int]
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +47,7 @@ async def _resolve_store_product_id(
     return None
 
 
-async def add_to_cart(session: AsyncSession, store: Store) -> dict:
+async def add_to_cart(session: AsyncSession, store: Store) -> CartResult:
     """Add confirmed shopping list items to the specified store's cart."""
     result = await session.execute(
         select(ShoppingList)

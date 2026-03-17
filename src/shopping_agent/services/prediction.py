@@ -123,7 +123,19 @@ def compute_prediction(
 
 
 async def refresh_predictions(session: AsyncSession) -> int:
-    """Recompute all consumption predictions. Returns count of predictions updated."""
+    """Recompute all consumption predictions and persist them to the database.
+
+    Groups products by their cross-store equivalency using union-find so that
+    purchase histories are merged correctly across matched products. Predictions
+    older than PRODUCT_RECENCY_DAYS are removed. The prediction is stored under
+    the canonical (lowest-id) product in each group.
+
+    Args:
+        session: Async database session.
+
+    Returns:
+        Number of ConsumptionPrediction rows created or updated.
+    """
     # Load all visible products with order history
     query = (
         visible_products_query()
@@ -149,6 +161,7 @@ async def refresh_predictions(session: AsyncSession) -> int:
     parent: dict[int, int] = {}
 
     def find(x: int) -> int:
+        """Return root representative of x using path compression."""
         while parent.get(x, x) != x:
             parent[x] = parent.get(parent[x], parent[x])  # path compression
             x = parent[x]

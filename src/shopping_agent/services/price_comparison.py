@@ -164,7 +164,22 @@ async def find_or_create_match(
     target_store: Store,
     scraper: BaseScraper | None = None,
 ) -> ProductMatch | None:
-    """Find existing match or discover one via search."""
+    """Find an existing ProductMatch or discover a new one for the given product.
+
+    Strategy (in order):
+    1. Return the existing active match if one already exists.
+    2. Search the local DB using fuzzy name matching (rapidfuzz).
+    3. If a scraper is provided, search the target store and fuzzy-match results.
+
+    Args:
+        session: Async database session.
+        product: The source product to find a cross-store match for.
+        target_store: The store to find a matching product in.
+        scraper: Optional scraper for the target store; enables live search fallback.
+
+    Returns:
+        An active ProductMatch if one is found or created, otherwise None.
+    """
     # Find all existing matches for this product (in either position)
     existing_result = await session.execute(
         select(ProductMatch).where(
@@ -297,7 +312,20 @@ async def _upsert_scraped_product(
 
 
 async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
-    """Run auto-matching for all unmatched products from the given store. Returns match count."""
+    """Run auto-matching for all unmatched products from the given store.
+
+    Fetches all products from ``store`` that have no active ProductMatch, then
+    attempts fuzzy name matching against all products from the opposite store.
+    Previously rejected pairs are excluded. Each target product is matched at
+    most once per run.
+
+    Args:
+        session: Async database session.
+        store: The store whose unmatched products should be processed.
+
+    Returns:
+        Number of new ProductMatch rows created.
+    """
     target_store = Store.WOOLWORTHS if store == Store.COLES else Store.COLES
 
     # Find products from this store that have no existing active match

@@ -1,5 +1,6 @@
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,32 @@ from ..models import (
 )
 from .prediction import generate_candidates
 from .price_comparison import build_price_map
+
+
+class ShoppingListContext(TypedDict):
+    """Full context dict returned by get_shopping_list_context for template rendering."""
+
+    shopping_list: ShoppingList | None
+    display_names: dict[int, str]
+    store_names: dict[int, dict]
+    store_products: dict[int, dict]
+    single_store: Store | None
+    coles_total: float
+    woolworths_total: float
+    best_total: float
+    recommendation: str
+
+
+class ListHistoryRow(TypedDict):
+    """Summary row for a single past shopping list returned by get_list_history."""
+
+    id: int
+    name: str
+    created_at: datetime
+    status: ListStatus
+    store: Store | None
+    item_count: int
+    total: float
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +325,7 @@ async def resolve_display_names(
     return display_names, store_names, store_products
 
 
-async def get_shopping_list_context(session: AsyncSession) -> dict:
+async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContext:
     """Build the full shopping list context dict for template rendering.
 
     Returns a dict with keys: shopping_list, display_names, store_names,
@@ -357,7 +384,7 @@ async def get_shopping_list_context(session: AsyncSession) -> dict:
     }
 
 
-async def get_list_history(session: AsyncSession) -> list[dict]:
+async def get_list_history(session: AsyncSession) -> list[ListHistoryRow]:
     """Return summary rows for past (ordered) shopping lists."""
     result = await session.execute(
         select(ShoppingList)
@@ -365,7 +392,7 @@ async def get_list_history(session: AsyncSession) -> list[dict]:
         .where(ShoppingList.status == ListStatus.ORDERED)
         .order_by(ShoppingList.created_at.desc())
     )
-    rows = []
+    rows: list[ListHistoryRow] = []
     for sl in result.scalars().all():
         active = [i for i in sl.items if not i.is_removed]
         stores = {i.chosen_store for i in active if i.chosen_store}
