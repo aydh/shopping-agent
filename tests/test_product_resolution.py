@@ -10,7 +10,7 @@ async def test_get_partner_product_returns_none_when_no_match():
 
     # Mock a session where execute returns a result with no match
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
+    mock_result.scalars.return_value.first.return_value = None
 
     session = AsyncMock()
     session.execute = AsyncMock(return_value=mock_result)
@@ -30,7 +30,7 @@ async def test_get_partner_product_returns_none_when_match_partner_missing():
     mock_match.product_b_id = 2
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = mock_match
+    mock_result.scalars.return_value.first.return_value = mock_match
 
     session = AsyncMock()
     session.execute = AsyncMock(return_value=mock_result)
@@ -55,7 +55,7 @@ async def test_get_partner_product_returns_partner_product():
     mock_partner.store = Store.WOOLWORTHS
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = mock_match
+    mock_result.scalars.return_value.first.return_value = mock_match
 
     session = AsyncMock()
     session.execute = AsyncMock(return_value=mock_result)
@@ -80,7 +80,7 @@ async def test_get_partner_product_picks_correct_side_when_product_is_b():
     mock_partner.store = Store.COLES
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = mock_match
+    mock_result.scalars.return_value.first.return_value = mock_match
 
     session = AsyncMock()
     session.execute = AsyncMock(return_value=mock_result)
