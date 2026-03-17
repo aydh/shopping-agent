@@ -346,7 +346,7 @@ async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
     candidates_result = await session.execute(
         select(Product).where(Product.store == target_store)
     )
-    all_candidates = list(candidates_result.scalars().all())
+    all_candidates = [p for p in candidates_result.scalars().all() if p.id not in matched_ids]
 
     # Load all rejected pairs so we don't re-match them
     unmatched_ids = {p.id for p in unmatched}
