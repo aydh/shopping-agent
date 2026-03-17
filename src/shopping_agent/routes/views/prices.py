@@ -68,18 +68,28 @@ async def prices_page(
     )
     rejected_matches = rejected_result.scalars().all()
 
-    # Fetch hidden products with order history for last ordered date
+    # Fetch hidden products
     hidden_result = await session.execute(
         select(Product)
-        .options(selectinload(Product.order_items).selectinload(OrderItem.order))
         .where(Product.is_hidden == True)  # noqa: E712
         .order_by(Product.store, Product.name)
     )
-    hidden_products = []
-    for p in hidden_result.scalars().all():
-        dates = [oi.order.order_date for oi in p.order_items if oi.order]
-        p.last_ordered_date = max(dates) if dates else None
-        hidden_products.append(p)
+    hidden_products = list(hidden_result.scalars().all())
+
+    # Last ordered date for hidden products (single aggregation query)
+    hidden_ids = {p.id for p in hidden_products}
+    if hidden_ids:
+        hidden_lo_rows = await session.execute(
+            select(OrderItem.product_id, func.max(Order.order_date))
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(OrderItem.product_id.in_(hidden_ids))
+            .group_by(OrderItem.product_id)
+        )
+        hidden_last_ordered: dict[int, date] = dict(hidden_lo_rows.all())
+    else:
+        hidden_last_ordered = {}
+    for p in hidden_products:
+        p.last_ordered_date = hidden_last_ordered.get(p.id)
 
     # Fetch unavailable products (is_available=False, not hidden)
     unavailable_result = await session.execute(
