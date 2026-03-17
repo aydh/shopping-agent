@@ -76,7 +76,30 @@ async def generate_shopping_list(
     target_date: date | None = None,
     lookahead_days: int = 7,
 ) -> ShoppingList:
-    """Generate a shopping list based on consumption predictions."""
+    """Generate a shopping list from consumption predictions.
+
+    Loads all consumption predictions, generates candidates within a time
+    window (lead_time_days before target_date to lookahead_days after),
+    resolves prices via cross-store ProductMatch data, selects the best
+    store per item based on price, and persists items to a DRAFT list.
+    Auto-generated items from prior lists are cleared on regeneration.
+
+    Args:
+        session: Async database session for prediction/product/match queries.
+        target_date: Target date for window calculation (defaults to today).
+        lookahead_days: Days ahead of target_date to include in candidates.
+
+    Returns:
+        ShoppingList object (in DRAFT status) with ShoppingListItem children.
+
+    Price and store selection logic:
+        - Uses build_price_map() to look up coles_price and woolworths_price
+          from ProductMatch records.
+        - Falls back to product.current_price if no match exists (assumes
+          product is from that store only).
+        - Calls choose_best_store() to pick the cheaper store; ties go to
+          the product's store.
+    """
     target_date = target_date or date.today()
     list_name = f"Week of {target_date.isoformat()}"
 

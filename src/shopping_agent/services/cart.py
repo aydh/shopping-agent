@@ -48,7 +48,32 @@ async def _resolve_store_product_id(
 
 
 async def add_to_cart(session: AsyncSession, store: Store) -> CartResult:
-    """Add confirmed shopping list items to the specified store's cart."""
+    """Add confirmed shopping list items to the specified store's cart.
+
+    Retrieves the most recent CONFIRMED shopping list, resolves each item's
+    store-specific product ID (using cross-store ProductMatch if needed),
+    calls the appropriate scraper to add items, and updates item.is_ordered
+    flags in the database based on per-item success/failure results.
+
+    Args:
+        session: Async database session for product lookups and updates.
+        store: Target store (COLES or WOOLWORTHS).
+
+    Returns:
+        CartResult TypedDict with:
+        - success (bool): True if no items failed and no products were skipped.
+        - count (int): Number of items successfully added to cart.
+        - cart_url (str | None): URL to the store's cart page.
+        - message (str): Summary message including count, store name, and
+            count of skipped items (those with no product match).
+        - failed_item_ids (list[int]): IDs of items that failed to add
+            (not including those skipped due to no product match).
+        - error (str, optional): Error message if no confirmed list exists.
+
+    DB mutations:
+        - Sets item.is_ordered = True for successfully added items.
+        - Commits changes to the session.
+    """
     result = await session.execute(
         select(ShoppingList)
         .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))

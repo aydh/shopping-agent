@@ -41,10 +41,33 @@ def compute_prediction(
     decay_factor: float = 0.3,
     lead_time_days: int = 2,
 ) -> dict | None:
-    """
-    Compute consumption prediction for a single product.
+    """Compute consumption prediction stats for a single product.
 
-    Returns dict with prediction fields, or None if insufficient data.
+    Analyzes purchase history to estimate daily consumption, predict runout
+    dates, and compute confidence scores. Uses exponential decay weighting
+    to favor recent purchases, normalizes intervals by quantity purchased,
+    and filters out non-positive intervals.
+
+    Args:
+        purchases: List of PurchaseRecord objects sorted by date.
+        today: Reference date for calculations (defaults to today).
+        decay_factor: Exponential decay weight; controls how strongly recent
+            purchases are weighted vs. older ones. Typically 0.1-0.5; higher
+            values weight recent purchases more heavily.
+        lead_time_days: Days before predicted runout to trigger next purchase
+            date (e.g., 2 days means reorder 2 days before estimated runout).
+
+    Returns:
+        Dict with keys: avg_purchase_interval_days, avg_quantity_per_purchase,
+        estimated_daily_consumption, confidence_score, last_purchased_date,
+        predicted_runout_date, next_purchase_date, purchase_count,
+        last_purchase_quantity, last_purchase_store. Returns None if fewer
+        than 2 purchases, no positive intervals, or calculated consumption <= 0.
+
+    Edge cases:
+        - Zero or negative inter-purchase intervals are skipped.
+        - Confidence scores incorporate data volume and purchase regularity
+          (coefficient of variation).
     """
     if len(purchases) < 2:
         return None
