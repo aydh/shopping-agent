@@ -9,6 +9,31 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+REQUIRED_COOKIE_FIELDS = {"name", "value", "domain"}
+
+
+def validate_cookie_list(data: object) -> list[dict]:
+    """Validate that data is a list of cookies with required fields.
+
+    Args:
+        data: Parsed JSON data to validate.
+
+    Returns:
+        The validated list of cookie dicts.
+
+    Raises:
+        ValueError: If data is not a list or any cookie is missing required fields.
+    """
+    if not isinstance(data, list):
+        raise ValueError(f"expected a list of cookies, got {type(data).__name__}")
+    for i, cookie in enumerate(data):
+        for field in REQUIRED_COOKIE_FIELDS:
+            if field not in cookie:
+                raise ValueError(
+                    f"cookie at index {i} missing required field '{field}'"
+                )
+    return data
+
 
 @dataclass
 class ScrapedOrderItem:
@@ -142,6 +167,7 @@ class BaseScraper(ABC):
             if row:
                 try:
                     raw_cookies = json.loads(row.cookies_json)
+                    raw_cookies = validate_cookie_list(raw_cookies)
                     for c in raw_cookies:
                         jar.set(
                             c["name"],
