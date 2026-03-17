@@ -31,7 +31,7 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
         .order_by(sqlfunc.date(PriceHistory.recorded_at))
     )).all()
 
-    def fmt(dt_str, f): return date_type.fromisoformat(dt_str).strftime(f)
+    def fmt(dt_str, f): return (dt_str if isinstance(dt_str, date_type) else date_type.fromisoformat(dt_str)).strftime(f)
 
     is_coles = product.store == Store.COLES
     label = "Coles" if is_coles else "Woolworths"
@@ -76,7 +76,7 @@ async def price_history(match_id: int, session: AsyncSession = Depends(get_sessi
         .order_by(sqlfunc.date(PriceHistory.recorded_at))
     )).all()
 
-    def fmt(dt_str, f): return date_type.fromisoformat(dt_str).strftime(f)
+    def fmt(dt_str, f): return (dt_str if isinstance(dt_str, date_type) else date_type.fromisoformat(dt_str)).strftime(f)
 
     coles_by_date = {dt: price for dt, price in coles_rows}
     ww_by_date = {dt: price for dt, price in ww_rows}
