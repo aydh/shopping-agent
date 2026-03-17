@@ -711,6 +711,13 @@ class ColesScraper(BaseScraper):
                         json={"items": [{"productId": int(product_id), "quantity": quantity}]},
                     )
                     if resp and resp.status_code in (200, 201):
+                        logger.info(
+                            "Coles add-to-cart POST %s product=%s status=%d body=%s",
+                            endpoint,
+                            product_id,
+                            resp.status_code,
+                            resp.text[:500],
+                        )
                         results[str(product_id)] = True
                     else:
                         logger.warning(
