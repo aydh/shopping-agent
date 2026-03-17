@@ -39,7 +39,7 @@ async def get_partner_product(
             ProductMatch.is_rejected == False,  # noqa: E712
         )
     )
-    match = result.scalar_one_or_none()
+    match = result.scalars().first()
     if not match:
         logger.debug(
             "get_partner_product: no match found for product_id=%s (target_store=%s)",

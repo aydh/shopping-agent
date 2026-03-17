@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import async_session, get_session
+from ..db_helpers import store_from_string
 from ..models import ListStatus, ShoppingList, ShoppingListItem, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from ..services.cart import _resolve_store_product_id, add_to_cart
+from ..templating import templates
 
 router = APIRouter()
 
@@ -18,7 +20,7 @@ router = APIRouter()
 @router.get("/stream/{store}")
 async def add_to_cart_stream(store: str) -> StreamingResponse:
     """SSE endpoint: adds items to cart one at a time, streaming per-item results."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
 
     async def generate():
@@ -67,19 +69,13 @@ async def add_to_cart_stream(store: str) -> StreamingResponse:
 
 @router.post("/add/{store}")
 async def add_items_to_cart(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     result = await add_to_cart(session, store_enum)
 
     failed_ids = result.get("failed_item_ids", [])
-    highlight_js = ""
-    if failed_ids:
-        ids_js = ", ".join(f"'item-row-{i}'" for i in failed_ids)
-        highlight_js = f"""<script>
-[{ids_js}].forEach(id => {{
-    const el = document.getElementById(id);
-    if (el) el.classList.add('bg-yellow-50');
-}});
-</script>"""
+    highlight_js = templates.env.get_template("fragments/_cart_highlight.html").render(
+        failed_ids=failed_ids
+    )
 
     cart_url = result.get("cart_url", "#")
     store_label = store.title()

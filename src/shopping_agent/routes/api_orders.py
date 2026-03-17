@@ -1,12 +1,15 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
 
 from ..database import async_session, get_session
+from ..db_helpers import store_from_string
 from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
@@ -14,13 +17,15 @@ from ..services.order_sync import sync_orders
 from ..services.price_comparison import match_unmatched_products
 from ..templating import templates
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
 @router.get("/sync-stream/{store}")
 async def sync_orders_stream(store: str) -> StreamingResponse:
     """SSE endpoint: fetches orders and streams each row as it's saved."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
 
     async def generate():
@@ -52,8 +57,10 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
                     if order:
                         row_html = templates.env.get_template("partials/order_row.html").render(order=order)
                         yield f"event: order\ndata: {json.dumps({'html': row_html, 'is_new': count > 0})}\n\n"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.exception("Unexpected error syncing order %s — skipping", scraped_order.store_order_id)
+                    yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+                    continue
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
             return
@@ -64,6 +71,7 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
             async with async_session() as session:
                 matched_count = await match_unmatched_products(session, store_enum)
         except Exception:
+            logger.exception("Unexpected error during product matching after order sync")
             matched_count = 0
 
         yield f"event: done\ndata: {json.dumps({'new_count': new_count, 'matched': matched_count})}\n\n"
@@ -76,7 +84,7 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
 
 @router.delete("/purge/{store}")
 async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
 
     # Fetch order IDs for this store so we can delete items first
     result = await session.execute(
@@ -123,27 +131,7 @@ async def get_order_items(order_id: int, session: AsyncSession = Depends(get_ses
     if not order or not order.items:
         return HTMLResponse('<p class="text-gray-400 text-sm">No items found.</p>')
 
-    rows = []
-    for item in order.items:
-        rows.append(
-            f"""<tr>
-                <td class="px-4 py-2 text-sm text-gray-900">{item.product.name}</td>
-                <td class="px-4 py-2 text-sm text-gray-500">{item.quantity}</td>
-                <td class="px-4 py-2 text-sm text-gray-500">${item.price_paid:.2f}</td>
-            </tr>"""
-        )
-
-    html = f"""
-    <table class="min-w-full text-sm">
-        <thead><tr>
-            <th class="px-4 py-2 text-left text-xs text-gray-500">Product</th>
-            <th class="px-4 py-2 text-left text-xs text-gray-500">Qty</th>
-            <th class="px-4 py-2 text-left text-xs text-gray-500">Price</th>
-        </tr></thead>
-        <tbody>{"".join(rows)}</tbody>
-    </table>
-    <script>
-        document.getElementById('order-detail-row-{order_id}').classList.remove('hidden');
-    </script>
-    """
+    html = templates.env.get_template("fragments/_order_items_table.html").render(
+        order=order, order_id=order_id
+    )
     return HTMLResponse(html)

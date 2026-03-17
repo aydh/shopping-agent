@@ -9,19 +9,20 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func as sqlfunc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...config import PRICE_REFRESH_CONCURRENCY
+from ...config import PRICE_REFRESH_CONCURRENCY, settings
 from ...database import async_session, get_session
+from ...db_helpers import store_from_string, visible_products_query
 from ...models import (
     ListStatus,
     PriceHistory,
     Product,
-    ProductMatch,
     ShoppingList,
     ShoppingListItem,
     Store,
 )
 from ...scrapers.coles import ColesScraper
 from ...scrapers.woolworths import WoolworthsScraper
+from ...services.product_resolution import get_partner_product
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
 
     async with async_session() as session:
         result = await session.execute(
-            select(Product).where(Product.store == store_enum, Product.is_hidden == False)  # noqa: E712
+            visible_products_query().where(Product.store == store_enum)
         )
         products = list(result.scalars().all())
 
@@ -84,15 +85,9 @@ async def _do_price_refresh(store_enum: Store) -> None:
                             # Sync active shopping list items that reference this product
                             # or items for the matched partner product
                             affected_product_ids = [product_id]
-                            match = (await session.execute(
-                                select(ProductMatch).where(
-                                    (ProductMatch.product_a_id == product_id) | (ProductMatch.product_b_id == product_id),
-                                    ProductMatch.is_rejected == False,  # noqa: E712
-                                )
-                            )).scalars().first()
-                            if match:
-                                partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
-                                affected_product_ids.append(partner_id)
+                            partner = await get_partner_product(session, product_id, store_enum.value)
+                            if partner:
+                                affected_product_ids.append(partner.id)
                             active_items = (await session.execute(
                                 select(ShoppingListItem)
                                 .join(ShoppingList, ShoppingListItem.shopping_list_id == ShoppingList.id)
@@ -130,7 +125,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
 @router.post("/refresh/{store}")
 async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Kick off a background price refresh for the given store."""
-    store_enum = Store(store)
+    store_enum = store_from_string(store)
     scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
 
     if not await scraper.is_authenticated():
@@ -146,7 +141,7 @@ async def refresh_prices(store: str, background_tasks: BackgroundTasks, session:
     return HTMLResponse(
         f'<span id="refresh-progress-{store_val}" class="text-blue-600 text-sm"'
         f' hx-get="/api/prices/refresh-progress/{store_val}"'
-        f' hx-trigger="every 1s"'
+        f' hx-trigger="every {settings.price_refresh_poll_interval_ms}ms"'
         f' hx-target="#refresh-progress-{store_val}"'
         f' hx-swap="outerHTML">0/{count}</span>'
     )
@@ -165,7 +160,7 @@ async def refresh_progress(store: str) -> HTMLResponse:
         return HTMLResponse(
             f'<span id="refresh-progress-{store}" class="text-blue-600 text-sm"'
             f' hx-get="/api/prices/refresh-progress/{store}"'
-            f' hx-trigger="every 1s"'
+            f' hx-trigger="every {settings.price_refresh_poll_interval_ms}ms"'
             f' hx-target="#refresh-progress-{store}"'
             f' hx-swap="outerHTML">{done}/{total}</span>'
         )

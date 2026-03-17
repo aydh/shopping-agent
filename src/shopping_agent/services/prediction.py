@@ -15,6 +15,7 @@ from ..config import (
     PREDICTION_PURCHASE_COUNT_MIN,
     PRODUCT_RECENCY_DAYS,
 )
+from ..db_helpers import visible_products_query
 from ..models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch
 
 logger = logging.getLogger(__name__)
@@ -40,10 +41,33 @@ def compute_prediction(
     decay_factor: float = 0.3,
     lead_time_days: int = 2,
 ) -> dict | None:
-    """
-    Compute consumption prediction for a single product.
+    """Compute consumption prediction stats for a single product.
 
-    Returns dict with prediction fields, or None if insufficient data.
+    Analyzes purchase history to estimate daily consumption, predict runout
+    dates, and compute confidence scores. Uses exponential decay weighting
+    to favor recent purchases, normalizes intervals by quantity purchased,
+    and filters out non-positive intervals.
+
+    Args:
+        purchases: List of PurchaseRecord objects sorted by date.
+        today: Reference date for calculations (defaults to today).
+        decay_factor: Exponential decay weight; controls how strongly recent
+            purchases are weighted vs. older ones. Typically 0.1-0.5; higher
+            values weight recent purchases more heavily.
+        lead_time_days: Days before predicted runout to trigger next purchase
+            date (e.g., 2 days means reorder 2 days before estimated runout).
+
+    Returns:
+        Dict with keys: avg_purchase_interval_days, avg_quantity_per_purchase,
+        estimated_daily_consumption, confidence_score, last_purchased_date,
+        predicted_runout_date, next_purchase_date, purchase_count,
+        last_purchase_quantity, last_purchase_store. Returns None if fewer
+        than 2 purchases, no positive intervals, or calculated consumption <= 0.
+
+    Edge cases:
+        - Zero or negative inter-purchase intervals are skipped.
+        - Confidence scores incorporate data volume and purchase regularity
+          (coefficient of variation).
     """
     if len(purchases) < 2:
         return None
@@ -122,14 +146,25 @@ def compute_prediction(
 
 
 async def refresh_predictions(session: AsyncSession) -> int:
-    """Recompute all consumption predictions. Returns count of predictions updated."""
+    """Recompute all consumption predictions and persist them to the database.
+
+    Groups products by their cross-store equivalency using union-find so that
+    purchase histories are merged correctly across matched products. Predictions
+    older than PRODUCT_RECENCY_DAYS are removed. The prediction is stored under
+    the canonical (lowest-id) product in each group.
+
+    Args:
+        session: Async database session.
+
+    Returns:
+        Number of ConsumptionPrediction rows created or updated.
+    """
     # Load all visible products with order history
     query = (
-        select(Product)
+        visible_products_query()
         .join(OrderItem)
         .join(Order)
         .options(selectinload(Product.order_items).selectinload(OrderItem.order))
-        .where(Product.is_hidden == False)  # noqa: E712
         .distinct()
     )
     result = await session.execute(query)
@@ -149,6 +184,7 @@ async def refresh_predictions(session: AsyncSession) -> int:
     parent: dict[int, int] = {}
 
     def find(x: int) -> int:
+        """Return root representative of x using path compression."""
         while parent.get(x, x) != x:
             parent[x] = parent.get(parent[x], parent[x])  # path compression
             x = parent[x]

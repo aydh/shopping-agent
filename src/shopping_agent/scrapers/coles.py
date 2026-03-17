@@ -32,7 +32,7 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-AU,en;q=0.9",
     "Origin": COLES_BASE,
     "Referer": f"{COLES_BASE}/",
-    "Ocp-Apim-Subscription-Key": settings.coles_api_key or "",
+    "Ocp-Apim-Subscription-Key": settings.coles_api_key,
     "dsch-channel": "coles.online.1site.desktop",
     "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
     "Sec-Ch-Ua-Mobile": "?0",
@@ -155,6 +155,7 @@ class ColesScraper(BaseScraper):
             try:
                 return len(json.loads(row.cookies_json)) > 0
             except Exception:
+                logger.warning("Failed to parse stored Coles cookies JSON", exc_info=True)
                 return False
 
     async def import_cookies(self, cookie_json: str) -> bool:
@@ -565,7 +566,7 @@ class ColesScraper(BaseScraper):
                 "/api/bff/products/search",
                 params={
                     "searchTerm": query,
-                    "subscription-key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+                    "subscription-key": settings.coles_api_key or "",
                     "storeId": "0584",
                     "start": 0,
                     "pageSize": 24,
@@ -641,7 +642,7 @@ class ColesScraper(BaseScraper):
                 "/api/bff/products/search",
                 params={
                     "searchTerm": search_term,
-                    "subscription-key": "eae83861d1cd4de6bb9cd8a2cd6f041e",
+                    "subscription-key": settings.coles_api_key or "",
                     "storeId": "0584",
                     "start": 0,
                 },
@@ -931,6 +932,7 @@ class ColesScraper(BaseScraper):
                 is_available=data.get("availability", True),
             )
         except Exception:
+            logger.debug("Failed to parse Coles search result", exc_info=True)
             return None
 
 

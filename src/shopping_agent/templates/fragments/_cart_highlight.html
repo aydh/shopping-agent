@@ -1,0 +1,10 @@
+{# Highlights failed cart items by adding a CSS class to their row elements.
+   Context: failed_ids (list of item IDs that failed to be added to cart) #}
+{% if failed_ids %}
+<script>
+[{% for item_id in failed_ids %}'item-row-{{ item_id }}'{% if not loop.last %}, {% endif %}{% endfor %}].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('bg-yellow-50');
+});
+</script>
+{% endif %}

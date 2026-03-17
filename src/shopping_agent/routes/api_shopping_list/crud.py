@@ -1,0 +1,134 @@
+"""Shopping list CRUD — list-level create, read, delete, and details."""
+from datetime import date
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...database import get_session
+from ...models import ListStatus, Product, ShoppingList, ShoppingListItem
+from ...services.shopping_list import (
+    confirm_list,
+    get_shopping_list_context as _shopping_list_context,
+)
+from ...templating import templates
+
+router = APIRouter()
+
+
+def _list_header_oob(shopping_list: ShoppingList | None) -> str:
+    """Render the OOB list-header fragment."""
+    has_list = shopping_list is not None
+    return templates.get_template("_list_header.html").render(
+        has_list=has_list,
+        title=(shopping_list.name if has_list else None) or "Shopping List",
+        new_cls="bg-gray-200 text-gray-400 cursor-not-allowed" if has_list else "bg-blue-600 text-white hover:bg-blue-700",
+        pred_cls="bg-gray-200 text-gray-400 cursor-not-allowed" if not has_list else "bg-green-600 text-white hover:bg-green-700",
+        new_disabled="disabled" if has_list else "",
+        pred_disabled="disabled" if not has_list else "",
+    )
+
+
+@router.delete("/current")
+async def delete_current_list(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    """Delete the current active (non-ordered) shopping list."""
+    shopping_list = (await session.execute(
+        select(ShoppingList)
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )).scalars().first()
+
+    if shopping_list:
+        await session.execute(
+            delete(ShoppingListItem).where(ShoppingListItem.shopping_list_id == shopping_list.id)
+        )
+        await session.delete(shopping_list)
+        await session.commit()
+
+    ctx = await _shopping_list_context(session)
+    list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
+    return HTMLResponse(list_html + _list_header_oob(None))
+
+
+@router.post("/new")
+async def new_list(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    """Create a new empty shopping list (disabled if one already exists)."""
+    existing = (await session.execute(
+        select(ShoppingList)
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )).scalars().first()
+
+    if existing:
+        return HTMLResponse("")
+
+    today = date.today()
+    # "Week of Mon DD MMM YYYY"
+    name = f"Week of {today.strftime('%d %b %Y')}"
+    shopping_list = ShoppingList(name=name, target_date=today, status=ListStatus.DRAFT)
+    session.add(shopping_list)
+    await session.commit()
+
+    ctx = await _shopping_list_context(session)
+    list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
+    return HTMLResponse(list_html + _list_header_oob(ctx["shopping_list"]))
+
+
+@router.post("/confirm/{list_id}")
+async def confirm(list_id: int, session: AsyncSession = Depends(get_session)) -> RedirectResponse:
+    await confirm_list(session, list_id)
+    return RedirectResponse("/confirm", status_code=303)
+
+
+@router.post("/close/{list_id}")
+async def close_list(list_id: int, session: AsyncSession = Depends(get_session)) -> RedirectResponse:
+    """Mark the shopping list as ordered (closed)."""
+    shopping_list = await session.get(ShoppingList, list_id)
+    if shopping_list:
+        shopping_list.status = ListStatus.ORDERED
+        await session.commit()
+    return RedirectResponse("/shopping-list", status_code=303)
+
+
+@router.get("/details/{list_id}")
+async def list_details(list_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    """Return an HTML fragment listing all items in a past shopping list."""
+    items_result = await session.execute(
+        select(ShoppingListItem)
+        .where(
+            ShoppingListItem.shopping_list_id == list_id,
+            ShoppingListItem.is_removed == False,  # noqa: E712
+        )
+    )
+    items = items_result.scalars().all()
+    product_ids = [i.product_id for i in items]
+
+    products_result = await session.execute(
+        select(Product).where(Product.id.in_(product_ids))
+    )
+    products_by_id = {p.id: p for p in products_result.scalars().all()}
+
+    items_data = [
+        {
+            "name": products_by_id[i.product_id].name,
+            "quantity": i.quantity,
+            "coles_price": i.coles_price,
+            "woolworths_price": i.woolworths_price,
+            "product_id": i.product_id,
+        }
+        for i in items
+        if i.product_id in products_by_id
+    ]
+    html = templates.get_template("_past_list_details.html").render(items=items_data)
+    return HTMLResponse(html)
+
+
+@router.delete("/purge")
+async def purge_shopping_lists(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    items = await session.execute(delete(ShoppingListItem))
+    lists = await session.execute(delete(ShoppingList))
+    await session.commit()
+    return HTMLResponse(
+        f'<span class="text-orange-600 text-sm">Purged {lists.rowcount} lists and {items.rowcount} items.</span>'
+    )

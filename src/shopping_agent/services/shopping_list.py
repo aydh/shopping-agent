@@ -1,5 +1,6 @@
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,32 @@ from ..models import (
 )
 from .prediction import generate_candidates
 from .price_comparison import build_price_map
+
+
+class ShoppingListContext(TypedDict):
+    """Full context dict returned by get_shopping_list_context for template rendering."""
+
+    shopping_list: ShoppingList | None
+    display_names: dict[int, str]
+    store_names: dict[int, dict]
+    store_products: dict[int, dict]
+    single_store: Store | None
+    coles_total: float
+    woolworths_total: float
+    best_total: float
+    recommendation: str
+
+
+class ListHistoryRow(TypedDict):
+    """Summary row for a single past shopping list returned by get_list_history."""
+
+    id: int
+    name: str
+    created_at: datetime
+    status: ListStatus
+    store: Store | None
+    item_count: int
+    total: float
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +76,30 @@ async def generate_shopping_list(
     target_date: date | None = None,
     lookahead_days: int = 7,
 ) -> ShoppingList:
-    """Generate a shopping list based on consumption predictions."""
+    """Generate a shopping list from consumption predictions.
+
+    Loads all consumption predictions, generates candidates within a time
+    window (lead_time_days before target_date to lookahead_days after),
+    resolves prices via cross-store ProductMatch data, selects the best
+    store per item based on price, and persists items to a DRAFT list.
+    Auto-generated items from prior lists are cleared on regeneration.
+
+    Args:
+        session: Async database session for prediction/product/match queries.
+        target_date: Target date for window calculation (defaults to today).
+        lookahead_days: Days ahead of target_date to include in candidates.
+
+    Returns:
+        ShoppingList object (in DRAFT status) with ShoppingListItem children.
+
+    Price and store selection logic:
+        - Uses build_price_map() to look up coles_price and woolworths_price
+          from ProductMatch records.
+        - Falls back to product.current_price if no match exists (assumes
+          product is from that store only).
+        - Calls choose_best_store() to pick the cheaper store; ties go to
+          the product's store.
+    """
     target_date = target_date or date.today()
     list_name = f"Week of {target_date.isoformat()}"
 
@@ -298,7 +348,7 @@ async def resolve_display_names(
     return display_names, store_names, store_products
 
 
-async def get_shopping_list_context(session: AsyncSession) -> dict:
+async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContext:
     """Build the full shopping list context dict for template rendering.
 
     Returns a dict with keys: shopping_list, display_names, store_names,
@@ -357,7 +407,7 @@ async def get_shopping_list_context(session: AsyncSession) -> dict:
     }
 
 
-async def get_list_history(session: AsyncSession) -> list[dict]:
+async def get_list_history(session: AsyncSession) -> list[ListHistoryRow]:
     """Return summary rows for past (ordered) shopping lists."""
     result = await session.execute(
         select(ShoppingList)
@@ -365,7 +415,7 @@ async def get_list_history(session: AsyncSession) -> list[dict]:
         .where(ShoppingList.status == ListStatus.ORDERED)
         .order_by(ShoppingList.created_at.desc())
     )
-    rows = []
+    rows: list[ListHistoryRow] = []
     for sl in result.scalars().all():
         active = [i for i in sl.items if not i.is_removed]
         stores = {i.chosen_store for i in active if i.chosen_store}

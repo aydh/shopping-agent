@@ -1,12 +1,30 @@
 import logging
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
+from ..models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
+from .product_resolution import get_partner_product
+
+
+class CartResult(TypedDict, total=False):
+    """Result dict returned by add_to_cart.
+
+    All keys except ``success`` are optional — error responses only include
+    ``success`` and ``error``, while success responses include ``count``,
+    ``cart_url``, ``message``, and ``failed_item_ids``.
+    """
+
+    success: bool
+    error: str
+    count: int
+    cart_url: str | None
+    message: str
+    failed_item_ids: list[int]
 
 logger = logging.getLogger(__name__)
 
@@ -22,31 +40,40 @@ async def _resolve_store_product_id(
     if canonical_product.store == store:
         return canonical_product.store_product_id
 
-    result = await session.execute(
-        select(ProductMatch).where(
-            (
-                (ProductMatch.product_a_id == canonical_product.id)
-                | (ProductMatch.product_b_id == canonical_product.id)
-            ),
-            ProductMatch.is_rejected == False,  # noqa: E712
-        )
-    )
-    match = result.scalars().first()
-    if not match:
-        return None
-
-    partner_id = (
-        match.product_b_id if match.product_a_id == canonical_product.id else match.product_a_id
-    )
-    partner = await session.get(Product, partner_id)
+    partner = await get_partner_product(session, canonical_product.id, store.value)
     if partner and partner.store == store:
         return partner.store_product_id
 
     return None
 
 
-async def add_to_cart(session: AsyncSession, store: Store) -> dict:
-    """Add confirmed shopping list items to the specified store's cart."""
+async def add_to_cart(session: AsyncSession, store: Store) -> CartResult:
+    """Add confirmed shopping list items to the specified store's cart.
+
+    Retrieves the most recent CONFIRMED shopping list, resolves each item's
+    store-specific product ID (using cross-store ProductMatch if needed),
+    calls the appropriate scraper to add items, and updates item.is_ordered
+    flags in the database based on per-item success/failure results.
+
+    Args:
+        session: Async database session for product lookups and updates.
+        store: Target store (COLES or WOOLWORTHS).
+
+    Returns:
+        CartResult TypedDict with:
+        - success (bool): True if no items failed and no products were skipped.
+        - count (int): Number of items successfully added to cart.
+        - cart_url (str | None): URL to the store's cart page.
+        - message (str): Summary message including count, store name, and
+            count of skipped items (those with no product match).
+        - failed_item_ids (list[int]): IDs of items that failed to add
+            (not including those skipped due to no product match).
+        - error (str, optional): Error message if no confirmed list exists.
+
+    DB mutations:
+        - Sets item.is_ordered = True for successfully added items.
+        - Commits changes to the session.
+    """
     result = await session.execute(
         select(ShoppingList)
         .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))

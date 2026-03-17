@@ -2,7 +2,9 @@
    Context: points (list of {x, y}), canvas_id, colour, label #}
 <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
   <div style="position:relative;max-width:100%">
-    <canvas id="{{ canvas_id }}" height="100"></canvas>
+    <canvas id="{{ canvas_id }}" height="100" role="img" aria-label="Price history chart for {{ label }}">
+      Price history chart for {{ label }}.
+    </canvas>
   </div>
   <script>
   (function() {
