@@ -102,6 +102,14 @@ async def migrate() -> None:
             await pg.executemany(sql, records)
             print(f"  {table}: {len(records)} rows migrated")
 
+        # Reset sequences so auto-increment starts after the migrated data
+        print("\nResetting sequences...")
+        for table in TABLES:
+            result = await pg.fetchrow(
+                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE(MAX(id), 1)) FROM \"{table}\""
+            )
+            print(f"  {table}: sequence → {result['setval']}")
+
         print("\nDone.")
     finally:
         sqlite.close()
