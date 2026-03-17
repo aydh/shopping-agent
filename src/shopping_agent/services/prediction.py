@@ -210,8 +210,13 @@ async def refresh_predictions(session: AsyncSession) -> int:
         if pid not in groups[canon]:
             groups[canon].append(pid)
 
-    count = 0
+    # Bulk-fetch all existing predictions upfront — keyed by product_id
+    existing_preds: dict[int, ConsumptionPrediction] = {
+        p.product_id: p
+        for p in (await session.execute(select(ConsumptionPrediction))).scalars().all()
+    }
 
+    count = 0
     today = date.today()
     recency_cutoff = today - timedelta(days=PRODUCT_RECENCY_DAYS)  # 4 months
 
@@ -233,11 +238,9 @@ async def refresh_predictions(session: AsyncSession) -> int:
         # Skip and remove prediction if not purchased in the last 4 months
         most_recent = max(p.order_date for p in purchases)
         if most_recent < recency_cutoff:
-            existing = await session.execute(
-                select(ConsumptionPrediction).where(ConsumptionPrediction.product_id.in_(member_ids))
-            )
-            for stale in existing.scalars().all():
-                await session.delete(stale)
+            for pid in member_ids:
+                if pid in existing_preds:
+                    await session.delete(existing_preds.pop(pid))
             continue
 
         # Only use recent purchases for the prediction to keep intervals accurate
@@ -261,13 +264,7 @@ async def refresh_predictions(session: AsyncSession) -> int:
                 continue  # no member has order history (shouldn't happen)
 
         # Upsert prediction for the canonical product
-        existing = await session.execute(
-            select(ConsumptionPrediction).where(
-                ConsumptionPrediction.product_id == canon_id
-            )
-        )
-        pred = existing.scalar_one_or_none()
-
+        pred = existing_preds.get(canon_id)
         if pred:
             for key, value in pred_data.items():
                 setattr(pred, key, value)
@@ -277,14 +274,8 @@ async def refresh_predictions(session: AsyncSession) -> int:
 
         # Remove stale predictions for non-canonical members
         for pid in member_ids:
-            if pid == canon_id:
-                continue
-            stale = await session.execute(
-                select(ConsumptionPrediction).where(ConsumptionPrediction.product_id == pid)
-            )
-            stale_pred = stale.scalar_one_or_none()
-            if stale_pred:
-                await session.delete(stale_pred)
+            if pid != canon_id and pid in existing_preds:
+                await session.delete(existing_preds.pop(pid))
 
         count += 1
 
