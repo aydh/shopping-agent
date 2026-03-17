@@ -3,7 +3,9 @@
             all_combined, coles_colour, ww_colour, price_line_colour #}
 <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
   <div style="position:relative;max-width:100%">
-    <canvas id="{{ canvas_id }}" height="100"></canvas>
+    <canvas id="{{ canvas_id }}" height="100" role="img" aria-label="Price comparison chart between Coles and Woolworths">
+      Price comparison chart between Coles and Woolworths showing price history over time.
+    </canvas>
   </div>
   <script>
     (function() {
