@@ -16,23 +16,50 @@ async def sync_orders(
     store: Store,
 ) -> int:
     """Upsert scraped orders into the database. Returns count of new orders."""
+    if not scraped_orders:
+        return 0
+
+    # Bulk-fetch existing orders
+    store_order_ids = [o.store_order_id for o in scraped_orders]
+    existing_orders = {
+        o.store_order_id: o
+        for o in (await session.execute(
+            select(Order).where(Order.store_order_id.in_(store_order_ids))
+        )).scalars().all()
+    }
+
+    # Bulk-fetch existing products for this store
+    all_product_ids = {
+        item.store_product_id
+        for order in scraped_orders
+        for item in order.items
+    }
+    existing_products: dict[str, Product] = {
+        p.store_product_id: p
+        for p in (await session.execute(
+            select(Product).where(
+                Product.store == store,
+                Product.store_product_id.in_(all_product_ids),
+            )
+        )).scalars().all()
+    }
+
     new_count = 0
+    # Accumulate new products, order items, and price history entries to flush in bulk
+    new_products: list[Product] = []
+    new_order_items: list[OrderItem] = []
+    # (product_id_placeholder, store_product_id, store, price, recorded_at)
+    pending_price_history: list[tuple[str, Store, float, datetime]] = []
 
     for scraped in scraped_orders:
-        # Check if order already exists
-        existing = await session.execute(
-            select(Order).where(Order.store_order_id == scraped.store_order_id)
-        )
-        existing_order = existing.scalar_one_or_none()
+        existing_order = existing_orders.get(scraped.store_order_id)
         if existing_order:
-            # Backfill store_name/store_id if now available
             if scraped.store_name and not existing_order.store_name:
                 existing_order.store_name = scraped.store_name
             if scraped.store_id and not existing_order.store_id:
                 existing_order.store_id = scraped.store_id
             continue
 
-        # Create order
         order = Order(
             store=store,
             store_order_id=scraped.store_order_id,
@@ -43,89 +70,78 @@ async def sync_orders(
             store_id=scraped.store_id,
         )
         session.add(order)
-        await session.flush()
-
-        # Upsert products and create order items
-        for scraped_item in scraped.items:
-            product = await _upsert_product(session, scraped_item, store, scraped.order_date)
-            order_item = OrderItem(
-                order_id=order.id,
-                product_id=product.id,
-                quantity=scraped_item.quantity,
-                price_paid=scraped_item.price_paid,
-            )
-            session.add(order_item)
-
         new_count += 1
+
+        for scraped_item in scraped.items:
+            product = existing_products.get(scraped_item.store_product_id)
+            if product:
+                product.name = scraped_item.name
+                if scraped_item.brand:
+                    product.brand = scraped_item.brand
+                if scraped_item.unit_size:
+                    product.unit_size = scraped_item.unit_size
+                if scraped_item.image_url:
+                    product.image_url = scraped_item.image_url
+            else:
+                product = Product(
+                    store=store,
+                    store_product_id=scraped_item.store_product_id,
+                    name=scraped_item.name,
+                    brand=scraped_item.brand,
+                    unit_size=scraped_item.unit_size,
+                    image_url=scraped_item.image_url,
+                    category=getattr(scraped_item, "category", None),
+                    current_price=scraped_item.price_paid,
+                )
+                session.add(product)
+                existing_products[scraped_item.store_product_id] = product
+                new_products.append(product)
+
+            if scraped_item.price_paid:
+                recorded_at = datetime.combine(scraped.order_date, datetime.min.time())
+                pending_price_history.append((
+                    scraped_item.store_product_id, store, scraped_item.price_paid, recorded_at
+                ))
+
+            new_order_items.append((order, scraped_item, scraped_item.store_product_id))
+
+    # Flush to get IDs for new products and orders
+    await session.flush()
+
+    # Resolve product IDs for order items now that flush has assigned them
+    for order, scraped_item, spid in new_order_items:
+        product = existing_products[spid]
+        session.add(OrderItem(
+            order_id=order.id,
+            product_id=product.id,
+            quantity=scraped_item.quantity,
+            price_paid=scraped_item.price_paid,
+        ))
+
+    # Bulk-check which price history entries already exist, then insert missing ones
+    if pending_price_history:
+        ph_product_ids = list({existing_products[spid].id for spid, *_ in pending_price_history})
+        ph_dates = list({recorded_at for _, _, _, recorded_at in pending_price_history})
+        existing_ph = {
+            (ph.product_id, ph.recorded_at)
+            for ph in (await session.execute(
+                select(PriceHistory).where(
+                    PriceHistory.product_id.in_(ph_product_ids),
+                    PriceHistory.recorded_at.in_(ph_dates),
+                )
+            )).scalars().all()
+        }
+        for spid, ph_store, price, recorded_at in pending_price_history:
+            product = existing_products[spid]
+            if (product.id, recorded_at) not in existing_ph:
+                session.add(PriceHistory(
+                    product_id=product.id,
+                    store=ph_store,
+                    price=price,
+                    recorded_at=recorded_at,
+                ))
+                existing_ph.add((product.id, recorded_at))  # prevent duplicates within same sync
 
     await session.commit()
     logger.info("Synced %d new orders from %s", new_count, store.value)
     return new_count
-
-
-async def _upsert_product(session: AsyncSession, item: ScrapedOrderItem, store: Store, order_date: date) -> Product:
-    """Find or create a Product from a scraped order item, and record its price history.
-
-    If the product already exists (matched by store + store_product_id), updates
-    mutable fields (name, brand, unit_size, image_url). Always records a
-    PriceHistory entry for the order date if a price is available, skipping
-    duplicates (one entry per product per day).
-
-    Args:
-        session: Async database session.
-        item: Scraped order item containing product details and price paid.
-        store: The store this item was purchased from.
-        order_date: Date of the order, used for price history timestamping.
-
-    Returns:
-        The existing or newly created Product ORM instance.
-    """
-    result = await session.execute(
-        select(Product).where(
-            Product.store == store,
-            Product.store_product_id == item.store_product_id,
-        )
-    )
-    product = result.scalar_one_or_none()
-
-    if product:
-        # Update with latest info
-        product.name = item.name
-        if item.brand:
-            product.brand = item.brand
-        if item.unit_size:
-            product.unit_size = item.unit_size
-        if item.image_url:
-            product.image_url = item.image_url
-    else:
-        product = Product(
-            store=store,
-            store_product_id=item.store_product_id,
-            name=item.name,
-            brand=item.brand,
-            unit_size=item.unit_size,
-            image_url=item.image_url,
-            category=getattr(item, "category", None),
-            current_price=item.price_paid,
-        )
-        session.add(product)
-        await session.flush()
-
-    # Record price history using the order date — one entry per product per day
-    if item.price_paid:
-        recorded_at = datetime.combine(order_date, datetime.min.time())
-        existing_ph = await session.execute(
-            select(PriceHistory).where(
-                PriceHistory.product_id == product.id,
-                PriceHistory.recorded_at == recorded_at,
-            )
-        )
-        if not existing_ph.scalar_one_or_none():
-            session.add(PriceHistory(
-                product_id=product.id,
-                store=store,
-                price=item.price_paid,
-                recorded_at=recorded_at,
-            ))
-
-    return product
