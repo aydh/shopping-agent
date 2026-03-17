@@ -13,7 +13,6 @@ dependencies = [
     "asyncpg>=0.30",
     "psycopg2-binary>=2.9",
     "alembic>=1.14",
-    "playwright>=1.49",
     "pydantic-settings>=2.7",
     "python-dotenv>=1.0",
     "rapidfuzz>=3.10",
