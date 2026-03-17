@@ -131,27 +131,7 @@ async def get_order_items(order_id: int, session: AsyncSession = Depends(get_ses
     if not order or not order.items:
         return HTMLResponse('<p class="text-gray-400 text-sm">No items found.</p>')
 
-    rows = []
-    for item in order.items:
-        rows.append(
-            f"""<tr>
-                <td class="px-4 py-2 text-sm text-gray-900">{item.product.name}</td>
-                <td class="px-4 py-2 text-sm text-gray-500">{item.quantity}</td>
-                <td class="px-4 py-2 text-sm text-gray-500">${item.price_paid:.2f}</td>
-            </tr>"""
-        )
-
-    html = f"""
-    <table class="min-w-full text-sm">
-        <thead><tr>
-            <th class="px-4 py-2 text-left text-xs text-gray-500">Product</th>
-            <th class="px-4 py-2 text-left text-xs text-gray-500">Qty</th>
-            <th class="px-4 py-2 text-left text-xs text-gray-500">Price</th>
-        </tr></thead>
-        <tbody>{"".join(rows)}</tbody>
-    </table>
-    <script>
-        document.getElementById('order-detail-row-{order_id}').classList.remove('hidden');
-    </script>
-    """
+    html = templates.env.get_template("fragments/_order_items_table.html").render(
+        order=order, order_id=order_id
+    )
     return HTMLResponse(html)

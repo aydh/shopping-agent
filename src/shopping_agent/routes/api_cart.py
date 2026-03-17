@@ -12,6 +12,7 @@ from ..models import ListStatus, ShoppingList, ShoppingListItem, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from ..services.cart import _resolve_store_product_id, add_to_cart
+from ..templating import templates
 
 router = APIRouter()
 
@@ -72,15 +73,9 @@ async def add_items_to_cart(store: str, session: AsyncSession = Depends(get_sess
     result = await add_to_cart(session, store_enum)
 
     failed_ids = result.get("failed_item_ids", [])
-    highlight_js = ""
-    if failed_ids:
-        ids_js = ", ".join(f"'item-row-{i}'" for i in failed_ids)
-        highlight_js = f"""<script>
-[{ids_js}].forEach(id => {{
-    const el = document.getElementById(id);
-    if (el) el.classList.add('bg-yellow-50');
-}});
-</script>"""
+    highlight_js = templates.env.get_template("fragments/_cart_highlight.html").render(
+        failed_ids=failed_ids
+    )
 
     cart_url = result.get("cart_url", "#")
     store_label = store.title()

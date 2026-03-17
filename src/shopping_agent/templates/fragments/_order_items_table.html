@@ -1,0 +1,22 @@
+{# Renders order items as a table and reveals the detail row.
+   Context: order (Order with .items[].product, .items[].quantity, .items[].price_paid),
+            order_id (int) #}
+<table class="min-w-full text-sm">
+    <thead><tr>
+        <th class="px-4 py-2 text-left text-xs text-gray-500">Product</th>
+        <th class="px-4 py-2 text-left text-xs text-gray-500">Qty</th>
+        <th class="px-4 py-2 text-left text-xs text-gray-500">Price</th>
+    </tr></thead>
+    <tbody>
+        {% for item in order.items %}
+        <tr>
+            <td class="px-4 py-2 text-sm text-gray-900">{{ item.product.name }}</td>
+            <td class="px-4 py-2 text-sm text-gray-500">{{ item.quantity }}</td>
+            <td class="px-4 py-2 text-sm text-gray-500">${{ "%.2f" | format(item.price_paid) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<script>
+    document.getElementById('order-detail-row-{{ order_id }}').classList.remove('hidden');
+</script>
