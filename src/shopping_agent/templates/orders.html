@@ -116,16 +116,11 @@ function syncOrders(store) {
         }
     });
 
-    es.addEventListener('matching', () => {
-        progress.innerHTML = '<span class="text-blue-600">Matching products…</span>';
-    });
-
     es.addEventListener('done', (e) => {
         es.close();
         btn.disabled = false;
-        const {new_count, matched} = JSON.parse(e.data);
-        const matchMsg = matched ? `, ${matched} matched` : '';
-        progress.innerHTML = `<span class="text-green-600">Done — ${new_count} new orders${matchMsg}</span>`;
+        const {new_count} = JSON.parse(e.data);
+        progress.innerHTML = `<span class="text-green-600">Done — ${new_count} new orders</span>`;
     });
 
     es.addEventListener('error', (e) => {

@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: shopping-agent
+    runtime: python
+    region: singapore
+    plan: starter
+    branch: main
+    buildCommand: pip install -e . && playwright install chromium --with-deps
+    startCommand: uvicorn shopping_agent.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: COLES_API_KEY
+        sync: false
+      - key: DEBUG
+        value: false
+      - key: PRICE_REFRESH_POLL_INTERVAL_MS
+        value: "1000"

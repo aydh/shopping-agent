@@ -6,15 +6,21 @@
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 class="text-2xl font-bold text-gray-900">Price Comparison</h1>
         <div class="flex flex-wrap gap-2 items-center">
+            <button hx-post="/api/prices/match-products" hx-target="#match-result" hx-indicator="#match-spinner"
+                    class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                Match Products
+            </button>
+            <span id="match-spinner" class="htmx-indicator text-gray-400 text-sm">matching...</span>
+            <span id="match-result"></span>
             <button hx-post="/api/prices/refresh/coles" hx-target="#coles-refresh-result" hx-indicator="#coles-price-spinner"
                     class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
-                Refresh Coles
+                Refresh Coles Prices
             </button>
             <span id="coles-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
             <span id="coles-refresh-result"></span>
             <button hx-post="/api/prices/refresh/woolworths" hx-target="#ww-refresh-result" hx-indicator="#ww-price-spinner"
                     class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
-                Refresh Woolworths
+                Refresh Woolworths Prices
             </button>
             <span id="ww-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
             <span id="ww-refresh-result"></span>

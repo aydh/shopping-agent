@@ -14,7 +14,6 @@ from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 from ..services.order_sync import sync_orders
-from ..services.price_comparison import match_unmatched_products
 from ..templating import templates
 
 logger = logging.getLogger(__name__)
@@ -65,16 +64,7 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
             return
 
-        yield f"event: matching\ndata: {{}}\n\n"
-
-        try:
-            async with async_session() as session:
-                matched_count = await match_unmatched_products(session, store_enum)
-        except Exception:
-            logger.exception("Unexpected error during product matching after order sync")
-            matched_count = 0
-
-        yield f"event: done\ndata: {json.dumps({'new_count': new_count, 'matched': matched_count})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'new_count': new_count})}\n\n"
 
     return StreamingResponse(
         generate(), media_type="text/event-stream",

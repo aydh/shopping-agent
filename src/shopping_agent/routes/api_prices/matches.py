@@ -9,11 +9,23 @@ from sqlalchemy.orm import selectinload
 
 from ...database import get_session
 from ...models import Order, OrderItem, PriceHistory, Product, ProductMatch, Store
-from ...services.price_comparison import matches_to_comparisons
+from ...services.price_comparison import match_unmatched_products, matches_to_comparisons
 from ...templating import templates
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.post("/match-products")
+async def run_match_products(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    """Run auto-matching for all unmatched products across both stores.
+
+    One pass from Coles→Woolworths is sufficient: each match removes both
+    products from the unmatched pool, so a second Woolworths→Coles pass
+    would find nothing new.
+    """
+    total = await match_unmatched_products(session, Store.COLES)
+    return HTMLResponse(f'<span class="text-blue-600 text-sm">{total} new match{"es" if total != 1 else ""} found</span>')
 
 
 @router.post("/confirm-match/{match_id}")
