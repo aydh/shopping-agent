@@ -14,5 +14,3 @@ services:
         sync: false
       - key: DEBUG
         value: false
-      - key: PRICE_REFRESH_POLL_INTERVAL_MS
-        value: "1000"

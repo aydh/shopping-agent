@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
     coles_api_key: str | None = Field(default=None, description="Coles Ocp-Apim-Subscription-Key (COLES_API_KEY)")
-    price_refresh_poll_interval_ms: int = 1000
+    price_refresh_poll_interval_ms: int = 2000  # How often the browser polls for price refresh progress
 
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
