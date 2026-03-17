@@ -515,23 +515,36 @@ function toggleAllProductHistory(btn) {
     btn.dataset.expanded = expanding ? 'true' : 'false';
     btn.textContent = expanding ? 'Hide All Price Histories' : 'Show All Price Histories';
 
+    const unloaded = [];
     document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]').forEach(row => {
         if (row.style.display === 'none') return;
         const productId = row.id.replace('urow-', '');
         const body = document.getElementById('phistory-body-' + productId);
         const histBtn = row.querySelector('button[onclick^="toggleProductHistory"]');
         if (!body) return;
-
         if (expanding && !body.innerHTML.trim()) {
-            if (histBtn) histBtn.classList.add('text-blue-600');
-            fetch('/api/prices/product-history/' + productId)
-                .then(r => r.text())
-                .then(html => { body.innerHTML = html; execScripts(body); });
+            unloaded.push({ productId, body, histBtn });
         } else if (!expanding && body.innerHTML.trim()) {
             body.innerHTML = '';
             if (histBtn) histBtn.classList.remove('text-blue-600');
         }
     });
+
+    if (expanding && unloaded.length) {
+        const ids = unloaded.map(u => u.productId).join(',');
+        fetch('/api/prices/product-history/batch?ids=' + ids)
+            .then(r => r.json())
+            .then(data => {
+                unloaded.forEach(({ productId, body, histBtn }) => {
+                    const html = data[productId];
+                    if (html !== undefined) {
+                        body.innerHTML = html;
+                        execScripts(body);
+                        if (histBtn) histBtn.classList.add('text-blue-600');
+                    }
+                });
+            });
+    }
 }
 
 function toggleAllHistory(btn) {
@@ -542,30 +555,40 @@ function toggleAllHistory(btn) {
     const tbody = document.getElementById('prices-table-body');
     if (!tbody) return;
 
+    const unloaded = [];
     const rows = Array.from(tbody.children);
     let i = 0;
     while (i < rows.length) {
         const dataRow = rows[i];
-        const historyRow = rows[i + 1];
         i += 2;
         if (!dataRow || dataRow.style.display === 'none') continue;
-
         const matchId = dataRow.id?.replace('match-row-', '');
         if (!matchId) continue;
-
         const body = document.getElementById('history-body-' + matchId);
         const histBtn = dataRow.querySelector('button[onclick^="toggleHistory"]');
         if (!body) continue;
-
         if (expanding && !body.innerHTML.trim()) {
-            if (histBtn) histBtn.classList.add('text-blue-600');
-            fetch('/api/prices/history/' + matchId)
-                .then(r => r.text())
-                .then(html => { body.innerHTML = html; execScripts(body); });
+            unloaded.push({ matchId, body, histBtn });
         } else if (!expanding && body.innerHTML.trim()) {
             body.innerHTML = '';
             if (histBtn) histBtn.classList.remove('text-blue-600');
         }
+    }
+
+    if (expanding && unloaded.length) {
+        const ids = unloaded.map(u => u.matchId).join(',');
+        fetch('/api/prices/history/batch?ids=' + ids)
+            .then(r => r.json())
+            .then(data => {
+                unloaded.forEach(({ matchId, body, histBtn }) => {
+                    const html = data[matchId];
+                    if (html !== undefined) {
+                        body.innerHTML = html;
+                        execScripts(body);
+                        if (histBtn) histBtn.classList.add('text-blue-600');
+                    }
+                });
+            });
     }
 }
 

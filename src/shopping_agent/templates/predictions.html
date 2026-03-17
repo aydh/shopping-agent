@@ -36,30 +36,63 @@ document.getElementById('predictions-search').addEventListener('keyup', function
     });
 });
 
+function _injectHtml(d, html) {
+    d.innerHTML = html;
+    d.querySelectorAll('script').forEach(s => {
+        const ns = document.createElement('script');
+        ns.textContent = s.textContent;
+        s.replaceWith(ns);
+    });
+    d.dataset.loaded = '1';
+}
+
 async function loadAllPriceHistories(btn) {
-    const cards = document.querySelectorAll('#predictions-grid [data-ph-url]');
+    const cards = Array.from(document.querySelectorAll('#predictions-grid [data-ph-url]'));
     btn.disabled = true;
     btn.textContent = 'Loading...';
 
-    await Promise.all(Array.from(cards).map(async card => {
+    // Separate unloaded cards into match-based vs product-based
+    const matchCards = {};   // match_id -> card element
+    const productCards = {}; // product_id -> card element
+
+    for (const card of cards) {
         const d = card.querySelector('.ph-content');
-        if (!d) return;
-        if (d.dataset.loaded) { d.classList.remove('hidden'); return; }
-        // Show first so canvas has real dimensions when Chart.js renders
+        if (!d) continue;
+        if (d.dataset.loaded) { d.classList.remove('hidden'); continue; }
         d.classList.remove('hidden');
-        try {
-            const resp = await fetch(card.dataset.phUrl);
-            const html = await resp.text();
-            d.innerHTML = html;
-            // Re-execute scripts (innerHTML doesn't run them)
-            d.querySelectorAll('script').forEach(s => {
-                const ns = document.createElement('script');
-                ns.textContent = s.textContent;
-                s.replaceWith(ns);
-            });
-            d.dataset.loaded = '1';
-        } catch(e) { d.classList.add('hidden'); }
-    }));
+        const url = card.dataset.phUrl;
+        const matchM = url.match(/\/api\/prices\/history\/(\d+)$/);
+        const productM = url.match(/\/api\/prices\/product-history\/(\d+)$/);
+        if (matchM) matchCards[matchM[1]] = card;
+        else if (productM) productCards[productM[1]] = card;
+    }
+
+    const fetches = [];
+    if (Object.keys(matchCards).length) {
+        fetches.push(
+            fetch(`/api/prices/history/batch?ids=${Object.keys(matchCards).join(',')}`)
+                .then(r => r.json())
+                .then(data => {
+                    for (const [id, html] of Object.entries(data)) {
+                        const d = matchCards[id]?.querySelector('.ph-content');
+                        if (d) _injectHtml(d, html);
+                    }
+                })
+        );
+    }
+    if (Object.keys(productCards).length) {
+        fetches.push(
+            fetch(`/api/prices/product-history/batch?ids=${Object.keys(productCards).join(',')}`)
+                .then(r => r.json())
+                .then(data => {
+                    for (const [id, html] of Object.entries(data)) {
+                        const d = productCards[id]?.querySelector('.ph-content');
+                        if (d) _injectHtml(d, html);
+                    }
+                })
+        );
+    }
+    await Promise.all(fetches);
 
     btn.disabled = false;
     btn.textContent = 'Hide All Price Histories';

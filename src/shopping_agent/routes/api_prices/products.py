@@ -23,6 +23,9 @@ _PROXY_HEADERS = {
     ),
 }
 
+# 7 days — product images rarely change; browser will serve from cache without a network request
+_IMAGE_CACHE_CONTROL = "public, max-age=604800, immutable"
+
 
 @router.get("/image-proxy")
 async def image_proxy(url: str) -> Response:
@@ -31,7 +34,7 @@ async def image_proxy(url: str) -> Response:
     if cached is not None:
         logger.debug("Image cache hit: %s", url)
         content, media_type = cached
-        return Response(content=content, media_type=media_type)
+        return Response(content=content, media_type=media_type, headers={"Cache-Control": _IMAGE_CACHE_CONTROL})
 
     logger.debug("Image cache miss: %s", url)
     try:
@@ -40,7 +43,7 @@ async def image_proxy(url: str) -> Response:
             if resp.status_code == 200:
                 media_type = resp.headers.get("content-type", "image/jpeg")
                 await image_cache.set(url, resp.content, media_type)
-                return Response(content=resp.content, media_type=media_type)
+                return Response(content=resp.content, media_type=media_type, headers={"Cache-Control": _IMAGE_CACHE_CONTROL})
             raise httpx.HTTPStatusError(
                 f"Upstream returned {resp.status_code}", request=resp.request, response=resp
             )

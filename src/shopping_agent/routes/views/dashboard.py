@@ -1,4 +1,5 @@
 """Dashboard page view."""
+import asyncio
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Request
@@ -29,46 +30,56 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
     today = date.today()
     week_ahead = today + timedelta(days=7)
 
-    # Orders per store
-    coles_orders = (await session.execute(select(func.count(Order.id)).where(Order.store == Store.COLES))).scalar() or 0
-    ww_orders = (await session.execute(select(func.count(Order.id)).where(Order.store == Store.WOOLWORTHS))).scalar() or 0
+    # Orders per store + last sync date — single grouped query
+    order_stats = {
+        row.store: row for row in (await session.execute(
+            select(Order.store, func.count(Order.id), func.max(Order.order_date))
+            .group_by(Order.store)
+        )).all()
+    }
+    coles_orders = order_stats.get(Store.COLES, (None, 0, None))[1]
+    ww_orders = order_stats.get(Store.WOOLWORTHS, (None, 0, None))[1]
+    coles_last_sync = order_stats.get(Store.COLES, (None, 0, None))[2]
+    ww_last_sync = order_stats.get(Store.WOOLWORTHS, (None, 0, None))[2]
 
-    # Products per store
-    coles_products = (await session.execute(select(func.count(Product.id)).where(Product.store == Store.COLES))).scalar() or 0
-    ww_products = (await session.execute(select(func.count(Product.id)).where(Product.store == Store.WOOLWORTHS))).scalar() or 0
+    # Products per store — single grouped query
+    product_stats = {
+        row.store: row[1] for row in (await session.execute(
+            select(Product.store, func.count(Product.id))
+            .where(Product.is_hidden == False)  # noqa: E712
+            .group_by(Product.store)
+        )).all()
+    }
+    coles_products = product_stats.get(Store.COLES, 0)
+    ww_products = product_stats.get(Store.WOOLWORTHS, 0)
 
-    # Removed (hidden) products
+    # Hidden products
     removed_count = (await session.execute(
         select(func.count(Product.id)).where(Product.is_hidden == True)  # noqa: E712
     )).scalar() or 0
 
-    # Matches
-    matched_count = (await session.execute(
-        select(func.count(ProductMatch.id)).where(ProductMatch.is_rejected == False)  # noqa: E712
-    )).scalar() or 0
-    rejected_count = (await session.execute(
-        select(func.count(ProductMatch.id)).where(ProductMatch.is_rejected == True)  # noqa: E712
-    )).scalar() or 0
+    # Matches — single grouped query
+    match_stats = {
+        row.is_rejected: row[1] for row in (await session.execute(
+            select(ProductMatch.is_rejected, func.count(ProductMatch.id))
+            .group_by(ProductMatch.is_rejected)
+        )).all()
+    }
+    matched_count = match_stats.get(False, 0)
+    rejected_count = match_stats.get(True, 0)
 
-    # Predictions + running low
-    pred_count = (await session.execute(select(func.count(ConsumptionPrediction.id)))).scalar() or 0
+    # Predictions + running low, list count — run concurrently
+    pred_count_task = session.execute(select(func.count(ConsumptionPrediction.id)))
+    list_count_task = session.execute(select(func.count(ShoppingList.id)))
+    pred_count_result, list_count_result = await asyncio.gather(pred_count_task, list_count_task)
+    pred_count = pred_count_result.scalar() or 0
+    list_count = list_count_result.scalar() or 0
 
     upcoming_runouts_all = await get_predictions_with_match_info(session, max_runout_date=week_ahead)
     upcoming_runouts = [
         p for p in upcoming_runouts_all
         if p.confidence_score >= MIN_PREDICTION_CONFIDENCE
     ]
-
-    # Shopping lists
-    list_count = (await session.execute(select(func.count(ShoppingList.id)))).scalar() or 0
-
-    # Last sync per store (latest order date)
-    coles_last_sync = (await session.execute(
-        select(func.max(Order.order_date)).where(Order.store == Store.COLES)
-    )).scalar()
-    ww_last_sync = (await session.execute(
-        select(func.max(Order.order_date)).where(Order.store == Store.WOOLWORTHS)
-    )).scalar()
 
     # Current shopping list context
     sl_ctx = await get_shopping_list_context(session)

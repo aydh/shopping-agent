@@ -2,7 +2,7 @@ import logging
 from datetime import date, datetime
 from typing import TypedDict
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -154,9 +154,12 @@ async def generate_shopping_list(
         session.add(shopping_list)
         await session.flush()
 
+    # Index predictions by product_id to avoid per-candidate lookups
+    product_by_id = {p.product.id: p.product for p in predictions}
+
     # Add candidates
     for candidate in candidates:
-        product = await session.get(Product, candidate.product_id)
+        product = product_by_id.get(candidate.product_id)
         if not product:
             continue
 
@@ -306,26 +309,44 @@ async def resolve_display_names(
     display_names: dict[int, str] = {}
     store_names: dict[int, dict] = {}
     store_products: dict[int, dict] = {}
-    for item in items:
-        if item.is_removed:
-            continue
-        canonical = item.product
-        partner = None
-        match_result = await session.execute(
-            select(ProductMatch).where(
-                (
-                    (ProductMatch.product_a_id == canonical.id)
-                    | (ProductMatch.product_b_id == canonical.id)
-                ),
-                ProductMatch.is_rejected == False,  # noqa: E712
-            )
+
+    active_items = [i for i in items if not i.is_removed]
+    if not active_items:
+        return display_names, store_names, store_products
+
+    canonical_ids = [i.product.id for i in active_items]
+
+    # Bulk-fetch all matches for these products in one query
+    matches_result = await session.execute(
+        select(ProductMatch).where(
+            or_(
+                ProductMatch.product_a_id.in_(canonical_ids),
+                ProductMatch.product_b_id.in_(canonical_ids),
+            ),
+            ProductMatch.is_rejected == False,  # noqa: E712
         )
-        match = match_result.scalars().first()
-        if match:
-            partner_id = (
-                match.product_b_id if match.product_a_id == canonical.id else match.product_a_id
-            )
-            partner = await session.get(Product, partner_id)
+    )
+    # Build: canonical product_id -> partner product_id
+    partner_id_map: dict[int, int] = {}
+    for m in matches_result.scalars().all():
+        if m.product_a_id in canonical_ids and m.product_a_id not in partner_id_map:
+            partner_id_map[m.product_a_id] = m.product_b_id
+        if m.product_b_id in canonical_ids and m.product_b_id not in partner_id_map:
+            partner_id_map[m.product_b_id] = m.product_a_id
+
+    # Bulk-fetch all partner products in one query
+    partner_ids = list(set(partner_id_map.values()) - set(canonical_ids))
+    partners: dict[int, Product] = {}
+    if partner_ids:
+        partner_result = await session.execute(
+            select(Product).where(Product.id.in_(partner_ids))
+        )
+        partners = {p.id: p for p in partner_result.scalars().all()}
+
+    for item in active_items:
+        canonical = item.product
+        partner_id = partner_id_map.get(canonical.id)
+        partner = partners.get(partner_id) if partner_id else None
 
         if canonical.store == Store.COLES:
             coles_product = canonical

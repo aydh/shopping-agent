@@ -1,4 +1,6 @@
 """Settings page view."""
+import asyncio
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,8 +41,10 @@ async def settings_page(
     request: Request, session: AsyncSession = Depends(get_session)
 ) -> HTMLResponse:
     """Render the settings page."""
-    coles_connected = await coles_scraper.is_authenticated()
-    woolworths_connected = await woolworths_scraper.is_authenticated()
+    coles_connected, woolworths_connected = await asyncio.gather(
+        coles_scraper.is_authenticated(),
+        woolworths_scraper.is_authenticated(),
+    )
     counts = await get_db_counts(session)
     counts_rows_html = templates.env.get_template("_settings_counts.html").render(
         rows=_counts_rows(counts)
