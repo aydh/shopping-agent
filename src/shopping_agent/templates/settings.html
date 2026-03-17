@@ -171,7 +171,13 @@ function switchTab(tab) {
             btn.classList.add('border-transparent', 'text-gray-500');
         }
     });
+    location.hash = tab;
 }
+
+(function() {
+    const hash = location.hash.slice(1);
+    if (hash === 'connections' || hash === 'data') switchTab(hash);
+})();
 
 function importColesCookies() {
     const textarea = document.getElementById('coles-cookie-input');

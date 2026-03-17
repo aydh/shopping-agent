@@ -438,6 +438,11 @@
 </div>
 
 <script>
+function reapplyFilters() {
+    const field = document.getElementById('search-field');
+    if (field) field.dispatchEvent(new Event('keyup'));
+}
+
 function switchTab(tab) {
     ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'].forEach(t => {
         document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
@@ -450,6 +455,8 @@ function switchTab(tab) {
             btn.classList.add('border-transparent', 'text-gray-500');
         }
     });
+    location.hash = tab;
+    reapplyFilters();
 }
 
 function execScripts(container) {
@@ -500,6 +507,7 @@ function setMatchFilter(filter) {
         active.classList.remove('bg-gray-100', 'text-gray-700');
     }
     applyMatchFilters();
+    location.hash = filter === 'all' ? 'matched' : 'matched-' + filter;
 }
 
 function toggleAllProductHistory(btn) {
@@ -615,6 +623,11 @@ function updateTabCounts() {
     if (el('count-unavailable')) el('count-unavailable').textContent = unavailableRows.length;
 }
 
+// Reapply filters when the page is restored from back-forward cache
+window.addEventListener('pageshow', function(e) {
+    if (e.persisted) reapplyFilters();
+});
+
 // Update counts whenever any tab panel's DOM changes (rows added/removed)
 const _tabObserver = new MutationObserver(updateTabCounts);
 ['prices-table-body', 'all-products-table', 'panel-rejected', 'panel-removed', 'panel-unavailable'].forEach(id => {
@@ -622,7 +635,28 @@ const _tabObserver = new MutationObserver(updateTabCounts);
     if (el) _tabObserver.observe(el, { childList: true, subtree: true });
 });
 
+// Restore tab, filter, and search term from URL hash / sessionStorage on page load
+(function() {
+    const hash = location.hash.slice(1);
+    const tabs = ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'];
+    if (hash.startsWith('matched-')) {
+        const filter = hash.slice('matched-'.length);
+        switchTab('matched');
+        if (['unconfirmed', 'manual'].includes(filter)) setMatchFilter(filter);
+    } else if (tabs.includes(hash)) {
+        switchTab(hash);
+    }
+
+    const saved = sessionStorage.getItem('prices_search');
+    if (saved) {
+        const field = document.getElementById('search-field');
+        field.value = saved;
+        field.dispatchEvent(new Event('keyup'));
+    }
+})();
+
 document.getElementById('search-field').addEventListener('keyup', function() {
+    sessionStorage.setItem('prices_search', this.value);
     const searchTerm = this.value.toLowerCase();
 
     // Matched tab

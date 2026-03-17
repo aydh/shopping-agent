@@ -78,11 +78,13 @@ class WoolworthsScraper(BaseScraper):
                 resp.status_code, method, path, elapsed_ms,
             )
             if resp.status_code in (401, 403):
+                try:
+                    body_snippet = resp.text[:500]
+                except Exception:
+                    body_snippet = "<unreadable>"
                 logger.warning(
-                    "[Woolworths] Auth failure (%d) on %s %s",
-                    resp.status_code,
-                    method,
-                    path,
+                    "[Woolworths] Auth failure (%d) on %s %s — body: %s",
+                    resp.status_code, method, path, body_snippet,
                 )
                 return None
             return resp
@@ -452,6 +454,17 @@ class WoolworthsScraper(BaseScraper):
         Returns:
             Dict mapping store_product_id to True if added successfully, False otherwise.
         """
+        client = await self._get_client()
+        akamai_cookies = {
+            name: "present" if value else "empty"
+            for name, value in {
+                "_abck": client.cookies.get("_abck"),
+                "ak_bmsc": client.cookies.get("ak_bmsc"),
+                "bm_sz": client.cookies.get("bm_sz"),
+            }.items()
+        }
+        logger.info("[Woolworths] Akamai cookie state before add-to-cart: %s", akamai_cookies)
+
         attempts = [
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: {"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}),
             ("/apis/ui/Trolley/items", "POST", lambda pid, qty: [{"Stockcode": pid, "Quantity": qty, "IsInTrolley": False}]),

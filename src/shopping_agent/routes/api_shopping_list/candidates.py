@@ -43,7 +43,9 @@ async def add_predictions(session: AsyncSession = Depends(get_session)) -> HTMLR
 
     # Build price map from matches
     matches = (await session.execute(
-        select(ProductMatch).options(selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b))
+        select(ProductMatch)
+        .options(selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b))
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
     )).scalars().all()
     price_map = build_price_map(list(matches))
 

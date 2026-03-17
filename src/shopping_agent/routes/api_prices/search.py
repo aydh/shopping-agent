@@ -129,4 +129,4 @@ async def confirm_search_match(
     session.add(pm)
     await session.commit()
 
-    return RedirectResponse("/prices", status_code=303)
+    return RedirectResponse("/prices#unmatched", status_code=303)

@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...cache import image_cache
 from ...database import get_session
 from ...db_helpers import store_from_string
 from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, Store
@@ -14,18 +15,32 @@ from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+_PROXY_HEADERS = {
+    "Referer": "https://www.coles.com.au/",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+}
+
 
 @router.get("/image-proxy")
 async def image_proxy(url: str) -> Response:
     """Proxy product images to bypass CDN hotlink protection."""
+    cached = await image_cache.get(url)
+    if cached is not None:
+        logger.debug("Image cache hit: %s", url)
+        content, media_type = cached
+        return Response(content=content, media_type=media_type)
+
+    logger.debug("Image cache miss: %s", url)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers={
-                "Referer": "https://www.coles.com.au/",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            })
+            resp = await client.get(url, headers=_PROXY_HEADERS)
             if resp.status_code == 200:
-                return StreamingResponse(iter([resp.content]), media_type=resp.headers.get("content-type", "image/jpeg"))
+                media_type = resp.headers.get("content-type", "image/jpeg")
+                await image_cache.set(url, resp.content, media_type)
+                return Response(content=resp.content, media_type=media_type)
             raise httpx.HTTPStatusError(
                 f"Upstream returned {resp.status_code}", request=resp.request, response=resp
             )

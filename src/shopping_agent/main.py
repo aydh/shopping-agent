@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,15 +9,45 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db
 
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("shopping_agent").setLevel(logging.DEBUG)
-
 BASE_DIR = Path(__file__).resolve().parent
+
+
+def _configure_logging() -> None:
+    settings.ensure_dirs()
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s — %(message)s")
+
+    # Rotating file handler: 10 MB per file, keep 5 backups
+    file_handler = logging.handlers.RotatingFileHandler(
+        settings.log_dir / "shopping_agent.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.DEBUG)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(fmt)
+    console_handler.setLevel(logging.INFO)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(file_handler)
+    root.addHandler(console_handler)
+
+    logging.getLogger("shopping_agent").setLevel(logging.DEBUG)
+
+    # Suppress noisy third-party loggers
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+
+_configure_logging()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings.ensure_dirs()
     await init_db()
     yield
 

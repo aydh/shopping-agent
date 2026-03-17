@@ -9,7 +9,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_COOKIE_FIELDS = {"name", "value", "domain"}
+REQUIRED_COOKIE_FIELDS = {"name", "value"}
 
 
 def validate_cookie_list(data: object) -> list[dict]:

@@ -118,10 +118,12 @@ async def generate_shopping_list(
 
     # Build a price lookup across matched products: product_id -> {coles_price, woolworths_price}
     matches_result = await session.execute(
-        select(ProductMatch).options(
+        select(ProductMatch)
+        .options(
             selectinload(ProductMatch.product_a),
             selectinload(ProductMatch.product_b),
         )
+        .where(ProductMatch.is_rejected == False)  # noqa: E712
     )
     price_map = build_price_map(list(matches_result.scalars().all()))
 
