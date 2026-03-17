@@ -7,7 +7,8 @@ build/
 .eggs/
 *.egg
 .env
-data/
+data/*
+!data/.gitkeep
 *.db
 *.sqlite
 .venv/
@@ -16,4 +17,6 @@ venv/
 .ruff_cache/
 .pytest_cache/
 .worktrees/
-logs/
+logs/*
+!logs/.gitkeep
+.coverage
