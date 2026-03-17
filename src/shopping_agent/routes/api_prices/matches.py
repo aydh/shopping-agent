@@ -3,12 +3,12 @@ import logging
 
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...database import get_session
-from ...models import PriceHistory, Product, ProductMatch, Store
+from ...models import Order, OrderItem, PriceHistory, Product, ProductMatch, Store
 from ...services.price_comparison import matches_to_comparisons
 from ...templating import templates
 
@@ -23,10 +23,21 @@ async def confirm_match(match_id: int, session: AsyncSession = Depends(get_sessi
         return HTMLResponse("")
 
     match.is_confirmed = True
+
+    # Run last_ordered query before commit — it's an independent read and autoflush
+    # will send the UPDATE as part of this execute, saving a round-trip.
+    product_ids = [match.product_a_id, match.product_b_id]
+    lo_rows = await session.execute(
+        select(OrderItem.product_id, func.max(Order.order_date))
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(OrderItem.product_id.in_(product_ids))
+        .group_by(OrderItem.product_id)
+    )
+    last_ordered = dict(lo_rows.all())
     await session.commit()
 
     comp = matches_to_comparisons([match])[0]
-    html = templates.env.get_template("_match_row.html").render(comp=comp)
+    html = templates.env.get_template("_match_row.html").render(comp=comp, last_ordered=last_ordered)
     return HTMLResponse(html)
 
 
@@ -103,10 +114,12 @@ async def purge_price_history(session: AsyncSession = Depends(get_session)) -> H
 @router.delete("/match/{match_id}")
 async def delete_match(match_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Reject a product match so it is never auto-matched again."""
-    match = await session.get(ProductMatch, match_id)
-    if not match:
+    result = await session.execute(
+        update(ProductMatch)
+        .where(ProductMatch.id == match_id)
+        .values(is_rejected=True, is_confirmed=False)
+    )
+    if result.rowcount == 0:
         return HTMLResponse("", status_code=404)
-    match.is_rejected = True
-    match.is_confirmed = False
     await session.commit()
     return HTMLResponse("")

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 # MIN_MATCH_CONFIDENCE  Lower bound used in a few places as a floor; not the
 #                       primary gate. Raise to 0.4–0.5 to discard low-quality
 #                       auto-matches from being used in price comparisons.
-MIN_MATCH_CONFIDENCE: float = 0.3
+MIN_MATCH_CONFIDENCE: float = 0.4
 
 # FUZZY_MATCH_THRESHOLD  Minimum score for local-DB fuzzy matching. This is
 #                        the main dial for match quality vs. coverage:
@@ -48,7 +48,7 @@ FUZZY_SEARCH_THRESHOLD: float = 65.0
 # SIZE_MATCH_BONUS  Added to the name score when both unit_size fields parse to
 #                   the same value (e.g. 500g == 500g). Rewards size agreement.
 #                   Raise to 20–25 to make size more decisive.
-SIZE_MATCH_BONUS: int = 15
+SIZE_MATCH_BONUS: int = 25
 
 # SIZE_MISMATCH_PENALTY  Subtracted when both sizes are parseable but differ
 #                        (e.g. 250g vs 1kg). Deliberately larger than the bonus
@@ -72,32 +72,32 @@ BRAND_MATCH_THRESHOLD: float = 70.0
 #                       consumption predictions. Lower values make predictions
 #                       more sensitive to recent behaviour; higher values smooth
 #                       over seasonal gaps.
-PRODUCT_RECENCY_DAYS: int = 90
+PRODUCT_RECENCY_DAYS: int = 365
 
 # MIN_PREDICTION_CONFIDENCE  Predictions below this confidence are excluded from
 #                            shopping list generation. Raise to 0.5+ to only
 #                            include high-certainty predictions.
-MIN_PREDICTION_CONFIDENCE: float = 0.5
+MIN_PREDICTION_CONFIDENCE: float = 0.4
 
 # PREDICTION_LOOKAHEAD_DAYS  How far ahead of today to look when generating
 #                            candidates. Items predicted to run out within this
 #                            window are included in the shopping list.
-PREDICTION_LOOKAHEAD_DAYS: int = 7
+PREDICTION_LOOKAHEAD_DAYS: int = 14
 
 # PREDICTION_LEAD_TIME_DAYS  Items predicted to run out within this many days
 #                            *before* today are also included (catches items
 #                            already overdue). Raise if you often run out before
 #                            the list is generated.
-PREDICTION_LEAD_TIME_DAYS: int = 7
+PREDICTION_LEAD_TIME_DAYS: int = 14
 
 # PREDICTION_PURCHASE_COUNT_MIN  Minimum number of past purchases required
 #                                before a prediction is generated for a product.
 #                                Raise to 4–5 to require more purchase history
 #                                before trusting the interval estimate.
-PREDICTION_PURCHASE_COUNT_MIN: int = 4
+PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
-PRICE_REFRESH_CONCURRENCY: int = 5
+PRICE_REFRESH_CONCURRENCY: int = 10
 
 # Chart colours
 COLES_COLOUR: str = "#dc2626"
