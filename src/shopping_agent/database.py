@@ -12,7 +12,8 @@ async def get_session() -> AsyncSession:
 
 
 async def init_db() -> None:
-    from .models.base import Base
+    """Verify the database connection is healthy at startup."""
+    from sqlalchemy import text
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
