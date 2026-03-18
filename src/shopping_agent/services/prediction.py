@@ -122,7 +122,7 @@ def compute_prediction(
     # Confidence score
     interval_cv = (stdev(raw_intervals) / avg_interval) if len(raw_intervals) > 1 and avg_interval > 0 else 1.0
     data_confidence = 1 - math.exp(-0.3 * (len(purchases) - 1))
-    regularity_confidence = max(0, 1 - interval_cv)
+    regularity_confidence = 1 / (1 + interval_cv)
     confidence = round(data_confidence * regularity_confidence, 3)
 
     # Predict runout
