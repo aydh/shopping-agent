@@ -76,36 +76,17 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
 async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     store_enum = store_from_string(store)
 
-    # Fetch order IDs for this store so we can delete items first
-    result = await session.execute(
-        select(Order.id).where(Order.store == store_enum)
-    )
-    order_ids = [row[0] for row in result.all()]
+    order_subq = select(Order.id).where(Order.store == store_enum).scalar_subquery()
+    await session.execute(delete(OrderItem).where(OrderItem.order_id.in_(order_subq)))
+    result = await session.execute(delete(Order).where(Order.store == store_enum))
 
-    if order_ids:
-        await session.execute(
-            delete(OrderItem).where(OrderItem.order_id.in_(order_ids))
-        )
-        await session.execute(
-            delete(Order).where(Order.store == store_enum)
-        )
-
-    # Also clear price history for this store's products
-    product_ids_result = await session.execute(
-        select(Product.id).where(Product.store == store_enum)
-    )
-    product_ids = [row[0] for row in product_ids_result.all()]
-    if product_ids:
-        await session.execute(
-            delete(PriceHistory).where(PriceHistory.product_id.in_(product_ids))
-        )
+    product_subq = select(Product.id).where(Product.store == store_enum).scalar_subquery()
+    await session.execute(delete(PriceHistory).where(PriceHistory.product_id.in_(product_subq)))
 
     await session.commit()
-    count = len(order_ids) if order_ids else 0
-
     label = store_enum.value.capitalize()
     return HTMLResponse(
-        f'<div class="text-orange-600 text-sm mt-2">Purged {count} {label} orders from the database.</div>'
+        f'<div class="text-orange-600 text-sm mt-2">Purged {result.rowcount} {label} orders from the database.</div>'
     )
 
 

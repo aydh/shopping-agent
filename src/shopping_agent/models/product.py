@@ -17,7 +17,7 @@ class Product(TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("store", "store_product_id", name="uq_store_product"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    store: Mapped[Store] = mapped_column(SAEnum(Store))
+    store: Mapped[Store] = mapped_column(SAEnum(Store), index=True)
     store_product_id: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(512))
     brand: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -29,7 +29,7 @@ class Product(TimestampMixin, Base):
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     product_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     order_items: Mapped[list["OrderItem"]] = relationship(back_populates="product")  # noqa: F821
 
@@ -40,11 +40,11 @@ class ProductMatch(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_a_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    product_b_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    product_b_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     confidence: Mapped[float] = mapped_column(Float)
     match_method: Mapped[str] = mapped_column(String(32))
     is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_rejected: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_rejected: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     product_a: Mapped["Product"] = relationship(foreign_keys=[product_a_id])
     product_b: Mapped["Product"] = relationship(foreign_keys=[product_b_id])
@@ -54,7 +54,7 @@ class PriceHistory(Base):
     __tablename__ = "price_history"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     store: Mapped[Store] = mapped_column(SAEnum(Store))
     price: Mapped[float] = mapped_column(Float)
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

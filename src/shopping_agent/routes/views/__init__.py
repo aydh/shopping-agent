@@ -5,6 +5,7 @@ from .dashboard import router as dashboard_router
 from .orders import router as orders_router
 from .predictions import router as predictions_router
 from .prices import router as prices_router
+from .product_lookup import router as product_lookup_router
 from .settings import router as settings_router
 from .shopping_list import router as shopping_list_router
 
@@ -13,5 +14,6 @@ router.include_router(dashboard_router)
 router.include_router(orders_router)
 router.include_router(predictions_router)
 router.include_router(prices_router)
+router.include_router(product_lookup_router)
 router.include_router(shopping_list_router)
 router.include_router(settings_router)

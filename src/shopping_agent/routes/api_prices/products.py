@@ -88,17 +88,14 @@ async def restore_product(product_id: int, session: AsyncSession = Depends(get_s
 @router.delete("/products/purge/{store}")
 async def purge_products(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     store_enum = store_from_string(store)
-    product_ids = [r[0] for r in (await session.execute(
-        select(Product.id).where(Product.store == store_enum)
-    )).all()]
-    if product_ids:
-        await session.execute(delete(ProductMatch).where(
-            (ProductMatch.product_a_id.in_(product_ids)) | (ProductMatch.product_b_id.in_(product_ids))
-        ))
-        await session.execute(delete(PriceHistory).where(PriceHistory.product_id.in_(product_ids)))
-        await session.execute(delete(ConsumptionPrediction).where(ConsumptionPrediction.product_id.in_(product_ids)))
-        await session.execute(delete(Product).where(Product.store == store_enum))
+    product_subq = select(Product.id).where(Product.store == store_enum).scalar_subquery()
+    await session.execute(delete(ProductMatch).where(
+        ProductMatch.product_a_id.in_(product_subq) | ProductMatch.product_b_id.in_(product_subq)
+    ))
+    await session.execute(delete(PriceHistory).where(PriceHistory.product_id.in_(product_subq)))
+    await session.execute(delete(ConsumptionPrediction).where(ConsumptionPrediction.product_id.in_(product_subq)))
+    result = await session.execute(delete(Product).where(Product.store == store_enum))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {len(product_ids)} {store} products.</span>'
+        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} {store} products.</span>'
     )

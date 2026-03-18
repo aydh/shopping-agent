@@ -33,7 +33,7 @@ class ShoppingListItem(TimestampMixin, Base):
     __tablename__ = "shopping_list_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    shopping_list_id: Mapped[int] = mapped_column(ForeignKey("shopping_lists.id"))
+    shopping_list_id: Mapped[int] = mapped_column(ForeignKey("shopping_lists.id"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     reason: Mapped[str | None] = mapped_column(String(256), nullable=True)

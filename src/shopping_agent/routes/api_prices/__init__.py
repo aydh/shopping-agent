@@ -3,6 +3,7 @@ from fastapi import APIRouter
 
 from .charts import router as charts_router
 from .matches import router as matches_router
+from .product_lookup import router as product_lookup_router
 from .products import router as products_router
 from .refresh import router as refresh_router
 from .search import router as search_router
@@ -13,3 +14,4 @@ router.include_router(matches_router)
 router.include_router(search_router)
 router.include_router(products_router)
 router.include_router(charts_router)
+router.include_router(product_lookup_router)
