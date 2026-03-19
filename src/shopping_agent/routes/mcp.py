@@ -1,6 +1,6 @@
 """Embedded MCP server for the shopping agent.
 
-Exposes 16 tools for LLM agents to interact with grocery automation:
+Exposes 19 tools for LLM agents to interact with grocery automation:
 predictions, shopping lists, cart, order sync, price refresh, and product matching.
 
 Mount: app.mount("/mcp", mcp.http_app()) in main.py
@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 
 from ..database import async_session
 from ..db_helpers import store_from_string
-from ..models import ListStatus, ShoppingList, Store
+from ..models import ListStatus, Product, ProductMatch, ShoppingList, Store
 from ..services.cart import add_to_cart
 from ..services.order_sync import sync_orders as _sync_orders
 from ..services.prediction import get_predictions_with_match_info, refresh_predictions as _refresh_predictions
@@ -27,7 +27,7 @@ from ..services.shopping_list import (
     remove_item,
     update_item_quantity,
 )
-from ..services.price_comparison import compare_product_prices
+from ..services.price_comparison import compare_product_prices, find_or_create_match, match_unmatched_products
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 
@@ -473,3 +473,110 @@ async def refresh_predictions() -> dict:
     async with async_session() as session:
         count = await _refresh_predictions(session)
     return {"predictions_updated": count}
+
+
+# ---------------------------------------------------------------------------
+# Product matching tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def match_products(store: str | None = None) -> dict:
+    """Auto-match unmatched products using fuzzy name matching.
+
+    Finds unmatched products and attempts to pair them with their cross-store
+    equivalent using rapidfuzz name similarity.
+
+    Args:
+        store: Store whose unmatched products to process — "coles" or
+            "woolworths". If omitted, processes both stores.
+
+    Returns:
+        {"matches_created": int, "by_store": dict} or {"error": str}
+    """
+    stores_to_process = []
+    if store:
+        try:
+            stores_to_process = [store_from_string(store)]
+        except (ValueError, HTTPException) as e:
+            return {"error": str(e)}
+    else:
+        stores_to_process = [Store.COLES, Store.WOOLWORTHS]
+
+    results: dict[str, int] = {}
+    for s in stores_to_process:
+        async with async_session() as session:
+            count = await match_unmatched_products(session, s)
+        results[s.value] = count
+
+    total = sum(results.values())
+    return {"matches_created": total, "by_store": results}
+
+
+@mcp.tool()
+async def find_product_match(product_id: int, query: str | None = None) -> dict:
+    """Search for a cross-store match for a product.
+
+    Looks for an existing match first, then falls back to local fuzzy matching.
+    If a query is provided, also searches the opposite store's catalog
+    (requires valid cookies for the target store).
+
+    Args:
+        product_id: Database ID of the product to find a match for.
+        query: Optional search query to use for catalog search (uses product
+            name if omitted).
+
+    Returns:
+        Match details if found, or {"match": null, "message": str} if not found.
+        Returns {"error": str} if product not found.
+    """
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+        if not product:
+            return {"error": f"Product {product_id} not found"}
+
+        target_store = Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
+        target_scraper = woolworths_scraper if target_store == Store.WOOLWORTHS else coles_scraper
+
+        scraper_to_use = None
+        if query and await target_scraper.is_authenticated():
+            scraper_to_use = target_scraper
+
+        match = await find_or_create_match(session, product, target_store, scraper=scraper_to_use)
+        if not match:
+            return {"match": None, "message": "No match found"}
+
+        partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
+        partner = await session.get(Product, partner_id)
+
+        result = {
+            "match_id": match.id,
+            "product_id": product_id,
+            "partner_product_id": partner_id,
+            "partner_name": partner.name if partner else None,
+            "partner_store": partner.store.value if partner else None,
+            "confidence": match.confidence,
+            "match_method": match.match_method,
+            "is_confirmed": match.is_confirmed,
+            "is_rejected": match.is_rejected,
+        }
+    return result
+
+
+@mcp.tool()
+async def confirm_product_match(match_id: int) -> dict:
+    """Mark a ProductMatch as confirmed (human-verified correct).
+
+    Args:
+        match_id: Database ID of the ProductMatch to confirm.
+
+    Returns:
+        {"match_id": int, "confirmed": bool} or {"error": str}
+    """
+    async with async_session() as session:
+        match = await session.get(ProductMatch, match_id)
+        if not match:
+            return {"error": f"ProductMatch {match_id} not found"}
+        match.is_confirmed = True
+        match.is_rejected = False
+        await session.commit()
+    return {"match_id": match_id, "confirmed": True}
