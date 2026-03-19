@@ -97,10 +97,10 @@ PREDICTION_LEAD_TIME_DAYS: int = 14
 PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
-COLES_PRICE_REFRESH_CONCURRENCY: int = 10
-WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 10
+COLES_PRICE_REFRESH_CONCURRENCY: int = 20
+WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 1
 COLES_PRICE_FETCH_DELAY_S: float = 0.0      # Delay between individual Coles product price requests
-WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.5  # Delay between individual Woolworths product price requests
+WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.25  # Delay between individual Woolworths product price requests
 
 # Chart colours
 COLES_COLOUR: str = "#dc2626"
