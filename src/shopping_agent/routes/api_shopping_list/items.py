@@ -29,12 +29,34 @@ async def product_search(
     q = q.strip()
     if len(q) < 2:
         return HTMLResponse("")
+
+    # Find product IDs already on the active list (not removed)
+    active_list = (await session.execute(
+        select(ShoppingList)
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )).scalars().first()
+    excluded_ids: set[int] = set()
+    if active_list:
+        existing_items = (await session.execute(
+            select(ShoppingListItem.product_id)
+            .where(
+                ShoppingListItem.shopping_list_id == active_list.id,
+                ShoppingListItem.is_removed == False,  # noqa: E712
+            )
+        )).scalars().all()
+        excluded_ids = set(existing_items)
+
     results = (await session.execute(
         select(Product)
-        .where(or_(
-            Product.name.ilike(f"%{q}%"),
-            Product.brand.ilike(f"%{q}%"),
-        ))
+        .where(
+            or_(
+                Product.name.ilike(f"%{q}%"),
+                Product.brand.ilike(f"%{q}%"),
+            ),
+            Product.is_available == True,  # noqa: E712
+            Product.id.not_in(excluded_ids) if excluded_ids else True,
+        )
         .order_by(Product.name)
         .limit(10)
     )).scalars().all()
