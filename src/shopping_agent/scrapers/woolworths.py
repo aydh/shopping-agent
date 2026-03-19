@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -13,6 +14,8 @@ from ..models.store_cookies import StoreCookies
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
 
 logger = logging.getLogger(__name__)
+
+WOOLWORTHS_PRICE_FETCH_DELAY_S = 0.5  # Delay between individual product price requests
 
 WOOLWORTHS_BASE = "https://www.woolworths.com.au"
 MOBILE_API_BASE = "https://prod.mobile-api.woolworths.com.au"
@@ -428,6 +431,7 @@ class WoolworthsScraper(BaseScraper):
             ScrapedProduct with current price, or None if not found.
         """
         try:
+            await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S)
             resp = await self._request(
                 "GET", f"/apis/ui/product/detail/{store_product_id}"
             )
