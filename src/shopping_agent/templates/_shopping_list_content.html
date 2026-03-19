@@ -64,6 +64,13 @@
 
 </div>
 
+<!-- Search -->
+<div class="mb-3">
+    <input type="search" id="sl-search" placeholder="Search items..."
+           oninput="filterShoppingList(this.value)"
+           class="w-full sm:w-72 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400">
+</div>
+
 <!-- Items Table -->
 <style>
     @media (min-width: 768px) {
@@ -90,7 +97,7 @@
         {% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price < item.woolworths_price) %}
         {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
 
-        <div class="sl-row px-4 sm:px-6 py-3">
+        <div class="sl-row px-4 sm:px-6 py-3" data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}">
 
             <!-- Products: side-by-side on mobile, grid cells on desktop -->
             <div class="sl-products flex gap-3 mb-3 md:mb-0">
@@ -189,3 +196,12 @@
     No shopping list yet. Click "Generate List" to create one based on your purchase patterns.
 </div>
 {% endif %}
+
+<script>
+function filterShoppingList(query) {
+    const q = query.toLowerCase().trim();
+    document.querySelectorAll('[data-item-name]').forEach(row => {
+        row.style.display = (!q || row.dataset.itemName.includes(q)) ? '' : 'none';
+    });
+}
+</script>

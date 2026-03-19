@@ -25,7 +25,8 @@ class ShoppingList(TimestampMixin, Base):
     estimated_total: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     items: Mapped[list["ShoppingListItem"]] = relationship(
-        back_populates="shopping_list", cascade="all, delete-orphan"
+        back_populates="shopping_list", cascade="all, delete-orphan",
+        order_by="ShoppingListItem.created_at",
     )
 
 
