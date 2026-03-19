@@ -107,7 +107,14 @@ async def _do_price_refresh(store_enum: Store) -> None:
     async def fetch_one(product: Product):
         async with sem:
             try:
-                scraped = await scraper.get_product_price(product.store_product_id, product.name)
+                try:
+                    scraped = await asyncio.wait_for(
+                        scraper.get_product_price(product.store_product_id, product.name),
+                        timeout=20.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("[PriceRefresh] Timeout fetching %s", product.store_product_id)
+                    scraped = None
                 async with async_session() as session:
                     db_product = await session.get(Product, product.id)
                     if db_product:
@@ -167,10 +174,15 @@ async def _do_price_refresh(store_enum: Store) -> None:
             _refresh_progress[key]["done"] += 1
             return False
 
-    results = await asyncio.gather(*[fetch_one(p) for p in products])
-    updated = sum(results)
-    _refresh_progress[key] = {"done": len(products), "total": len(products), "running": False, "updated": updated}
-    logger.info("[PriceRefresh] %s done: %d/%d updated", store_enum.value, updated, len(products))
+    try:
+        results = await asyncio.gather(*[fetch_one(p) for p in products])
+        updated = sum(results)
+        logger.info("[PriceRefresh] %s done: %d/%d updated", store_enum.value, updated, len(products))
+    except Exception:
+        logger.exception("[PriceRefresh] Unexpected error during %s refresh", store_enum.value)
+        updated = _refresh_progress[key].get("done", 0)
+    finally:
+        _refresh_progress[key] = {"done": len(products), "total": len(products), "running": False, "updated": updated}
 
 
 @router.post("/refresh/{store}")
