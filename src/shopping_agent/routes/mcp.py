@@ -12,11 +12,17 @@ from fastmcp import FastMCP
 
 from ..database import async_session
 from ..db_helpers import store_from_string
-from ..models import Store
+from ..models import ListStatus, ShoppingList, Store
 from ..services.prediction import get_predictions_with_match_info
 from ..services.shopping_list import (
+    add_item_to_list,
+    assign_cheapest_stores,
+    confirm_list,
+    generate_shopping_list,
     get_active_list,
     get_list_history,
+    remove_item,
+    update_item_quantity,
 )
 from ..services.price_comparison import compare_product_prices
 from ..scrapers.coles import coles_scraper
@@ -216,3 +222,131 @@ async def get_price_comparison(product_id: int) -> dict:
         "match_confidence": c.match_confidence,
         "is_confirmed": c.is_confirmed,
     }
+
+
+# ---------------------------------------------------------------------------
+# Shopping list management tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def create_shopping_list(from_predictions: bool = False) -> dict:
+    """Create a new DRAFT shopping list.
+
+    Args:
+        from_predictions: If True, pre-populate the list from consumption
+            predictions (products predicted to run out within the lookahead window).
+            If False, create an empty list.
+
+    Returns:
+        {"list_id": int, "item_count": int, "status": str}
+    """
+    async with async_session() as session:
+        if from_predictions:
+            shopping_list = await generate_shopping_list(session)
+        else:
+            shopping_list = ShoppingList(name="Shopping List", status=ListStatus.DRAFT)
+            session.add(shopping_list)
+            await session.commit()
+        list_id = shopping_list.id
+        item_count = sum(1 for item in shopping_list.items if not getattr(item, "is_removed", False))
+        status = shopping_list.status.value
+    return {"list_id": list_id, "item_count": item_count, "status": status}
+
+
+@mcp.tool()
+async def add_item_to_shopping_list(product_id: int, quantity: int = 1) -> dict:
+    """Add a product to the active shopping list.
+
+    If the product (or its cross-store match) is already on the list,
+    the quantity is incremented instead of adding a duplicate.
+
+    Args:
+        product_id: Database ID of the product to add.
+        quantity: Quantity to add (default 1).
+
+    Returns:
+        {"item_id": int, "product_id": int, "quantity": int, "chosen_store": str | None, "status": str}
+        or {"error": str} if no active list or product not found.
+    """
+    async with async_session() as session:
+        item = await add_item_to_list(session, product_id=product_id, quantity=quantity)
+        if item is None:
+            return {"error": "No active shopping list or product not found"}
+        return {
+            "item_id": item.id,
+            "product_id": item.product_id,
+            "quantity": item.quantity,
+            "chosen_store": item.chosen_store.value if item.chosen_store else None,
+            "status": "added",
+        }
+
+
+@mcp.tool()
+async def update_list_item_quantity(item_id: int, quantity: int) -> dict:
+    """Update the quantity of an item on the active shopping list.
+
+    Args:
+        item_id: Database ID of the ShoppingListItem.
+        quantity: New quantity (must be >= 1).
+
+    Returns:
+        {"item_id": int, "quantity": int} or {"error": str}
+    """
+    if quantity < 1:
+        return {"error": "Quantity must be at least 1"}
+    async with async_session() as session:
+        await update_item_quantity(session, item_id, quantity)
+    return {"item_id": item_id, "quantity": quantity}
+
+
+@mcp.tool()
+async def remove_list_item(item_id: int) -> dict:
+    """Remove an item from the active shopping list (soft-delete).
+
+    Args:
+        item_id: Database ID of the ShoppingListItem to remove.
+
+    Returns:
+        {"item_id": int, "removed": bool}
+    """
+    async with async_session() as session:
+        await remove_item(session, item_id)
+    return {"item_id": item_id, "removed": True}
+
+
+@mcp.tool()
+async def assign_cheapest_store_to_all() -> dict:
+    """Assign each item on the active list to its cheapest available store.
+
+    Uses current Coles and Woolworths prices to pick the cheaper option
+    per item. Does NOT confirm the list — call confirm_shopping_list() after
+    to proceed to cart.
+
+    Returns:
+        {"items_assigned": int} or {"error": str} if no active list.
+    """
+    async with async_session() as session:
+        count = await assign_cheapest_stores(session)
+    if count == 0:
+        return {"error": "No active list or no items to assign"}
+    return {"items_assigned": count}
+
+
+@mcp.tool()
+async def confirm_shopping_list() -> dict:
+    """Confirm the active shopping list, making it ready for cart addition.
+
+    The list must be in DRAFT status. After confirming, use
+    add_confirmed_list_to_cart() to add items to a store's cart.
+
+    Returns:
+        {"list_id": int, "status": str} or {"error": str}
+    """
+    async with async_session() as session:
+        shopping_list = await get_active_list(session)
+        if not shopping_list:
+            return {"error": "No active shopping list found"}
+        confirmed = await confirm_list(session, shopping_list.id)
+        list_id = confirmed.id
+        status = confirmed.status.value
+    return {"list_id": list_id, "status": status}
