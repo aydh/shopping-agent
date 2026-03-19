@@ -59,12 +59,28 @@
 
 </div>
 
-<!-- Search + Metrics -->
-<div class="flex flex-wrap items-center gap-3 mb-3">
-    <input type="search" id="sl-search" placeholder="Search items..."
+<!-- Search + Add + Metrics -->
+<div class="flex flex-wrap items-start gap-3 mb-3">
+    <!-- Filter existing items -->
+    <input type="search" id="sl-search" placeholder="Filter items..."
            oninput="filterShoppingList(this.value)"
-           class="w-full sm:w-72 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400">
-    <span class="text-sm text-gray-400">{{ active_items_list | length }} lines &middot; {{ total_quantity }} items</span>
+           class="w-full sm:w-56 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400">
+
+    <!-- Add new product -->
+    <div class="relative flex-1 min-w-48">
+        <input type="search" id="add-product-input" placeholder="Add product..."
+               autocomplete="off"
+               hx-get="/api/shopping-list/product-search"
+               hx-trigger="input changed delay:300ms"
+               hx-target="#add-product-results"
+               name="q"
+               class="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400">
+        <div id="add-product-results"
+             class="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg divide-y divide-gray-100 empty:hidden"></div>
+        <span id="add-product-status" class="text-xs text-green-600 mt-1 block min-h-[1rem]"></span>
+    </div>
+
+    <span class="text-sm text-gray-400 self-center">{{ active_items_list | length }} lines &middot; {{ total_quantity }} items</span>
 </div>
 
 <!-- Items Table -->
@@ -200,4 +216,11 @@ function filterShoppingList(query) {
         row.style.display = (!q || row.dataset.itemName.includes(q)) ? '' : 'none';
     });
 }
+document.addEventListener('click', e => {
+    const results = document.getElementById('add-product-results');
+    const input = document.getElementById('add-product-input');
+    if (results && input && !input.contains(e.target) && !results.contains(e.target)) {
+        results.innerHTML = '';
+    }
+});
 </script>

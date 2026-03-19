@@ -1,7 +1,7 @@
 """Shopping list item operations — add, update quantity/store, remove, copy."""
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_session
@@ -18,6 +18,42 @@ from ...services.shopping_list import (
 from ...templating import templates
 
 router = APIRouter()
+
+
+@router.get("/product-search")
+async def product_search(
+    q: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> HTMLResponse:
+    """Return an HTML dropdown of products matching the search query."""
+    q = q.strip()
+    if len(q) < 2:
+        return HTMLResponse("")
+    results = (await session.execute(
+        select(Product)
+        .where(or_(
+            Product.name.ilike(f"%{q}%"),
+            Product.brand.ilike(f"%{q}%"),
+        ))
+        .order_by(Product.name)
+        .limit(10)
+    )).scalars().all()
+    if not results:
+        return HTMLResponse('<p class="px-3 py-2 text-sm text-gray-400">No products found.</p>')
+    items_html = "".join(
+        f'<button type="button"'
+        f' hx-post="/api/shopping-list/items/add-product"'
+        f' hx-vals=\'{{"product_id": {p.id}}}\''
+        f' hx-target="#add-product-status"'
+        f' hx-swap="innerHTML"'
+        f' hx-on::after-request="document.getElementById(\'add-product-input\').value=\'\'; document.getElementById(\'add-product-results\').innerHTML=\'\';"'
+        f' class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center justify-between gap-2">'
+        f'<span class="truncate">{p.name}</span>'
+        f'<span class="text-xs text-gray-400 shrink-0">{p.store.value.title()}</span>'
+        f'</button>'
+        for p in results
+    )
+    return HTMLResponse(items_html)
 
 
 @router.post("/items/{item_id}/quantity")
