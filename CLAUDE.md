@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -e ".[dev]"
 
-uvicorn shopping_agent.main:app --reload --host 0.0.0.0   # Dev server on port 8000
-uvicorn shopping_agent.main:app --host 0.0.0.0            # Production
+uvicorn shopping_agent.main:app --reload --host 0.0.0.0 --ssl-certfile localhost.pem --ssl-keyfile localhost-key.pem   # Dev server on port 8000 (HTTPS)
+uvicorn shopping_agent.main:app --host 0.0.0.0 --ssl-certfile localhost.pem --ssl-keyfile localhost-key.pem            # Production (HTTPS)
 
 pytest                                     # All tests
 pytest tests/path/to/test_file.py::test_name  # Single test

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     debug: bool = False
     coles_api_key: str | None = Field(default=None, description="Coles Ocp-Apim-Subscription-Key (COLES_API_KEY)")
     woolworths_api_key: str | None = Field(default=None, description="Woolworths mobile API key (WOOLWORTHS_API_KEY)")
+    ssl_certfile: Path | None = Field(default=None, description="Path to SSL certificate file (SSL_CERTFILE)")
+    ssl_keyfile: Path | None = Field(default=None, description="Path to SSL private key file (SSL_KEYFILE)")
     price_refresh_poll_interval_ms: int = 2000  # How often the browser polls for price refresh progress
 
     def ensure_dirs(self) -> None:
