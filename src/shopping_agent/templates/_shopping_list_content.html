@@ -3,6 +3,13 @@
 {% set all_have_coles = active_items_list | rejectattr('coles_price') | list | length == 0 %}
 {% set all_have_ww = active_items_list | rejectattr('woolworths_price') | list | length == 0 %}
 
+<!-- Metrics -->
+{% set total_quantity = active_items_list | sum(attribute='quantity') %}
+<div class="flex gap-4 text-sm text-gray-500 mb-4">
+    <span>{{ active_items_list | length }} lines</span>
+    <span>{{ total_quantity }} items total</span>
+</div>
+
 <!-- Price Summary -->
 <div id="list-totals" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 

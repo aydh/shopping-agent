@@ -111,7 +111,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
                 async with async_session() as session:
                     db_product = await session.get(Product, product.id)
                     if db_product:
-                        if scraped and scraped.current_price:
+                        if scraped and scraped.current_price and scraped.is_available:
                             db_product.current_price = scraped.current_price
                             db_product.is_available = True
                             if scraped.unit_price:

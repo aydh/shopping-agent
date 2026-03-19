@@ -434,6 +434,14 @@ class WoolworthsScraper(BaseScraper):
             if resp and resp.status_code == 200:
                 result = resp.json()
                 product_data = result.get("Product") or result
+                logger.debug(
+                    "[WW price] %s raw fields: IsAvailable=%s IsInStoreOnly=%s IsPurchasable=%s Price=%s",
+                    store_product_id,
+                    product_data.get("IsAvailable"),
+                    product_data.get("IsInStoreOnly"),
+                    product_data.get("IsPurchasable"),
+                    product_data.get("Price"),
+                )
                 return self._parse_search_result(product_data)
         except Exception:
             logger.exception(
@@ -693,7 +701,11 @@ class WoolworthsScraper(BaseScraper):
                     if (data.get("Stockcode") or data.get("stockcode")) and data.get("UrlFriendlyName")
                     else None
                 ),
-                is_available=data.get("IsAvailable", True),
+                is_available=(
+                    data.get("IsAvailable", True)
+                    and not data.get("IsInStoreOnly", False)
+                    and data.get("IsPurchasable", True) is not False
+                ),
             )
         except Exception:
             return None

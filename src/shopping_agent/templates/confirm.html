@@ -17,7 +17,7 @@
         <div class="px-6 py-4 bg-red-50 border-b border-red-200 flex items-center justify-between">
             <div>
                 <h2 class="text-lg font-medium text-red-800">Coles</h2>
-                <p class="text-sm text-red-600">{{ coles_items | length }} items &middot; ${{ "%.2f" | format(coles_total) }}</p>
+                <p class="text-sm text-red-600">{{ coles_items | length }} lines &middot; {{ coles_items | sum(attribute='quantity') }} items &middot; ${{ "%.2f" | format(coles_total) }}</p>
             </div>
             <button onclick="addToCartStream('coles', 'coles-cart-status', this)"
                     class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
@@ -56,7 +56,7 @@
         <div class="px-6 py-4 bg-green-50 border-b border-green-200 flex items-center justify-between">
             <div>
                 <h2 class="text-lg font-medium text-green-800">Woolworths</h2>
-                <p class="text-sm text-green-600">{{ woolworths_items | length }} items &middot; ${{ "%.2f" | format(woolworths_total) }}</p>
+                <p class="text-sm text-green-600">{{ woolworths_items | length }} lines &middot; {{ woolworths_items | sum(attribute='quantity') }} items &middot; ${{ "%.2f" | format(woolworths_total) }}</p>
             </div>
             <button onclick="addToCartStream('woolworths', 'woolworths-cart-status', this)"
                     class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">

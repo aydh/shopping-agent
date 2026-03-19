@@ -43,6 +43,22 @@ DEFAULT_HEADERS = {
 }
 
 
+_COLES_UNAVAILABLE_STATES = {"UNAVAILABLE", "IN_STORE_ONLY", "NOT_AVAILABLE", "OUT_OF_STOCK"}
+
+
+def _coles_is_available(data: dict) -> bool:
+    """Return False if the Coles BFF product data indicates it's unavailable online."""
+    availability = data.get("availability")
+    if isinstance(availability, str) and availability.upper() in _COLES_UNAVAILABLE_STATES:
+        return False
+    if isinstance(availability, bool):
+        return availability
+    # Some responses use an onlineHeadline or restriction field
+    if data.get("restriction") == "NOT_FOR_SALE":
+        return False
+    return True
+
+
 class ColesScraper(BaseScraper):
     store = Store.COLES
     _cookie_domain: str = ".coles.com.au"
@@ -652,6 +668,12 @@ class ColesScraper(BaseScraper):
                 for item in results:
                     p = self._parse_graphql_product(item)
                     if p and p.store_product_id == store_product_id:
+                        logger.debug(
+                            "[Coles price] %s raw fields: availability=%s pricing=%s",
+                            store_product_id,
+                            item.get("availability"),
+                            item.get("pricing"),
+                        )
                         return p
         except Exception:
             logger.exception("Coles price fetch failed for: %s", store_product_id)
@@ -711,14 +733,54 @@ class ColesScraper(BaseScraper):
                         json={"items": [{"productId": int(product_id), "quantity": quantity}]},
                     )
                     if resp and resp.status_code in (200, 201):
+                        body = resp.text
                         logger.info(
-                            "Coles add-to-cart POST %s product=%s status=%d body=%s",
-                            endpoint,
+                            "Coles add-to-cart product=%s status=%d body=%s",
                             product_id,
                             resp.status_code,
-                            resp.text[:500],
+                            body[:800],
                         )
-                        results[str(product_id)] = True
+                        # Verify the item was actually added by checking the response body.
+                        # The BFF may return 200 but silently reject items (e.g. unavailable,
+                        # in-store only). Check for unavailableItems or missing from trolleyItems.
+                        success = True
+                        try:
+                            data = resp.json()
+                            unavailable = data.get("unavailableItems") or data.get("unavailable") or []
+                            if unavailable:
+                                unavailable_ids = {
+                                    str(u.get("productId") or u.get("stockcode") or u.get("id") or "")
+                                    for u in unavailable
+                                }
+                                if str(product_id) in unavailable_ids:
+                                    logger.warning(
+                                        "Coles product %s returned 200 but is in unavailableItems",
+                                        product_id,
+                                    )
+                                    success = False
+                            # If response has trolleyItems/items, check our product is present
+                            if success:
+                                trolley_items = (
+                                    data.get("trolleyItems")
+                                    or data.get("items")
+                                    or data.get("trolley", {}).get("items")
+                                    or []
+                                )
+                                if trolley_items:
+                                    added_ids = {
+                                        str(t.get("productId") or t.get("stockcode") or t.get("id") or "")
+                                        for t in trolley_items
+                                    }
+                                    if str(product_id) not in added_ids:
+                                        logger.warning(
+                                            "Coles product %s returned 200 but not found in trolleyItems (ids: %s)",
+                                            product_id,
+                                            list(added_ids)[:10],
+                                        )
+                                        success = False
+                        except Exception:
+                            logger.debug("Could not parse Coles add-to-cart response body for product %s", product_id)
+                        results[str(product_id)] = success
                     else:
                         logger.warning(
                             "Failed to add Coles product %s to cart (status=%s body=%s)",
@@ -916,7 +978,7 @@ class ColesScraper(BaseScraper):
                 unit_price_measure=None,
                 image_url=image_url,
                 product_url=f"{COLES_BASE}/product/{name.lower().replace(' ', '-')}-{product_id}",
-                is_available=True,
+                is_available=_coles_is_available(data),
             )
         except Exception:
             logger.debug("Failed to parse Coles GraphQL product", exc_info=True)
