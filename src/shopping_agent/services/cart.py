@@ -91,7 +91,7 @@ async def add_to_cart(session: AsyncSession, store: Store) -> CartResult:
     skipped_names: list[str] = []
 
     for item in shopping_list.items:
-        if item.is_removed or item.chosen_store != store:
+        if item.is_removed or item.is_ordered or item.chosen_store != store:
             continue
         store_product_id = await _resolve_store_product_id(session, item.product, store)
         logger.info(

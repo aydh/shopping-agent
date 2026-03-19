@@ -236,15 +236,20 @@ async def get_price_comparison(product_id: int) -> dict:
 async def create_shopping_list(from_predictions: bool = False) -> dict:
     """Create a new DRAFT shopping list.
 
+    Fails if an active (non-ordered) list already exists — delete or close it first.
+
     Args:
         from_predictions: If True, pre-populate the list from consumption
             predictions (products predicted to run out within the lookahead window).
             If False, create an empty list.
 
     Returns:
-        {"list_id": int, "item_count": int, "status": str}
+        {"list_id": int, "item_count": int, "status": str} or {"error": str}
     """
     async with async_session() as session:
+        existing = await get_active_list(session)
+        if existing:
+            return {"error": f"An active shopping list already exists (id={existing.id}, status={existing.status.value}). Close or delete it first."}
         if from_predictions:
             shopping_list = await generate_shopping_list(session)
         else:
@@ -266,12 +271,14 @@ async def add_item_to_shopping_list(product_id: int, quantity: int = 1) -> dict:
 
     Args:
         product_id: Database ID of the product to add.
-        quantity: Quantity to add (default 1).
+        quantity: Quantity to add (default 1, must be >= 1).
 
     Returns:
         {"item_id": int, "product_id": int, "quantity": int, "chosen_store": str | None, "status": str}
         or {"error": str} if no active list or product not found.
     """
+    if quantity < 1:
+        return {"error": "Quantity must be at least 1"}
     async with async_session() as session:
         item = await add_item_to_list(session, product_id=product_id, quantity=quantity)
         if item is None:
@@ -358,6 +365,28 @@ async def confirm_shopping_list() -> dict:
     return {"list_id": list_id, "status": status}
 
 
+@mcp.tool()
+async def close_shopping_list() -> dict:
+    """Mark the active shopping list as ORDERED, completing the workflow.
+
+    The list must be CONFIRMED. Call this after add_confirmed_list_to_cart()
+    succeeds so the list moves to history and a new list can be created.
+
+    Returns:
+        {"list_id": int, "status": "ordered"} or {"error": str}
+    """
+    async with async_session() as session:
+        shopping_list = await get_active_list(session)
+        if not shopping_list:
+            return {"error": "No active shopping list found"}
+        if shopping_list.status != ListStatus.CONFIRMED:
+            return {"error": f"List must be CONFIRMED before closing (current status: {shopping_list.status.value})"}
+        shopping_list.status = ListStatus.ORDERED
+        await session.commit()
+        list_id = shopping_list.id
+    return {"list_id": list_id, "status": "ordered"}
+
+
 # ---------------------------------------------------------------------------
 # Cart tool
 # ---------------------------------------------------------------------------
@@ -423,13 +452,17 @@ async def sync_orders(store: str, limit: int | None = None) -> dict:
     if not await scraper.is_authenticated():
         return {"error": f"Not authenticated for {store} — import cookies first"}
 
-    fetch_limit = limit or 200
-    scraped_orders = []
-    async for order in scraper.stream_order_history(limit=fetch_limit):
-        scraped_orders.append(order)
+    try:
+        fetch_limit = limit or 200
+        scraped_orders = []
+        async for order in scraper.stream_order_history(limit=fetch_limit):
+            scraped_orders.append(order)
 
-    async with async_session() as session:
-        new_count = await _sync_orders(session, scraped_orders, store_enum)
+        async with async_session() as session:
+            new_count = await _sync_orders(session, scraped_orders, store_enum)
+    except Exception as e:
+        logger.warning("[MCP] sync_orders failed for %s: %s", store, e)
+        return {"error": f"Sync failed: {e}"}
 
     return {"store": store, "new_orders": new_count, "orders_fetched": len(scraped_orders)}
 
@@ -491,7 +524,8 @@ async def match_products(store: str | None = None) -> dict:
 
     Args:
         store: Store whose unmatched products to process — "coles" or
-            "woolworths". If omitted, processes both stores.
+            "woolworths". If omitted, processes Coles only (one pass is
+            sufficient since matches are bidirectional).
 
     Returns:
         {"matches_created": int, "by_store": dict} or {"error": str}
@@ -503,7 +537,7 @@ async def match_products(store: str | None = None) -> dict:
         except (ValueError, HTTPException) as e:
             return {"error": str(e)}
     else:
-        stores_to_process = [Store.COLES, Store.WOOLWORTHS]
+        stores_to_process = [Store.COLES]
 
     results: dict[str, int] = {}
     for s in stores_to_process:
@@ -541,10 +575,10 @@ async def find_product_match(product_id: int, query: str | None = None) -> dict:
         target_scraper = woolworths_scraper if target_store == Store.WOOLWORTHS else coles_scraper
 
         scraper_to_use = None
-        if query and await target_scraper.is_authenticated():
+        if await target_scraper.is_authenticated():
             scraper_to_use = target_scraper
 
-        match = await find_or_create_match(session, product, target_store, scraper=scraper_to_use)
+        match = await find_or_create_match(session, product, target_store, scraper=scraper_to_use, search_query=query)
         if not match:
             return {"match": None, "message": "No match found"}
 

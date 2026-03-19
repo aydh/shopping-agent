@@ -163,6 +163,7 @@ async def find_or_create_match(
     product: Product,
     target_store: Store,
     scraper: BaseScraper | None = None,
+    search_query: str | None = None,
 ) -> ProductMatch | None:
     """Find an existing ProductMatch or discover a new one for the given product.
 
@@ -212,7 +213,7 @@ async def find_or_create_match(
 
     # Try search via scraper if available
     if scraper:
-        search_query = f"{product.brand or ''} {product.name}".strip()
+        search_query = search_query or f"{product.brand or ''} {product.name}".strip()
         try:
             results = await scraper.search_product(search_query)
             if results:
