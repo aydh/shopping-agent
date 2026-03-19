@@ -98,6 +98,7 @@ PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
 PRICE_REFRESH_CONCURRENCY: int = 10
+WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.5  # Delay between individual product price requests
 
 # Chart colours
 COLES_COLOUR: str = "#dc2626"

@@ -11,11 +11,10 @@ from sqlalchemy import select
 from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
+from ..config import WOOLWORTHS_PRICE_FETCH_DELAY_S
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
 
 logger = logging.getLogger(__name__)
-
-WOOLWORTHS_PRICE_FETCH_DELAY_S = 0.5  # Delay between individual product price requests
 
 WOOLWORTHS_BASE = "https://www.woolworths.com.au"
 MOBILE_API_BASE = "https://prod.mobile-api.woolworths.com.au"
