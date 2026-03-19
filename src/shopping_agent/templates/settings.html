@@ -48,7 +48,9 @@
                 <div class="px-6 py-4">
                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
-                            <h3 class="font-medium text-gray-900">Coles</h3>
+                            <h3 class="font-medium text-gray-900">
+                                <a href="https://www.coles.com.au" target="_blank" rel="noopener" class="hover:text-red-600 hover:underline">Coles</a>
+                            </h3>
                             <p id="coles-auth-status" class="text-sm {% if coles_connected %}text-green-600{% else %}text-gray-500{% endif %}">
                                 {% if coles_connected %}Connected - session active{% else %}Not connected{% endif %}
                             </p>
@@ -59,32 +61,25 @@
                         </div>
                         <div class="flex items-center gap-2">
                             {% if coles_connected %}
-                            <button hx-get="/api/auth/validate/coles" hx-target="#coles-validate-result" hx-indicator="#coles-validate-spinner"
+                            <button id="coles-validate-btn" hx-get="/api/auth/validate/coles" hx-target="#coles-validate-result" hx-indicator="#coles-validate-spinner"
                                     class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
                                 Validate
                             </button>
-                            <button hx-post="/api/auth/logout/coles" hx-target="#coles-auth-status"
-                                    class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
-                                Disconnect
-                            </button>
                             {% endif %}
+                            <button onclick="toggleCookiePanel('coles')"
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                                Reimport Cookies
+                            </button>
                         </div>
                     </div>
-                    <div class="mt-3">
-                        <details class="group" {% if not coles_connected %}open{% endif %}>
-                            <summary class="cursor-pointer text-sm text-red-700 hover:text-red-800 font-medium">
-                                {% if coles_connected %}Re-import cookies{% else %}Import cookies to connect{% endif %}
-                            </summary>
-                            <div class="mt-2 space-y-2">
-                                <textarea id="coles-cookie-input" rows="4"
-                                    placeholder='Paste cookie JSON here from the Cookie-Editor extension...'
-                                    class="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring-red-500 focus:border-red-500"></textarea>
-                                <button onclick="importColesCookies()"
-                                    class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
-                                    Import Cookies
-                                </button>
-                            </div>
-                        </details>
+                    <div id="coles-cookie-panel" class="mt-3 space-y-2 {% if coles_connected %}hidden{% endif %}">
+                        <textarea id="coles-cookie-input" rows="4"
+                            placeholder='Paste cookie JSON here from the Cookie-Editor extension...'
+                            class="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring-red-500 focus:border-red-500"></textarea>
+                        <button onclick="importColesCookies()"
+                            class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                            Import Cookies
+                        </button>
                     </div>
                 </div>
 
@@ -92,7 +87,9 @@
                 <div class="px-6 py-4">
                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
-                            <h3 class="font-medium text-gray-900">Woolworths</h3>
+                            <h3 class="font-medium text-gray-900">
+                                <a href="https://www.woolworths.com.au" target="_blank" rel="noopener" class="hover:text-green-600 hover:underline">Woolworths</a>
+                            </h3>
                             <p id="woolworths-auth-status" class="text-sm {% if woolworths_connected %}text-green-600{% else %}text-gray-500{% endif %}">
                                 {% if woolworths_connected %}Connected - session active{% else %}Not connected{% endif %}
                             </p>
@@ -103,32 +100,25 @@
                         </div>
                         <div class="flex items-center gap-2">
                             {% if woolworths_connected %}
-                            <button hx-get="/api/auth/validate/woolworths" hx-target="#woolworths-validate-result" hx-indicator="#woolworths-validate-spinner"
+                            <button id="woolworths-validate-btn" hx-get="/api/auth/validate/woolworths" hx-target="#woolworths-validate-result" hx-indicator="#woolworths-validate-spinner"
                                     class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
                                 Validate
                             </button>
-                            <button hx-post="/api/auth/logout/woolworths" hx-target="#woolworths-auth-status"
-                                    class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
-                                Disconnect
-                            </button>
                             {% endif %}
+                            <button onclick="toggleCookiePanel('woolworths')"
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                                Reimport Cookies
+                            </button>
                         </div>
                     </div>
-                    <div class="mt-3">
-                        <details class="group" {% if not woolworths_connected %}open{% endif %}>
-                            <summary class="cursor-pointer text-sm text-green-700 hover:text-green-800 font-medium">
-                                {% if woolworths_connected %}Re-import cookies{% else %}Import cookies to connect{% endif %}
-                            </summary>
-                            <div class="mt-2 space-y-2">
-                                <textarea id="woolworths-cookie-input" rows="4"
-                                    placeholder='Paste cookie JSON here from the Cookie-Editor extension...'
-                                    class="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring-green-500 focus:border-green-500"></textarea>
-                                <button onclick="importWoolworthsCookies()"
-                                    class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">
-                                    Import Cookies
-                                </button>
-                            </div>
-                        </details>
+                    <div id="woolworths-cookie-panel" class="mt-3 space-y-2 {% if woolworths_connected %}hidden{% endif %}">
+                        <textarea id="woolworths-cookie-input" rows="4"
+                            placeholder='Paste cookie JSON here from the Cookie-Editor extension...'
+                            class="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring-green-500 focus:border-green-500"></textarea>
+                        <button onclick="importWoolworthsCookies()"
+                            class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                            Import Cookies
+                        </button>
                     </div>
                 </div>
             </div>
@@ -179,42 +169,37 @@ function switchTab(tab) {
     if (hash === 'connections' || hash === 'data') switchTab(hash);
 })();
 
-function importColesCookies() {
-    const textarea = document.getElementById('coles-cookie-input');
+function toggleCookiePanel(store) {
+    const panel = document.getElementById(store + '-cookie-panel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        panel.querySelector('textarea').focus();
+    }
+}
+
+function importCookies(store) {
+    const textarea = document.getElementById(store + '-cookie-input');
     const cookies = textarea.value.trim();
     if (!cookies) return;
 
-    fetch('/api/auth/import-cookies/coles', {
+    fetch('/api/auth/import-cookies/' + store, {
         method: 'POST',
         headers: {'Content-Type': 'text/plain'},
         body: cookies
     })
     .then(r => r.text())
     .then(html => {
-        document.getElementById('coles-auth-status').innerHTML = html;
+        document.getElementById(store + '-auth-status').innerHTML = html;
         if (html.includes('text-green-600')) {
             textarea.value = '';
+            document.getElementById(store + '-cookie-panel').classList.add('hidden');
+            const validateBtn = document.getElementById(store + '-validate-btn');
+            if (validateBtn) validateBtn.click();
         }
     });
 }
 
-function importWoolworthsCookies() {
-    const textarea = document.getElementById('woolworths-cookie-input');
-    const cookies = textarea.value.trim();
-    if (!cookies) return;
-
-    fetch('/api/auth/import-cookies/woolworths', {
-        method: 'POST',
-        headers: {'Content-Type': 'text/plain'},
-        body: cookies
-    })
-    .then(r => r.text())
-    .then(html => {
-        document.getElementById('woolworths-auth-status').innerHTML = html;
-        if (html.includes('text-green-600')) {
-            textarea.value = '';
-        }
-    });
-}
+function importColesCookies() { importCookies('coles'); }
+function importWoolworthsCookies() { importCookies('woolworths'); }
 </script>
 {% endblock %}

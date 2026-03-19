@@ -65,15 +65,15 @@
         <div class="flex flex-wrap gap-2 mb-3 items-center">
             <button onclick="setMatchFilter('all')" id="filter-all"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white">
-                All (<span id="count-filter-all">{{ comparisons | length }}</span>)
+                All
             </button>
             <button onclick="setMatchFilter('unconfirmed')" id="filter-unconfirmed"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
-                Needs Confirming (<span id="count-filter-unconfirmed">{{ comparisons | selectattr('is_confirmed', 'equalto', false) | selectattr('match_method', 'ne', 'manual') | list | length }}</span>)
+                Needs Confirming
             </button>
             <button onclick="setMatchFilter('manual')" id="filter-manual"
                     class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
-                Manual (<span id="count-filter-manual">{{ comparisons | selectattr('match_method', 'equalto', 'manual') | list | length }}</span>)
+                Manual
             </button>
             <div class="sm:ml-auto">
                 <button onclick="toggleAllHistory(this)"
@@ -112,48 +112,6 @@
 
     <!-- Unmatched Tab -->
     <div id="panel-unmatched" class="hidden">
-        <!-- Manual Matching -->
-        {% if unmatched_coles or unmatched_woolworths %}
-        <div class="mb-6">
-            <h2 class="text-base font-semibold text-gray-900 mb-3">Create Manual Match</h2>
-            <div class="bg-white rounded-lg shadow p-6">
-                <p class="text-sm text-gray-500 mb-4">Select one unmatched product from each store to link them together.</p>
-                <form hx-post="/api/prices/manual-match" hx-target="#manual-match-result" class="flex flex-wrap gap-4 items-end">
-                    <div class="flex-1 min-w-48">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mr-1">Coles</span>
-                            Unmatched ({{ unmatched_coles | length }})
-                        </label>
-                        <select name="coles_id" required
-                                class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
-                            <option value="">Select Coles product…</option>
-                            {% for p in unmatched_coles %}
-                            <option value="{{ p.id }}">{{ p.name }}{% if p.unit_size %} ({{ p.unit_size }}){% endif %}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="flex-1 min-w-48">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mr-1">Woolworths</span>
-                            Unmatched ({{ unmatched_woolworths | length }})
-                        </label>
-                        <select name="woolworths_id" required
-                                class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
-                            <option value="">Select Woolworths product…</option>
-                            {% for p in unmatched_woolworths %}
-                            <option value="{{ p.id }}">{{ p.name }}{% if p.unit_size %} ({{ p.unit_size }}){% endif %}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-                        Create Match
-                    </button>
-                </form>
-                <div id="manual-match-result" class="mt-3 text-sm"></div>
-            </div>
-        </div>
-        {% endif %}
-
         <!-- Unmatched Products Table -->
         {% set unmatched_all = unmatched_coles + unmatched_woolworths %}
         {% if unmatched_all %}
@@ -627,31 +585,21 @@ function applyMatchFilters() {
 }
 
 function updateTabCounts() {
-    // Matched tab & sub-filter counts
-    const allRows = document.querySelectorAll('#prices-table-body tr[data-match-type]');
-    const unconfirmedRows = document.querySelectorAll('#prices-table-body tr[data-match-type="unconfirmed"]');
-    const manualRows = document.querySelectorAll('#prices-table-body tr[data-match-type="manual"]');
     const el = id => document.getElementById(id);
-    if (el('count-matched')) el('count-matched').textContent = allRows.length;
-    if (el('count-filter-all')) el('count-filter-all').textContent = allRows.length;
-    if (el('count-filter-unconfirmed')) el('count-filter-unconfirmed').textContent = unconfirmedRows.length;
-    if (el('count-filter-manual')) el('count-filter-manual').textContent = manualRows.length;
+    const visible = selector =>
+        Array.from(document.querySelectorAll(selector)).filter(r => r.style.display !== 'none').length;
 
-    // Unmatched tab count
-    const unmatchedRows = document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]');
-    if (el('count-unmatched')) el('count-unmatched').textContent = unmatchedRows.length;
+    // Matched tab label — counts all matches passing the search filter, ignoring sub-filter
+    const searchTerm = (document.getElementById('search-field')?.value || '').toLowerCase();
+    const allMatchRows = Array.from(document.querySelectorAll('#prices-table-body [data-match-type]'));
+    const matchedN = allMatchRows.filter(r => !searchTerm || r.textContent.toLowerCase().includes(searchTerm)).length;
+    if (el('count-matched')) el('count-matched').textContent = matchedN;
 
-    // Rejected tab count
-    const rejectedRows = document.querySelectorAll('tr[id^="rejected-"]');
-    if (el('count-rejected')) el('count-rejected').textContent = rejectedRows.length;
 
-    // Removed tab count
-    const removedRows = document.querySelectorAll('tr[id^="hidden-"]');
-    if (el('count-removed')) el('count-removed').textContent = removedRows.length;
-
-    // Unavailable tab count
-    const unavailableRows = document.querySelectorAll('tr[id^="unavailable-"]');
-    if (el('count-unavailable')) el('count-unavailable').textContent = unavailableRows.length;
+    if (el('count-unmatched')) el('count-unmatched').textContent = visible('#all-products-table tbody tr[id^="urow-"]');
+    if (el('count-rejected')) el('count-rejected').textContent = visible('tr[id^="rejected-"]');
+    if (el('count-removed')) el('count-removed').textContent = visible('tr[id^="hidden-"]');
+    if (el('count-unavailable')) el('count-unavailable').textContent = visible('tr[id^="unavailable-"]');
 }
 
 // Reapply filters when the page is restored from back-forward cache
@@ -665,26 +613,6 @@ const _tabObserver = new MutationObserver(updateTabCounts);
     const el = document.getElementById(id);
     if (el) _tabObserver.observe(el, { childList: true, subtree: true });
 });
-
-// Restore tab, filter, and search term from URL hash / sessionStorage on page load
-(function() {
-    const hash = location.hash.slice(1);
-    const tabs = ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'];
-    if (hash.startsWith('matched-')) {
-        const filter = hash.slice('matched-'.length);
-        switchTab('matched');
-        if (['unconfirmed', 'manual'].includes(filter)) setMatchFilter(filter);
-    } else if (tabs.includes(hash)) {
-        switchTab(hash);
-    }
-
-    const saved = sessionStorage.getItem('prices_search');
-    if (saved) {
-        const field = document.getElementById('search-field');
-        field.value = saved;
-        field.dispatchEvent(new Event('keyup'));
-    }
-})();
 
 document.getElementById('search-field').addEventListener('keyup', function() {
     sessionStorage.setItem('prices_search', this.value);
@@ -719,6 +647,30 @@ document.getElementById('search-field').addEventListener('keyup', function() {
         const histRow = document.getElementById('phistory-body-' + row.id.replace('hidden-', ''))?.closest('tr');
         if (histRow) histRow.style.display = visible ? '' : 'none';
     });
+
+    updateTabCounts();
 });
+
+// Restore tab, filter, and search term from URL hash / sessionStorage on page load
+(function() {
+    const hash = location.hash.slice(1);
+    const tabs = ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'];
+    if (hash.startsWith('matched-')) {
+        const filter = hash.slice('matched-'.length);
+        switchTab('matched');
+        if (['unconfirmed', 'manual'].includes(filter)) setMatchFilter(filter);
+    } else if (tabs.includes(hash)) {
+        switchTab(hash);
+    }
+
+    const saved = sessionStorage.getItem('prices_search');
+    if (saved) {
+        const field = document.getElementById('search-field');
+        field.value = saved;
+        field.dispatchEvent(new Event('keyup'));
+    } else {
+        updateTabCounts();
+    }
+})();
 </script>
 {% endblock %}
