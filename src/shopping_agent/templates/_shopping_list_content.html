@@ -113,6 +113,8 @@
                     {% else %}
                     <p class="text-xs text-gray-400 md:hidden font-medium">Coles</p>
                     <p class="text-xs font-medium text-yellow-600 mt-1">Unavailable</p>
+                    <a href="/shopping-list/find-match/{{ item.product_id }}"
+                       class="inline-block mt-1.5 text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">Find Match</a>
                     {% endif %}
                 </div>
 
@@ -141,6 +143,8 @@
                     {% else %}
                     <p class="text-xs text-gray-400 md:hidden font-medium">Woolworths</p>
                     <p class="text-xs font-medium text-yellow-600 mt-1">Unavailable</p>
+                    <a href="/shopping-list/find-match/{{ item.product_id }}"
+                       class="inline-block mt-1.5 text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">Find Match</a>
                     {% endif %}
                 </div>
             </div>

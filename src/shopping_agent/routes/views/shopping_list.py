@@ -1,12 +1,12 @@
 """Shopping list and confirm page views."""
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...database import get_session
-from ...models import ListStatus, ShoppingList, ShoppingListItem, Store
+from ...models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
 from ...services.shopping_list import (
     get_list_history,
     get_shopping_list_context,
@@ -27,6 +27,22 @@ async def shopping_list_page(
     return templates.TemplateResponse(
         "shopping_list.html",
         {"request": request, "active_page": "shopping_list", "past_lists": past_lists, **ctx},
+    )
+
+
+@router.get("/shopping-list/find-match/{product_id}")
+async def find_match_page(
+    product_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> HTMLResponse:
+    """Render the find-match page for a shopping list product."""
+    product = await session.get(Product, product_id)
+    if not product:
+        return RedirectResponse("/shopping-list", status_code=303)
+    return templates.TemplateResponse(
+        "find_match.html",
+        {"request": request, "active_page": "shopping_list", "product": product},
     )
 
 

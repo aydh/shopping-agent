@@ -22,6 +22,7 @@ async def search_match(
     product_id: int,
     request: Request,
     q: str = Query(default=""),
+    return_to: str = Query(default=""),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     """Search the opposite store for products to match against the given product."""
@@ -49,6 +50,7 @@ async def search_match(
             "results": results,
             "source_product_id": product_id,
             "target_store": target_store.value,
+            "return_to": return_to,
         },
     )
 
@@ -66,6 +68,7 @@ async def confirm_search_match(
     unit_price_measure: str = Form(default=""),
     image_url: str = Form(default=""),
     product_url: str = Form(default=""),
+    return_to: str = Form(default=""),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Upsert a searched product and create a manual match."""
@@ -129,4 +132,5 @@ async def confirm_search_match(
     session.add(pm)
     await session.commit()
 
-    return RedirectResponse("/prices#unmatched", status_code=303)
+    redirect_url = "/shopping-list" if return_to == "shopping-list" else "/prices#unmatched"
+    return RedirectResponse(redirect_url, status_code=303)

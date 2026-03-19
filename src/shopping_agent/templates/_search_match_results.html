@@ -43,6 +43,7 @@
                 <input type="hidden" name="unit_price_measure" value="{{ r.unit_price_measure or '' }}">
                 <input type="hidden" name="image_url" value="{{ r.image_url or '' }}">
                 <input type="hidden" name="product_url" value="{{ r.product_url or '' }}">
+                {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
                 <button type="submit"
                         class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 whitespace-nowrap">
                     Match

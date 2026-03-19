@@ -83,25 +83,27 @@
                 </button>
             </div>
         </div>
-        <div class="bg-white rounded-lg shadow overflow-x-auto">
-            <table class="min-w-[480px] w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Cheaper</th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Match</th>
-                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Last Ordered</th>
-                        <th class="px-3 sm:px-6 py-3"></th>
-                    </tr>
-                </thead>
-                <tbody id="prices-table-body" class="divide-y divide-gray-200">
-                    {% for comp in comparisons %}
-                    {% include '_match_row.html' %}
-                    <tr><td colspan="6" id="history-body-{{ comp.match_id }}"></td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <style>
+                @media (min-width: 768px) {
+                    .match-header, .match-card { display: grid; grid-template-columns: 1fr 1fr 9rem 6rem 8rem auto; align-items: start; }
+                    .match-products { display: contents; }
+                }
+            </style>
+            <div class="match-header hidden md:grid bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <div class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></div>
+                <div class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></div>
+                <div class="px-4 py-2">Cheaper</div>
+                <div class="px-4 py-2">Match</div>
+                <div class="px-4 py-2">Last Ordered</div>
+                <div></div>
+            </div>
+            <div id="prices-table-body">
+                {% for comp in comparisons %}
+                {% include '_match_row.html' %}
+                <div id="history-body-{{ comp.match_id }}"></div>
+                {% endfor %}
+            </div>
         </div>
         {% else %}
         <p class="text-sm text-gray-500">No matched products yet. Sync orders to auto-match, or use the Unmatched tab to create manual matches.</p>
@@ -207,7 +209,7 @@
                                 <button onclick="toggleProductHistory(this, '{{ product.id }}')"
                                         class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
                                 <a href="/prices/search-match/{{ product.id }}"
-                                   class="px-3 py-1.5 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200 whitespace-nowrap">Search Match</a>
+                                   class="px-3 py-1.5 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200 whitespace-nowrap">Find Match</a>
                                 <span id="add-btn-{{ product.id }}">
                                     <button hx-post="/api/shopping-list/items/add-product"
                                             hx-vals='{"product_id": {{ product.id }}}'
