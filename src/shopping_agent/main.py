@@ -64,3 +64,6 @@ app.include_router(api_predictions.router, prefix="/api/predictions")
 app.include_router(api_shopping_list.router, prefix="/api/shopping-list")
 app.include_router(api_cart.router, prefix="/api/cart")
 app.include_router(api_prices.router, prefix="/api/prices")
+
+from .routes.mcp import mcp  # noqa: E402
+app.mount("/mcp", mcp.http_app())
