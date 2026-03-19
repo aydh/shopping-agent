@@ -1,7 +1,7 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Boolean, Date, Enum as SAEnum, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, Enum as SAEnum, Float, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -47,3 +47,13 @@ class ShoppingListItem(TimestampMixin, Base):
 
     shopping_list: Mapped["ShoppingList"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship()
+
+    __table_args__ = (
+        Index(
+            "uq_sli_active_product",
+            "shopping_list_id",
+            "product_id",
+            unique=True,
+            postgresql_where=text("is_removed = false"),
+        ),
+    )

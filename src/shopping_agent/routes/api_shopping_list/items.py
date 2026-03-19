@@ -2,11 +2,12 @@
 from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_session
 from ...db_helpers import store_from_string
-from ...models import Product, ShoppingList, ShoppingListItem, Store, ListStatus
+from ...models import Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.product_resolution import get_partner_product
 from ...services.shopping_list import (
     choose_best_store,
@@ -149,20 +150,36 @@ async def add_product_to_list(
         else:
             woolworths_price = product.current_price
 
-    session.add(ShoppingListItem(
-        shopping_list_id=shopping_list.id,
-        product_id=product_id,
-        quantity=1,
-        coles_price=coles_price,
-        woolworths_price=woolworths_price,
-        chosen_store=chosen_store,
-        is_user_added=True,
-    ))
-    await session.commit()
+    try:
+        session.add(ShoppingListItem(
+            shopping_list_id=shopping_list.id,
+            product_id=product_id,
+            quantity=1,
+            coles_price=coles_price,
+            woolworths_price=woolworths_price,
+            chosen_store=chosen_store,
+            is_user_added=True,
+        ))
+        await session.commit()
+        status = "Added ✓"
+    except IntegrityError:
+        # Concurrent request already inserted this product — increment qty instead
+        await session.rollback()
+        existing = (await session.execute(
+            select(ShoppingListItem).where(
+                ShoppingListItem.shopping_list_id == shopping_list.id,
+                ShoppingListItem.product_id.in_(candidate_ids),
+                ShoppingListItem.is_removed == False,  # noqa: E712
+            )
+        )).scalars().first()
+        if existing:
+            existing.quantity += 1
+            await session.commit()
+        status = "Qty updated ✓"
     ctx = await _shopping_list_context(session)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(
-        f'<span class="text-green-600 text-xs">Added ✓</span>'
+        f'<span class="text-green-600 text-xs">{status}</span>'
         f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>'
     )
 
@@ -194,28 +211,68 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
         )
     )).scalars().all()
 
-    added = 0
-    for src in source_items:
-        # Skip if already in active list
-        existing = (await session.execute(
-            select(ShoppingListItem).where(
+    if not source_items:
+        ctx = await _shopping_list_context(session)
+        return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))
+
+    source_product_ids = [s.product_id for s in source_items]
+
+    # Bulk-load products already on the active list (to skip duplicates)
+    existing_product_ids: set[int] = set(
+        (await session.execute(
+            select(ShoppingListItem.product_id).where(
                 ShoppingListItem.shopping_list_id == active.id,
-                ShoppingListItem.product_id == src.product_id,
                 ShoppingListItem.is_removed == False,  # noqa: E712
             )
-        )).scalars().first()
-        if existing:
-            continue
+        )).scalars().all()
+    )
 
-        # Resolve current prices from product table
-        product = await session.get(Product, src.product_id)
+    # Bulk-load all source products
+    products_by_id: dict[int, Product] = {
+        p.id: p for p in (await session.execute(
+            select(Product).where(Product.id.in_(source_product_ids))
+        )).scalars().all()
+    }
+
+    # Bulk-load all ProductMatch rows for source products
+    match_rows = (await session.execute(
+        select(ProductMatch).where(
+            or_(
+                ProductMatch.product_a_id.in_(source_product_ids),
+                ProductMatch.product_b_id.in_(source_product_ids),
+            ),
+            ProductMatch.is_rejected == False,  # noqa: E712
+        )
+    )).scalars().all()
+
+    # Build product_id -> partner_id map and collect all partner IDs to fetch
+    partner_id_map: dict[int, int] = {}
+    for m in match_rows:
+        if m.product_a_id in products_by_id and m.product_a_id not in partner_id_map:
+            partner_id_map[m.product_a_id] = m.product_b_id
+        if m.product_b_id in products_by_id and m.product_b_id not in partner_id_map:
+            partner_id_map[m.product_b_id] = m.product_a_id
+
+    partner_ids = list(set(partner_id_map.values()) - set(products_by_id))
+    partners_by_id: dict[int, Product] = {}
+    if partner_ids:
+        partners_by_id = {
+            p.id: p for p in (await session.execute(
+                select(Product).where(Product.id.in_(partner_ids))
+            )).scalars().all()
+        }
+
+    # Process in memory — no per-item queries
+    for src in source_items:
+        if src.product_id in existing_product_ids:
+            continue
+        product = products_by_id.get(src.product_id)
         if not product:
             continue
 
-        partner = await get_partner_product(session, src.product_id, product.store.value)
+        partner_id = partner_id_map.get(src.product_id)
+        partner = partners_by_id.get(partner_id) if partner_id else None
 
-        coles_price = None
-        woolworths_price = None
         if partner:
             coles_p = product if product.store == Store.COLES else partner
             ww_p = product if product.store == Store.WOOLWORTHS else partner
@@ -223,10 +280,8 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
             woolworths_price = ww_p.current_price
             chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
         else:
-            if product.store == Store.COLES:
-                coles_price = product.current_price
-            else:
-                woolworths_price = product.current_price
+            coles_price = product.current_price if product.store == Store.COLES else None
+            woolworths_price = product.current_price if product.store == Store.WOOLWORTHS else None
             chosen_store = product.store
 
         session.add(ShoppingListItem(
@@ -238,9 +293,7 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
             chosen_store=chosen_store,
             is_user_added=True,
         ))
-        added += 1
 
     await session.commit()
     ctx = await _shopping_list_context(session)
-    html = templates.get_template("_shopping_list_content.html").render(**ctx)
-    return HTMLResponse(html)
+    return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))

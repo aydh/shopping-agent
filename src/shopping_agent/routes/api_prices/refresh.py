@@ -22,8 +22,8 @@ from ...models import (
     ShoppingListItem,
     Store,
 )
-from ...scrapers.coles import ColesScraper
-from ...scrapers.woolworths import WoolworthsScraper
+from ...scrapers.coles import coles_scraper as _coles_scraper
+from ...scrapers.woolworths import woolworths_scraper as _ww_scraper
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ _refresh_progress: dict[str, RefreshState] = {}
 
 async def _do_price_refresh(store_enum: Store) -> None:
     """Background task: refresh prices for all products of a given store."""
-    scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
+    scraper = _coles_scraper if store_enum == Store.COLES else _ww_scraper
     concurrency = COLES_PRICE_REFRESH_CONCURRENCY if store_enum == Store.COLES else WOOLWORTHS_PRICE_REFRESH_CONCURRENCY
     key = store_enum.value
 
@@ -174,6 +174,7 @@ async def _do_price_refresh(store_enum: Store) -> None:
             _refresh_progress[key]["done"] += 1
             return False
 
+    updated = 0  # must be initialised before try so finally can always reference it
     try:
         results = await asyncio.gather(*[fetch_one(p) for p in products])
         updated = sum(results)
@@ -189,7 +190,13 @@ async def _do_price_refresh(store_enum: Store) -> None:
 async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     """Kick off a background price refresh for the given store."""
     store_enum = store_from_string(store)
-    scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
+    store_val = store_enum.value
+    scraper = _coles_scraper if store_enum == Store.COLES else _ww_scraper
+
+    if _refresh_progress.get(store_val, {}).get("running"):
+        return HTMLResponse(
+            f'<span class="text-yellow-600 text-sm">Refresh already running for {store_enum.value.title()}.</span>'
+        )
 
     if not await scraper.is_authenticated():
         return HTMLResponse(f'<span class="text-red-600 text-sm">Not connected to {store_enum.value.title()}.</span>')
@@ -200,7 +207,6 @@ async def refresh_prices(store: str, background_tasks: BackgroundTasks, session:
         return HTMLResponse(f'<span class="text-yellow-600 text-sm">No {store_enum.value.title()} products.</span>')
 
     background_tasks.add_task(_do_price_refresh, store_enum)
-    store_val = store_enum.value
     return HTMLResponse(
         f'<span id="refresh-progress-{store_val}" class="text-blue-600 text-sm"'
         f' hx-get="/api/prices/refresh-progress/{store_val}"'

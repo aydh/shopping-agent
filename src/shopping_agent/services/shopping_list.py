@@ -445,7 +445,12 @@ async def get_list_history(session: AsyncSession) -> list[ListHistoryRow]:
         store = stores.pop() if len(stores) == 1 else None
         total = 0.0
         for i in active:
-            price = (i.coles_price if store == Store.COLES else i.woolworths_price) or 0
+            if i.chosen_store == Store.COLES:
+                price = i.coles_price or 0
+            elif i.chosen_store == Store.WOOLWORTHS:
+                price = i.woolworths_price or 0
+            else:
+                price = 0
             total += price * i.quantity
         rows.append({
             "id": sl.id,

@@ -216,6 +216,10 @@ function filterShoppingList(query) {
         row.style.display = (!q || row.dataset.itemName.includes(q)) ? '' : 'none';
     });
 }
+document.body.addEventListener('htmx:afterSwap', () => {
+    const search = document.getElementById('sl-search');
+    if (search && search.value) filterShoppingList(search.value);
+});
 document.addEventListener('click', e => {
     const results = document.getElementById('add-product-results');
     const input = document.getElementById('add-product-input');
