@@ -95,3 +95,39 @@ class TestAssignCheapestStores:
 
         result = await assign_cheapest_stores(session)
         assert result == 0
+
+
+class TestAddItemToList:
+    """Tests for add_item_to_list() service function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_active_list(self):
+        """Returns None if no active shopping list exists."""
+        from shopping_agent.services.shopping_list import add_item_to_list
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=None)))
+        ))
+
+        result = await add_item_to_list(session, product_id=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_product_not_found(self):
+        """Returns None if product_id doesn't exist."""
+        from shopping_agent.services.shopping_list import add_item_to_list
+        from shopping_agent.models import ShoppingList, ListStatus
+
+        shopping_list = MagicMock(spec=ShoppingList)
+        shopping_list.id = 1
+        shopping_list.status = ListStatus.DRAFT
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=shopping_list)))
+        ))
+        session.get = AsyncMock(return_value=None)  # product not found
+
+        result = await add_item_to_list(session, product_id=999)
+        assert result is None

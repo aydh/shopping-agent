@@ -320,6 +320,106 @@ async def assign_cheapest_stores(session: AsyncSession) -> int:
     return len(items)
 
 
+async def add_item_to_list(
+    session: AsyncSession,
+    product_id: int,
+    quantity: int = 1,
+) -> ShoppingListItem | None:
+    """Add a product to the active shopping list.
+
+    Handles partner resolution (finds cross-store price), deduplication
+    (increments quantity if already on list), and IntegrityError (concurrent
+    insert race condition).
+
+    Args:
+        session: Async database session.
+        product_id: ID of the product to add.
+        quantity: Quantity to add (default 1). If product already on list,
+            increments by this amount.
+
+    Returns:
+        The ShoppingListItem added or updated, or None if no active list
+        or product not found.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    result = await session.execute(
+        select(ShoppingList)
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )
+    shopping_list = result.scalars().first()
+    if not shopping_list:
+        return None
+
+    product = await session.get(Product, product_id)
+    if not product:
+        return None
+
+    from .product_resolution import get_partner_product
+
+    partner_store = "woolworths" if product.store == Store.COLES else "coles"
+    partner_product = await get_partner_product(session, product_id, partner_store)
+    partner_id = partner_product.id if partner_product else None
+
+    candidate_ids = [product_id] + ([partner_id] if partner_id else [])
+    existing = (await session.execute(
+        select(ShoppingListItem).where(
+            ShoppingListItem.shopping_list_id == shopping_list.id,
+            ShoppingListItem.product_id.in_(candidate_ids),
+            ShoppingListItem.is_removed == False,  # noqa: E712
+        )
+    )).scalars().first()
+
+    if existing:
+        existing.quantity += quantity
+        await session.commit()
+        return existing
+
+    coles_price = None
+    woolworths_price = None
+    chosen_store = product.store
+
+    if partner_product:
+        coles_p = product if product.store == Store.COLES else partner_product
+        ww_p = product if product.store == Store.WOOLWORTHS else partner_product
+        coles_price = coles_p.current_price if coles_p else None
+        woolworths_price = ww_p.current_price if ww_p else None
+        chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
+    else:
+        if product.store == Store.COLES:
+            coles_price = product.current_price
+        else:
+            woolworths_price = product.current_price
+
+    try:
+        item = ShoppingListItem(
+            shopping_list_id=shopping_list.id,
+            product_id=product_id,
+            quantity=quantity,
+            coles_price=coles_price,
+            woolworths_price=woolworths_price,
+            chosen_store=chosen_store,
+            is_user_added=True,
+        )
+        session.add(item)
+        await session.commit()
+        return item
+    except IntegrityError:
+        await session.rollback()
+        existing = (await session.execute(
+            select(ShoppingListItem).where(
+                ShoppingListItem.shopping_list_id == shopping_list.id,
+                ShoppingListItem.product_id.in_(candidate_ids),
+                ShoppingListItem.is_removed == False,  # noqa: E712
+            )
+        )).scalars().first()
+        if existing:
+            existing.quantity += quantity
+            await session.commit()
+        return existing
+
+
 async def resolve_display_names(
     session: AsyncSession, items: list[ShoppingListItem]
 ) -> tuple[dict[int, str], dict[int, dict], dict[int, dict]]:
