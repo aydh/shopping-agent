@@ -8,7 +8,7 @@ from datetime import datetime
 import httpx
 from sqlalchemy import select
 
-from ..config import settings
+from ..config import COLES_PRICE_FETCH_DELAY_S, settings
 from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
@@ -646,6 +646,8 @@ class ColesScraper(BaseScraper):
             ScrapedProduct with current price, or None if not found.
         """
         try:
+            if COLES_PRICE_FETCH_DELAY_S:
+                await asyncio.sleep(COLES_PRICE_FETCH_DELAY_S)
             if self._bare_client is None or self._bare_client.is_closed:
                 self._bare_client = httpx.AsyncClient(
                     base_url=COLES_BASE,

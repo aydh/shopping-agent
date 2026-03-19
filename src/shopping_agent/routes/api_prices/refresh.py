@@ -10,7 +10,7 @@ from sqlalchemy import or_, func as sqlfunc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...config import PRICE_REFRESH_CONCURRENCY, settings
+from ...config import COLES_PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_PRICE_REFRESH_CONCURRENCY, settings
 from ...database import async_session, get_session
 from ...db_helpers import store_from_string, visible_products_query
 from ...models import (
@@ -43,7 +43,7 @@ _refresh_progress: dict[str, RefreshState] = {}
 async def _do_price_refresh(store_enum: Store) -> None:
     """Background task: refresh prices for all products of a given store."""
     scraper = ColesScraper() if store_enum == Store.COLES else WoolworthsScraper()
-    concurrency = PRICE_REFRESH_CONCURRENCY
+    concurrency = COLES_PRICE_REFRESH_CONCURRENCY if store_enum == Store.COLES else WOOLWORTHS_PRICE_REFRESH_CONCURRENCY
     key = store_enum.value
 
     async with async_session() as session:
