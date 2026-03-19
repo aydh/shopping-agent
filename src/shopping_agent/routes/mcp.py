@@ -6,6 +6,7 @@ predictions, shopping lists, cart, order sync, price refresh, and product matchi
 Mount: app.mount("/mcp", mcp.http_app()) in main.py
 """
 import logging
+from typing import cast
 
 from fastapi import HTTPException
 from fastmcp import FastMCP
@@ -81,15 +82,15 @@ async def get_predictions() -> list[dict]:
         return [
             {
                 "product_id": p.product_id,
-                "product_name": p.product.name,
-                "store": p.product.store.value,
+                "product_name": cast(Product, p.product).name,
+                "store": cast(Product, p.product).store.value,
                 "predicted_runout_date": str(p.predicted_runout_date) if p.predicted_runout_date else None,
                 "days_until_runout": p.days_until_runout,
                 "confidence_score": round(p.confidence_score, 2),
                 "last_purchased_date": str(p.last_purchased_date) if p.last_purchased_date else None,
-                "last_purchase_store": p.last_purchase_store.value if p.last_purchase_store else None,
+                "last_purchase_store": p.last_purchase_store or None,
                 "is_matched": p.is_matched,
-                "matched_product_name": p.matched_product.name if p.matched_product else None,
+                "matched_product_name": cast(Product, p.matched_product).name if p.matched_product else None,
             }
             for p in predictions
         ]
@@ -162,7 +163,7 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
         List of matching products with name, price, store, store_product_id.
         Requires valid cookies for the target store(s) — returns error entry if not authenticated.
     """
-    results = []
+    results: list[dict] = []
     stores_to_search = []
     if store:
         try:
@@ -350,6 +351,8 @@ async def confirm_shopping_list() -> dict:
         if not shopping_list:
             return {"error": "No active shopping list found"}
         confirmed = await confirm_list(session, shopping_list.id)
+        if not confirmed:
+            return {"error": "Failed to confirm list"}
         list_id = confirmed.id
         status = confirmed.status.value
     return {"list_id": list_id, "status": status}
