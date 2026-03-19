@@ -7,32 +7,18 @@ Mount: app.mount("/mcp", mcp.http_app()) in main.py
 """
 import logging
 
+from fastapi import HTTPException
 from fastmcp import FastMCP
 
 from ..database import async_session
 from ..db_helpers import store_from_string
-from ..models import ListStatus, Product, ProductMatch, ShoppingList, Store
+from ..models import Store
 from ..services.prediction import get_predictions_with_match_info
-from ..services.prediction import refresh_predictions as _refresh_predictions
 from ..services.shopping_list import (
-    add_item_to_list,
-    assign_cheapest_stores,
-    confirm_list,
-    generate_shopping_list,
     get_active_list,
     get_list_history,
-    get_shopping_list_context,
-    remove_item,
-    update_item_quantity,
 )
-from ..services.cart import add_to_cart
-from ..services.price_comparison import (
-    compare_product_prices,
-    find_or_create_match,
-    match_unmatched_products,
-)
-from ..services.price_refresh import do_price_refresh
-from ..services.order_sync import sync_orders as _sync_orders
+from ..services.price_comparison import compare_product_prices
 from ..scrapers.coles import coles_scraper
 from ..scrapers.woolworths import woolworths_scraper
 
@@ -69,7 +55,7 @@ async def get_auth_status(store: str) -> dict:
             "authenticated": authenticated,
             "message": "Connected" if authenticated else f"Not authenticated — import cookies for {store} first",
         }
-    except ValueError as e:
+    except (ValueError, HTTPException) as e:
         return {"store": store, "authenticated": False, "message": str(e)}
 
 
@@ -83,21 +69,21 @@ async def get_predictions() -> list[dict]:
     """
     async with async_session() as session:
         predictions = await get_predictions_with_match_info(session)
-    return [
-        {
-            "product_id": p.product_id,
-            "product_name": p.product.name,
-            "store": p.product.store.value,
-            "predicted_runout_date": str(p.predicted_runout_date) if p.predicted_runout_date else None,
-            "days_until_runout": p.days_until_runout,
-            "confidence_score": round(p.confidence_score, 2),
-            "last_purchased_date": str(p.last_purchased_date) if p.last_purchased_date else None,
-            "last_purchase_store": p.last_purchase_store.value if p.last_purchase_store else None,
-            "is_matched": p.is_matched,
-            "matched_product_name": p.matched_product.name if p.matched_product else None,
-        }
-        for p in predictions
-    ]
+        return [
+            {
+                "product_id": p.product_id,
+                "product_name": p.product.name,
+                "store": p.product.store.value,
+                "predicted_runout_date": str(p.predicted_runout_date) if p.predicted_runout_date else None,
+                "days_until_runout": p.days_until_runout,
+                "confidence_score": round(p.confidence_score, 2),
+                "last_purchased_date": str(p.last_purchased_date) if p.last_purchased_date else None,
+                "last_purchase_store": p.last_purchase_store.value if p.last_purchase_store else None,
+                "is_matched": p.is_matched,
+                "matched_product_name": p.matched_product.name if p.matched_product else None,
+            }
+            for p in predictions
+        ]
 
 
 @mcp.tool()
@@ -124,13 +110,13 @@ async def get_shopping_list() -> dict:
             for item in shopping_list.items
             if not item.is_removed
         ]
-    return {
-        "list_id": shopping_list.id,
-        "name": shopping_list.name,
-        "status": shopping_list.status.value,
-        "item_count": len(items),
-        "items": items,
-    }
+        return {
+            "list_id": shopping_list.id,
+            "name": shopping_list.name,
+            "status": shopping_list.status.value,
+            "item_count": len(items),
+            "items": items,
+        }
 
 
 @mcp.tool()
@@ -172,7 +158,7 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
     if store:
         try:
             stores_to_search = [store_from_string(store)]
-        except ValueError as e:
+        except (ValueError, HTTPException) as e:
             return [{"error": str(e)}]
     else:
         stores_to_search = [Store.COLES, Store.WOOLWORTHS]
@@ -195,6 +181,7 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
                     "is_available": p.is_available,
                 })
         except Exception as e:
+            logger.warning("[MCP] search_products error for %s: %s", s.value, e)
             results.append({"store": s.value, "error": str(e)})
 
     return results
