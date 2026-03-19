@@ -19,6 +19,12 @@ mypy .
 
 Copy `.env.example` to `.env` before running.
 
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — layers, key data flows, configuration reference, deployment
+- [APIS.md](APIS.md) — all API endpoints, parameters, and common workflow chains
+- [DATAMODEL.md](DATAMODEL.md) — ER diagram, table schemas, and design decisions
+
 ## Architecture
 
 FastAPI app under `src/shopping_agent/`. Frontend is Jinja2 templates + HTMX with Server-Sent Events for streaming.
@@ -29,7 +35,7 @@ FastAPI app under `src/shopping_agent/`. Frontend is Jinja2 templates + HTMX wit
 - `routes/` — Nested sub-routers; `routes/views/` renders HTML pages; `routes/api_*.py` and sub-routers handle JSON/SSE
 - `services/` — Business logic (no direct DB access from routes)
 - `scrapers/` — httpx-based API clients for Coles (GraphQL) and Woolworths (REST); no Playwright
-- `models/` — SQLAlchemy async ORM (SQLite via aiosqlite)
+- `models/` — SQLAlchemy async ORM (PostgreSQL via asyncpg, hosted on Supabase)
 - `cache.py` — Caching utilities
 - `db_helpers.py` — Database utility functions
 - `templating.py` — Jinja2 template rendering helpers
