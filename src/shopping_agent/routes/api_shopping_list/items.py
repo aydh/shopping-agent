@@ -2,14 +2,13 @@
 from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_session
 from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
-from ...services.product_resolution import get_partner_product
 from ...services.shopping_list import (
+    add_item_to_list as _add_item_to_list,
     choose_best_store,
     get_shopping_list_context as _shopping_list_context,
     remove_item,
@@ -95,87 +94,10 @@ async def add_product_to_list(
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     """Add a product (by id) to the active shopping list."""
-    result = await session.execute(
-        select(ShoppingList)
-        .where(ShoppingList.status != ListStatus.ORDERED)
-        .order_by(ShoppingList.created_at.desc())
-    )
-    shopping_list = result.scalars().first()
-
-    if not shopping_list:
-        return HTMLResponse('<span class="text-red-600 text-xs">No active list — generate one first.</span>')
-
-    product = await session.get(Product, product_id)
-    if not product:
-        return HTMLResponse('<span class="text-red-600 text-xs">Product not found.</span>')
-
-    # Determine the partner store (opposite of product's store)
-    partner_store = "woolworths" if product.store == Store.COLES else "coles"
-    partner_product_early = await get_partner_product(session, product_id, partner_store)
-    partner_id = partner_product_early.id if partner_product_early else None
-
-    # Already in list? Check both the product and its matched partner.
-    candidate_ids = [product_id] + ([partner_id] if partner_id else [])
-    existing = (await session.execute(
-        select(ShoppingListItem).where(
-            ShoppingListItem.shopping_list_id == shopping_list.id,
-            ShoppingListItem.product_id.in_(candidate_ids),
-            ShoppingListItem.is_removed == False,  # noqa: E712
-        )
-    )).scalars().first()
-    if existing:
-        existing.quantity += 1
-        await session.commit()
-        ctx = await _shopping_list_context(session)
-        list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
-        return HTMLResponse(
-            f'<span class="text-green-600 text-xs">Qty updated ✓</span>'
-            f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>'
-        )
-
-    # partner_product_early and partner_id already resolved above
-    coles_price = None
-    woolworths_price = None
-    chosen_store = product.store
-
-    if partner_product_early:
-        coles_p = product if product.store == Store.COLES else partner_product_early
-        ww_p = product if product.store == Store.WOOLWORTHS else partner_product_early
-        coles_price = coles_p.current_price if coles_p else None
-        woolworths_price = ww_p.current_price if ww_p else None
-        chosen_store = choose_best_store(coles_price, woolworths_price, product.store)
-    else:
-        if product.store == Store.COLES:
-            coles_price = product.current_price
-        else:
-            woolworths_price = product.current_price
-
-    try:
-        session.add(ShoppingListItem(
-            shopping_list_id=shopping_list.id,
-            product_id=product_id,
-            quantity=1,
-            coles_price=coles_price,
-            woolworths_price=woolworths_price,
-            chosen_store=chosen_store,
-            is_user_added=True,
-        ))
-        await session.commit()
-        status = "Added ✓"
-    except IntegrityError:
-        # Concurrent request already inserted this product — increment qty instead
-        await session.rollback()
-        existing = (await session.execute(
-            select(ShoppingListItem).where(
-                ShoppingListItem.shopping_list_id == shopping_list.id,
-                ShoppingListItem.product_id.in_(candidate_ids),
-                ShoppingListItem.is_removed == False,  # noqa: E712
-            )
-        )).scalars().first()
-        if existing:
-            existing.quantity += 1
-            await session.commit()
-        status = "Qty updated ✓"
+    item = await _add_item_to_list(session, product_id=product_id, quantity=1)
+    if item is None:
+        return HTMLResponse('<span class="text-red-600 text-xs">No active list or product not found.</span>')
+    status = "Added ✓" if item.quantity == 1 else "Qty updated ✓"
     ctx = await _shopping_list_context(session)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(

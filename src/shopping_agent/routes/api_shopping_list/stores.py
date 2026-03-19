@@ -8,6 +8,7 @@ from ...database import get_session
 from ...db_helpers import store_from_string
 from ...models import ListStatus, ShoppingList, ShoppingListItem, Store
 from ...services.shopping_list import (
+    assign_cheapest_stores,
     choose_best_store,
     get_shopping_list_context as _shopping_list_context,
 )
@@ -78,16 +79,7 @@ async def submit_split(session: AsyncSession = Depends(get_session)) -> Redirect
     shopping_list = result.scalars().first()
     if not shopping_list:
         return RedirectResponse("/shopping-list", status_code=303)
-    items_result = await session.execute(
-        select(ShoppingListItem).where(
-            ShoppingListItem.shopping_list_id == shopping_list.id,
-            ShoppingListItem.is_removed == False,  # noqa: E712
-        )
-    )
-    for item in items_result.scalars().all():
-        item.chosen_store = choose_best_store(
-            item.coles_price, item.woolworths_price, item.chosen_store or Store.COLES
-        )
+    await assign_cheapest_stores(session)
     shopping_list.status = ListStatus.CONFIRMED
     await session.commit()
     return RedirectResponse("/confirm", status_code=303)
