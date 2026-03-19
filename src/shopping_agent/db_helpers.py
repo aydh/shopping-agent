@@ -1,6 +1,7 @@
 """Shared SQLAlchemy query helpers and store enum utilities."""
 from __future__ import annotations
 
+from fastapi import HTTPException
 from sqlalchemy import Select, select
 
 from .models.product import Product, Store
@@ -16,13 +17,13 @@ def store_from_string(value: str) -> Store:
         The matching Store enum value.
 
     Raises:
-        ValueError: If the string does not match any Store.
+        HTTPException(422): If the string does not match any Store.
     """
     try:
         return Store[value.upper()]
     except KeyError:
         valid = [s.value for s in Store]
-        raise ValueError(f"Unknown store '{value}'. Valid values: {valid}")
+        raise HTTPException(status_code=422, detail=f"Unknown store '{value}'. Valid values: {valid}")
 
 
 def visible_products_query() -> Select:

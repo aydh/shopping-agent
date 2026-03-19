@@ -35,6 +35,30 @@ class ShoppingListCandidate:
     reason: str
 
 
+@dataclass
+class PredictionView:
+    """Immutable view over a ConsumptionPrediction with pre-computed match info.
+
+    Returned by get_predictions_with_match_info to avoid mutating ORM objects
+    with transient attributes that have no column mapping.
+    """
+
+    # Forwarded from ORM columns
+    product_id: int
+    product: object  # Product ORM instance
+    predicted_runout_date: date
+    estimated_daily_consumption: float
+    confidence_score: float
+    last_purchased_date: date
+    last_purchase_store: str
+    last_purchase_quantity: int
+    # Computed fields
+    days_until_runout: int
+    is_matched: bool
+    matched_product: object  # Product ORM instance or None
+    match_id: int | None
+
+
 def compute_prediction(
     purchases: list[PurchaseRecord],
     today: date | None = None,
@@ -287,21 +311,15 @@ async def refresh_predictions(session: AsyncSession) -> int:
 async def get_predictions_with_match_info(
     session: AsyncSession,
     max_runout_date: date | None = None,
-) -> list[ConsumptionPrediction]:
-    """Load all predictions, annotating each with match info for template rendering.
-
-    Sets the following transient attributes on each prediction:
-    - days_until_runout (int)
-    - is_matched (bool)
-    - matched_product (Product | None)
-    - match_id (int | None)
+) -> list[PredictionView]:
+    """Load all predictions as PredictionView objects with pre-computed match info.
 
     Args:
         session: Async database session.
         max_runout_date: If provided, only return predictions with runout date <= this.
 
     Returns:
-        List of annotated ConsumptionPrediction objects ordered by runout date.
+        List of PredictionView objects ordered by runout date.
     """
     today = date.today()
     query = (
@@ -331,12 +349,21 @@ async def get_predictions_with_match_info(
 
     predictions = []
     for pred in result.scalars().all():
-        pred.days_until_runout = (pred.predicted_runout_date - today).days
         other = matched_product.get(pred.product_id)
-        pred.is_matched = other is not None
-        pred.matched_product = other
-        pred.match_id = match_id_map.get(pred.product_id)
-        predictions.append(pred)
+        predictions.append(PredictionView(
+            product_id=pred.product_id,
+            product=pred.product,
+            predicted_runout_date=pred.predicted_runout_date,
+            estimated_daily_consumption=pred.estimated_daily_consumption,
+            confidence_score=pred.confidence_score,
+            last_purchased_date=pred.last_purchased_date,
+            last_purchase_store=pred.last_purchase_store,
+            last_purchase_quantity=pred.last_purchase_quantity,
+            days_until_runout=(pred.predicted_runout_date - today).days,
+            is_matched=other is not None,
+            matched_product=other,
+            match_id=match_id_map.get(pred.product_id),
+        ))
     return predictions
 
 

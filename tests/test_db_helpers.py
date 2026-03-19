@@ -13,9 +13,12 @@ def test_store_from_string_woolworths_uppercase():
 
 
 def test_store_from_string_invalid_raises():
+    from fastapi import HTTPException
     from shopping_agent.db_helpers import store_from_string
-    with pytest.raises(ValueError, match="Unknown store"):
+    with pytest.raises(HTTPException) as exc_info:
         store_from_string("walmart")
+    assert exc_info.value.status_code == 422
+    assert "Unknown store" in exc_info.value.detail
 
 
 def test_visible_products_query_is_select():

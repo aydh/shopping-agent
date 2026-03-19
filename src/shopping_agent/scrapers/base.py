@@ -207,6 +207,8 @@ class BaseScraper(ABC):
                 "domain": cookie.domain or self._cookie_domain,
                 "path": cookie.path or "/",
                 "secure": cookie.secure,
+                # httpOnly is a browser-enforcement flag; httpx does not track it.
+                # False is correct here — we are a programmatic client, not a browser.
                 "httpOnly": False,
             }
             for cookie in client.cookies.jar

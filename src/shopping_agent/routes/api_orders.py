@@ -56,12 +56,13 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
                     if order:
                         row_html = templates.env.get_template("partials/order_row.html").render(order=order)
                         yield f"event: order\ndata: {json.dumps({'html': row_html, 'is_new': count > 0})}\n\n"
-                except Exception as exc:
+                except Exception:
                     logger.exception("Unexpected error syncing order %s — skipping", scraped_order.store_order_id)
-                    yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+                    yield f"event: error\ndata: {json.dumps({'message': 'Failed to sync order — see server logs'})}\n\n"
                     continue
-        except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+        except Exception:
+            logger.exception("Unexpected error during order stream for %s", store)
+            yield f"event: error\ndata: {json.dumps({'message': 'Sync failed — see server logs'})}\n\n"
             return
 
         yield f"event: done\ndata: {json.dumps({'new_count': new_count})}\n\n"

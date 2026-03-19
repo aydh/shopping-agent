@@ -269,7 +269,9 @@ async def _insert_match_or_fetch_existing(
                 ProductMatch.product_b_id == b_id,
             )
         )
-        existing = result.scalar_one()
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            return None
         return None if existing.is_rejected else existing
 
 
@@ -362,6 +364,8 @@ async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
         if b_id in unmatched_ids:
             rejected_partners.setdefault(b_id, set()).add(a_id)
 
+    from sqlalchemy.exc import IntegrityError
+
     candidates = list(all_candidates)
     count = 0
     for product in unmatched:
@@ -376,7 +380,17 @@ async def match_unmatched_products(session: AsyncSession, store: Store) -> int:
                 confidence=confidence,
                 match_method="fuzzy_name",
             )
-            session.add(pm)
+            try:
+                async with session.begin_nested():
+                    session.add(pm)
+                    await session.flush()
+            except IntegrityError:
+                # Concurrent run already inserted this pair — skip it
+                logger.debug(
+                    "Skipping duplicate match (%s, %s) — already exists",
+                    product.id, matched_product.id,
+                )
+                continue
             # Add to matched_ids so the same target product isn't matched twice
             matched_ids.add(product.id)
             matched_ids.add(matched_product.id)
@@ -396,19 +410,51 @@ async def compare_product_prices(
     product_ids: list[int],
 ) -> list[PriceComparison]:
     """Compare prices for a list of products across both stores."""
-    comparisons = []
+    if not product_ids:
+        return []
 
+    # Bulk-fetch all requested products upfront (avoids N+1)
+    products_result = await session.execute(
+        select(Product).where(Product.id.in_(product_ids))
+    )
+    products_by_id: dict[int, Product] = {
+        p.id: p for p in products_result.scalars().all()
+    }
+
+    # Find or create matches for each product
+    matches: dict[int, ProductMatch | None] = {}
     for pid in product_ids:
-        product = await session.get(Product, pid)
+        product = products_by_id.get(pid)
+        if not product:
+            continue
+        target_store = Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
+        matches[pid] = await find_or_create_match(session, product, target_store)
+
+    # Bulk-fetch partner products not already in the products_by_id dict
+    partner_ids: set[int] = set()
+    for pid, match in matches.items():
+        if match and pid in products_by_id:
+            product = products_by_id[pid]
+            other_id = (
+                match.product_b_id if match.product_a_id == product.id else match.product_a_id
+            )
+            if other_id not in products_by_id:
+                partner_ids.add(other_id)
+
+    if partner_ids:
+        partner_result = await session.execute(
+            select(Product).where(Product.id.in_(partner_ids))
+        )
+        for p in partner_result.scalars().all():
+            products_by_id[p.id] = p
+
+    comparisons = []
+    for pid in product_ids:
+        product = products_by_id.get(pid)
         if not product:
             continue
 
-        target_store = (
-            Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
-        )
-
-        match = await find_or_create_match(session, product, target_store)
-
+        match = matches.get(pid)
         coles_product = None
         woolworths_product = None
         coles_price = None
@@ -419,11 +465,9 @@ async def compare_product_prices(
             coles_price = product.current_price
             if match:
                 other_id = (
-                    match.product_b_id
-                    if match.product_a_id == product.id
-                    else match.product_a_id
+                    match.product_b_id if match.product_a_id == product.id else match.product_a_id
                 )
-                woolworths_product = await session.get(Product, other_id)
+                woolworths_product = products_by_id.get(other_id)
                 if woolworths_product:
                     woolworths_price = woolworths_product.current_price
         else:
@@ -431,11 +475,9 @@ async def compare_product_prices(
             woolworths_price = product.current_price
             if match:
                 other_id = (
-                    match.product_a_id
-                    if match.product_b_id == product.id
-                    else match.product_b_id
+                    match.product_a_id if match.product_b_id == product.id else match.product_b_id
                 )
-                coles_product = await session.get(Product, other_id)
+                coles_product = products_by_id.get(other_id)
                 if coles_product:
                     coles_price = coles_product.current_price
 
