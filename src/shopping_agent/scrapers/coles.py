@@ -675,6 +675,17 @@ class ColesScraper(BaseScraper):
                             item.get("pricing"),
                         )
                         return p
+                # Search succeeded but product not in results — treat as unavailable/delisted
+                logger.info(
+                    "[Coles price] %s not found in search results (delisted/unavailable)",
+                    store_product_id,
+                )
+                return ScrapedProduct(
+                    store_product_id=store_product_id,
+                    name=product_name or store_product_id,
+                    current_price=0,
+                    is_available=False,
+                )
         except Exception:
             logger.exception("Coles price fetch failed for: %s", store_product_id)
         return None
