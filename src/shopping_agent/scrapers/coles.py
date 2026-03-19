@@ -583,7 +583,7 @@ class ColesScraper(BaseScraper):
                 params={
                     "searchTerm": query,
                     "subscription-key": settings.coles_api_key or "",
-                    "storeId": "0584",
+                    "storeId": COLES_STORE_ID.split(":")[-1],
                     "start": 0,
                     "pageSize": 24,
                 },
@@ -659,7 +659,7 @@ class ColesScraper(BaseScraper):
                 params={
                     "searchTerm": search_term,
                     "subscription-key": settings.coles_api_key or "",
-                    "storeId": "0584",
+                    "storeId": COLES_STORE_ID.split(":")[-1],
                     "start": 0,
                 },
             )
