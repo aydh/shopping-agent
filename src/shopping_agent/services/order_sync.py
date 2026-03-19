@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,7 +98,7 @@ async def sync_orders(
                 new_products.append(product)
 
             if scraped_item.price_paid:
-                recorded_at = datetime.combine(scraped.order_date, datetime.min.time())
+                recorded_at = datetime(scraped.order_date.year, scraped.order_date.month, scraped.order_date.day, tzinfo=timezone.utc)
                 pending_price_history.append((
                     scraped_item.store_product_id, store, scraped_item.price_paid, recorded_at
                 ))

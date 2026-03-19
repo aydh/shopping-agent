@@ -11,14 +11,13 @@ from sqlalchemy import select
 from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
-from ..config import WOOLWORTHS_PRICE_FETCH_DELAY_S
+from ..config import WOOLWORTHS_PRICE_FETCH_DELAY_S, settings
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
 
 logger = logging.getLogger(__name__)
 
 WOOLWORTHS_BASE = "https://www.woolworths.com.au"
 MOBILE_API_BASE = "https://prod.mobile-api.woolworths.com.au"
-MOBILE_API_KEY = "s7iXf5Rixn4XxFrsYh4HKkriVp8hlnec"
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -178,7 +177,7 @@ class WoolworthsScraper(BaseScraper):
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "en-AU,en;q=0.9",
             "Authorization": f"Bearer {auth_token}",
-            "X-Api-Key": MOBILE_API_KEY,
+            "X-Api-Key": settings.woolworths_api_key or "",
             "Origin": WOOLWORTHS_BASE,
             "Referer": f"{WOOLWORTHS_BASE}/",
         }

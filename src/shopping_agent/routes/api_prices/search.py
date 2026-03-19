@@ -16,6 +16,8 @@ from ...templating import templates
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+_VALID_RETURN_TO = {"shopping-list", "prices", ""}
+
 
 @router.get("/search-match/{product_id}")
 async def search_match(
@@ -34,6 +36,9 @@ async def search_match(
 
     if not q.strip():
         return HTMLResponse("")
+
+    if return_to not in _VALID_RETURN_TO:
+        return_to = ""
 
     scraper = woolworths_scraper if target_store == Store.WOOLWORTHS else coles_scraper
 

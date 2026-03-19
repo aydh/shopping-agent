@@ -68,7 +68,7 @@ async def product_search(
 @router.post("/items/{item_id}/quantity")
 async def set_quantity(
     item_id: int,
-    quantity: int = Form(...),
+    quantity: int = Form(..., ge=1, le=99),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     await update_item_quantity(session, item_id, quantity)
@@ -203,6 +203,13 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
 
     if not active:
         return HTMLResponse('<span class="text-red-600 text-sm">No active list — generate one first.</span>')
+
+    if source_list_id == active.id:
+        return HTMLResponse('<span class="text-red-600 text-sm">Cannot copy a list onto itself.</span>')
+
+    source_list = await session.get(ShoppingList, source_list_id)
+    if not source_list or source_list.status != ListStatus.ORDERED:
+        return HTMLResponse('<span class="text-red-600 text-sm">Source list not found or not a completed order.</span>')
 
     source_items = (await session.execute(
         select(ShoppingListItem).where(

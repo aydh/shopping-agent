@@ -1,12 +1,12 @@
 """Price refresh background task and progress polling."""
 import asyncio
 import logging
-from datetime import date as date_type
+from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse
-from sqlalchemy import or_, func as sqlfunc, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -54,16 +54,19 @@ async def _do_price_refresh(store_enum: Store) -> None:
         product_ids = [p.id for p in products]
         product_map = {p.id: p for p in products}
 
-        # Pre-load today's price history entries
-        today = date_type.today()
+        # Pre-load today's price history entry IDs (UTC day boundary)
+        now_utc = datetime.now(timezone.utc)
+        today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start_utc = today_start_utc + timedelta(days=1)
         ph_rows = await session.execute(
             select(PriceHistory)
             .where(
                 PriceHistory.product_id.in_(product_ids),
-                sqlfunc.date(PriceHistory.recorded_at) == today,
+                PriceHistory.recorded_at >= today_start_utc,
+                PriceHistory.recorded_at < tomorrow_start_utc,
             )
         )
-        today_ph: dict[int, PriceHistory] = {ph.product_id: ph for ph in ph_rows.scalars()}
+        today_ph_ids: dict[int, int] = {ph.product_id: ph.id for ph in ph_rows.scalars()}
 
         # Pre-load partner products via ProductMatch
         match_rows = await session.execute(
@@ -95,9 +98,9 @@ async def _do_price_refresh(store_enum: Store) -> None:
                 ShoppingListItem.product_id.in_(all_affected_ids),
             )
         )
-        items_by_product: dict[int, list[ShoppingListItem]] = {}
+        sli_ids_by_product: dict[int, list[int]] = {}
         for sli in sli_rows.scalars():
-            items_by_product.setdefault(sli.product_id, []).append(sli)
+            sli_ids_by_product.setdefault(sli.product_id, []).append(sli.id)
 
     _refresh_progress[key] = {"done": 0, "total": len(products), "running": True}
     logger.info("[PriceRefresh] Starting %s refresh for %d products", store_enum.value, len(products))
@@ -128,28 +131,30 @@ async def _do_price_refresh(store_enum: Store) -> None:
                             if scraped.image_url:
                                 db_product.image_url = scraped.image_url
 
-                            # Upsert today's price history (pre-loaded — no extra query)
-                            existing_ph = today_ph.get(product.id)
-                            if existing_ph:
-                                merged_ph = await session.merge(existing_ph)
-                                merged_ph.price = scraped.current_price
+                            # Upsert today's price history
+                            ph_id = today_ph_ids.get(product.id)
+                            if ph_id:
+                                existing_ph = await session.get(PriceHistory, ph_id)
+                                if existing_ph:
+                                    existing_ph.price = scraped.current_price
                             else:
                                 session.add(PriceHistory(
                                     product_id=product.id, store=store_enum, price=scraped.current_price
                                 ))
 
-                            # Sync active shopping list items (pre-loaded — no extra queries)
+                            # Sync active shopping list items
                             affected_ids = [product.id]
                             partner = partner_map.get(product.id)
                             if partner:
                                 affected_ids.append(partner.id)
                             for pid in affected_ids:
-                                for sli in items_by_product.get(pid, []):
-                                    merged_sli = await session.merge(sli)
-                                    if store_enum == Store.COLES:
-                                        merged_sli.coles_price = scraped.current_price
-                                    else:
-                                        merged_sli.woolworths_price = scraped.current_price
+                                for sli_id in sli_ids_by_product.get(pid, []):
+                                    sli = await session.get(ShoppingListItem, sli_id)
+                                    if sli:
+                                        if store_enum == Store.COLES:
+                                            sli.coles_price = scraped.current_price
+                                        else:
+                                            sli.woolworths_price = scraped.current_price
 
                         elif scraped is not None and not scraped.is_available:
                             db_product.is_available = False
@@ -160,12 +165,13 @@ async def _do_price_refresh(store_enum: Store) -> None:
                             if partner:
                                 affected_ids.append(partner.id)
                             for pid in affected_ids:
-                                for sli in items_by_product.get(pid, []):
-                                    merged_sli = await session.merge(sli)
-                                    if store_enum == Store.COLES:
-                                        merged_sli.coles_price = None
-                                    else:
-                                        merged_sli.woolworths_price = None
+                                for sli_id in sli_ids_by_product.get(pid, []):
+                                    sli = await session.get(ShoppingListItem, sli_id)
+                                    if sli:
+                                        if store_enum == Store.COLES:
+                                            sli.coles_price = None
+                                        else:
+                                            sli.woolworths_price = None
                         await session.commit()
                 _refresh_progress[key]["done"] += 1
                 return bool(scraped and scraped.current_price)

@@ -23,11 +23,16 @@ _MAX_COOKIE_BODY = 1_000_000  # 1 MB
 @router.post("/import-cookies/{store}")
 async def import_cookies(store: str, request: Request) -> HTMLResponse:
     """Import cookies from browser DevTools or Cookie-Editor extension."""
-    content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > _MAX_COOKIE_BODY:
-        return HTMLResponse('<span class="text-red-600">Cookie data too large (max 1 MB)</span>')
     store_enum = store_from_string(store)
-    body = (await request.body()).decode("utf-8")
+    # Read body with a hard cap regardless of Content-Length or chunked encoding
+    chunks: list[bytes] = []
+    bytes_read = 0
+    async for chunk in request.stream():
+        bytes_read += len(chunk)
+        if bytes_read > _MAX_COOKIE_BODY:
+            return HTMLResponse('<span class="text-red-600">Cookie data too large (max 1 MB)</span>')
+        chunks.append(chunk)
+    body = b"".join(chunks).decode("utf-8")
 
     if store_enum == Store.WOOLWORTHS:
         success = await woolworths_scraper.import_cookies(body)

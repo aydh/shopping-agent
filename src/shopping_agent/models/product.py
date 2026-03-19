@@ -57,6 +57,6 @@ class PriceHistory(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     store: Mapped[Store] = mapped_column(SAEnum(Store))
     price: Mapped[float] = mapped_column(Float)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     product: Mapped["Product"] = relationship()
