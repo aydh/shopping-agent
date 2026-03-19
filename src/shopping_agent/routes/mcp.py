@@ -310,8 +310,8 @@ async def remove_list_item(item_id: int) -> dict:
         {"item_id": int, "removed": bool}
     """
     async with async_session() as session:
-        await remove_item(session, item_id)
-    return {"item_id": item_id, "removed": True}
+        removed = await remove_item(session, item_id)
+    return {"item_id": item_id, "removed": removed}
 
 
 @mcp.tool()
