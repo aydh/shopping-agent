@@ -147,6 +147,18 @@ async def _do_price_refresh(store_enum: Store) -> None:
                         elif scraped is not None and not scraped.is_available:
                             db_product.is_available = False
                             db_product.current_price = None
+                            # Clear price on any shopping list items for this product
+                            affected_ids = [product.id]
+                            partner = partner_map.get(product.id)
+                            if partner:
+                                affected_ids.append(partner.id)
+                            for pid in affected_ids:
+                                for sli in items_by_product.get(pid, []):
+                                    merged_sli = await session.merge(sli)
+                                    if store_enum == Store.COLES:
+                                        merged_sli.coles_price = None
+                                    else:
+                                        merged_sli.woolworths_price = None
                         await session.commit()
                 _refresh_progress[key]["done"] += 1
                 return bool(scraped and scraped.current_price)
