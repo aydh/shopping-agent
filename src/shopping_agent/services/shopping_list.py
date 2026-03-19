@@ -287,6 +287,39 @@ async def confirm_list(session: AsyncSession, list_id: int) -> ShoppingList | No
     return shopping_list
 
 
+async def assign_cheapest_stores(session: AsyncSession) -> int:
+    """Assign each active list item to its cheapest available store.
+
+    Args:
+        session: Async database session.
+
+    Returns:
+        Number of items whose store was assigned (0 if no active list).
+    """
+    result = await session.execute(
+        select(ShoppingList)
+        .where(ShoppingList.status != ListStatus.ORDERED)
+        .order_by(ShoppingList.created_at.desc())
+    )
+    shopping_list = result.scalars().first()
+    if not shopping_list:
+        return 0
+
+    items_result = await session.execute(
+        select(ShoppingListItem).where(
+            ShoppingListItem.shopping_list_id == shopping_list.id,
+            ShoppingListItem.is_removed == False,  # noqa: E712
+        )
+    )
+    items = items_result.scalars().all()
+    for item in items:
+        item.chosen_store = choose_best_store(
+            item.coles_price, item.woolworths_price, item.chosen_store or Store.COLES
+        )
+    await session.commit()
+    return len(items)
+
+
 async def resolve_display_names(
     session: AsyncSession, items: list[ShoppingListItem]
 ) -> tuple[dict[int, str], dict[int, dict], dict[int, dict]]:
