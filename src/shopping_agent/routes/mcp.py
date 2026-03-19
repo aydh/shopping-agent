@@ -1,6 +1,6 @@
 """Embedded MCP server for the shopping agent.
 
-Exposes 19 tools for LLM agents to interact with grocery automation:
+Exposes 16 tools for LLM agents to interact with grocery automation:
 predictions, shopping lists, cart, order sync, price refresh, and product matching.
 
 Mount: app.mount("/mcp", mcp.http_app()) in main.py
@@ -13,7 +13,10 @@ from fastmcp import FastMCP
 from ..database import async_session
 from ..db_helpers import store_from_string
 from ..models import ListStatus, ShoppingList, Store
-from ..services.prediction import get_predictions_with_match_info
+from ..services.cart import add_to_cart
+from ..services.order_sync import sync_orders as _sync_orders
+from ..services.prediction import get_predictions_with_match_info, refresh_predictions as _refresh_predictions
+from ..services.price_refresh import do_price_refresh
 from ..services.shopping_list import (
     add_item_to_list,
     assign_cheapest_stores,
@@ -350,3 +353,123 @@ async def confirm_shopping_list() -> dict:
         list_id = confirmed.id
         status = confirmed.status.value
     return {"list_id": list_id, "status": status}
+
+
+# ---------------------------------------------------------------------------
+# Cart tool
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def add_confirmed_list_to_cart(store: str) -> dict:
+    """Add all confirmed shopping list items for a store to its cart.
+
+    The list must be CONFIRMED (call confirm_shopping_list() first).
+    Items assigned to the specified store are resolved to store product IDs
+    and added via the store's API.
+
+    ⚠️  This action adds items to your real grocery cart.
+
+    Args:
+        store: Target store — "coles" or "woolworths".
+
+    Returns:
+        {"success": bool, "count": int, "cart_url": str, "message": str,
+         "failed_item_ids": list[int]} or {"error": str}
+    """
+    try:
+        store_enum = store_from_string(store)
+    except (ValueError, HTTPException) as e:
+        return {"error": str(e)}
+
+    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    if not await scraper.is_authenticated():
+        return {"error": f"Not authenticated for {store} — import cookies first"}
+
+    async with async_session() as session:
+        result = await add_to_cart(session, store_enum)
+    return dict(result)
+
+
+# ---------------------------------------------------------------------------
+# Data sync & refresh tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def sync_orders(store: str, limit: int | None = None) -> dict:
+    """Fetch order history from a store and sync it to the local database.
+
+    Streams orders from the store's API, upserts them, and creates product
+    records for any new items discovered.
+
+    ⚠️  This can be slow for large order histories (1-2 minutes).
+    Use the `limit` parameter to cap the number of orders fetched.
+
+    Args:
+        store: Store to sync — "coles" or "woolworths".
+        limit: Maximum number of orders to fetch (default: 200).
+
+    Returns:
+        {"store": str, "new_orders": int, "orders_fetched": int} or {"error": str}
+    """
+    try:
+        store_enum = store_from_string(store)
+    except (ValueError, HTTPException) as e:
+        return {"error": str(e)}
+
+    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    if not await scraper.is_authenticated():
+        return {"error": f"Not authenticated for {store} — import cookies first"}
+
+    fetch_limit = limit or 200
+    scraped_orders = []
+    async for order in scraper.stream_order_history(limit=fetch_limit):
+        scraped_orders.append(order)
+
+    async with async_session() as session:
+        new_count = await _sync_orders(session, scraped_orders, store_enum)
+
+    return {"store": store, "new_orders": new_count, "orders_fetched": len(scraped_orders)}
+
+
+@mcp.tool()
+async def refresh_prices(store: str) -> dict:
+    """Refresh current prices for all products in a store.
+
+    Fetches the latest price for every known product and updates the database.
+    Also updates any active shopping list items with fresh prices.
+
+    ⚠️  This can be slow (minutes for large product catalogs, especially
+    Woolworths which has rate limiting). Requires valid store cookies.
+
+    Args:
+        store: Store to refresh — "coles" or "woolworths".
+
+    Returns:
+        {"store": str, "updated": int, "total": int} or {"error": str}
+    """
+    try:
+        store_enum = store_from_string(store)
+    except (ValueError, HTTPException) as e:
+        return {"error": str(e)}
+
+    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    if not await scraper.is_authenticated():
+        return {"error": f"Not authenticated for {store} — import cookies first"}
+
+    updated, total = await do_price_refresh(store_enum)
+    return {"store": store, "updated": updated, "total": total}
+
+
+@mcp.tool()
+async def refresh_predictions() -> dict:
+    """Recompute all consumption predictions from order history.
+
+    Analyzes purchase intervals and quantities for each product and updates
+    the predicted runout dates and confidence scores.
+
+    Returns:
+        {"predictions_updated": int}
+    """
+    async with async_session() as session:
+        count = await _refresh_predictions(session)
+    return {"predictions_updated": count}
