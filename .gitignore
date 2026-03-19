@@ -20,3 +20,6 @@ venv/
 logs/*
 !logs/.gitkeep
 .coverage
+
+# mkcert local SSL certificates
+*.pem
