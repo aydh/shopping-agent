@@ -2,6 +2,8 @@
 {% set active_items_list = shopping_list.items | selectattr('is_removed', 'equalto', false) | list %}
 {% set all_have_coles = active_items_list | rejectattr('coles_price') | list | length == 0 %}
 {% set all_have_ww = active_items_list | rejectattr('woolworths_price') | list | length == 0 %}
+{% set coles_metrics = store_metrics["coles"] %}
+{% set woolworths_metrics = store_metrics["woolworths"] %}
 
 {% set total_quantity = active_items_list | sum(attribute='quantity') %}
 
@@ -11,7 +13,26 @@
     <!-- Coles Total -->
     <div class="bg-red-50 rounded-lg p-4 border border-red-200 flex flex-col">
         <p class="text-sm text-red-600 font-medium">Coles Total</p>
-        <p class="text-2xl font-bold text-red-700 mb-3">${{ "%.2f" | format(coles_total) }}</p>
+        <p class="text-2xl font-bold text-red-700 mb-1">${{ "%.2f" | format(coles_total) }}</p>
+        <p class="text-xs text-red-500 mb-3">Full basket estimate</p>
+        <div class="space-y-1.5 text-xs text-red-700 mb-3">
+            <div class="flex items-center justify-between gap-3">
+                <span>Available Products</span>
+                <span class="font-medium">{{ coles_metrics["available_count"] }} · ${{ "%.2f" | format(coles_metrics["available_total"]) }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <span>Unavailable Products</span>
+                <span class="font-medium">{{ coles_metrics["unavailable_count"] }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <span>Unmatched Products</span>
+                <span class="font-medium">{{ coles_metrics["unmatched_count"] }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <span>Matched &amp; Available</span>
+                <span class="font-medium">{{ coles_metrics["matched_available_count"] }} · ${{ "%.2f" | format(coles_metrics["matched_available_total"]) }}</span>
+            </div>
+        </div>
         <div class="mt-auto">
             {% if not all_have_coles %}
             <p class="text-xs text-red-400 mb-1">Some items unavailable at Coles</p>
@@ -28,7 +49,26 @@
     <!-- Woolworths Total -->
     <div class="bg-green-50 rounded-lg p-4 border border-green-200 flex flex-col">
         <p class="text-sm text-green-600 font-medium">Woolworths Total</p>
-        <p class="text-2xl font-bold text-green-700 mb-3">${{ "%.2f" | format(woolworths_total) }}</p>
+        <p class="text-2xl font-bold text-green-700 mb-1">${{ "%.2f" | format(woolworths_total) }}</p>
+        <p class="text-xs text-green-600 mb-3">Full basket estimate</p>
+        <div class="space-y-1.5 text-xs text-green-700 mb-3">
+            <div class="flex items-center justify-between gap-3">
+                <span>Available Products</span>
+                <span class="font-medium">{{ woolworths_metrics["available_count"] }} · ${{ "%.2f" | format(woolworths_metrics["available_total"]) }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <span>Unavailable Products</span>
+                <span class="font-medium">{{ woolworths_metrics["unavailable_count"] }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <span>Unmatched Products</span>
+                <span class="font-medium">{{ woolworths_metrics["unmatched_count"] }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <span>Matched &amp; Available</span>
+                <span class="font-medium">{{ woolworths_metrics["matched_available_count"] }} · ${{ "%.2f" | format(woolworths_metrics["matched_available_total"]) }}</span>
+            </div>
+        </div>
         <div class="mt-auto">
             {% if not all_have_ww %}
             <p class="text-xs text-green-500 mb-1">Some items unavailable at Woolworths</p>

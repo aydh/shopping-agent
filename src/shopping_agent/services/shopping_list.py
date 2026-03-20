@@ -26,11 +26,23 @@ class ShoppingListContext(TypedDict):
     display_names: dict[int, str]
     store_names: dict[int, dict]
     store_products: dict[int, dict]
+    store_metrics: dict[str, "StoreMetrics"]
     single_store: Store | None
     coles_total: float
     woolworths_total: float
     best_total: float
     recommendation: str
+
+
+class StoreMetrics(TypedDict):
+    """Per-store availability and matching summary for the shopping list."""
+
+    available_count: int
+    available_total: float
+    unavailable_count: int
+    unmatched_count: int
+    matched_available_count: int
+    matched_available_total: float
 
 
 class ListHistoryRow(TypedDict):
@@ -508,8 +520,8 @@ async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContex
     """Build the full shopping list context dict for template rendering.
 
     Returns a dict with keys: shopping_list, display_names, store_names,
-    store_products, single_store, coles_total, woolworths_total, best_total,
-    recommendation.
+    store_products, store_metrics, single_store, coles_total,
+    woolworths_total, best_total, recommendation.
     """
     query = (
         select(ShoppingList)
@@ -526,6 +538,24 @@ async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContex
     display_names: dict[int, str] = {}
     store_names: dict[int, dict] = {}
     store_products: dict[int, dict] = {}
+    store_metrics: dict[str, StoreMetrics] = {
+        "coles": {
+            "available_count": 0,
+            "available_total": 0.0,
+            "unavailable_count": 0,
+            "unmatched_count": 0,
+            "matched_available_count": 0,
+            "matched_available_total": 0.0,
+        },
+        "woolworths": {
+            "available_count": 0,
+            "available_total": 0.0,
+            "unavailable_count": 0,
+            "unmatched_count": 0,
+            "matched_available_count": 0,
+            "matched_available_total": 0.0,
+        },
+    }
     single_store: Store | None = None
     if shopping_list:
         display_names, store_names, store_products = await resolve_display_names(session, shopping_list.items)
@@ -533,8 +563,38 @@ async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContex
         stores_used = {i.chosen_store for i in active_items if i.chosen_store}
         single_store = stores_used.pop() if len(stores_used) == 1 else None
         for item in active_items:
-            cp = item.coles_price * item.quantity if item.coles_price else None
-            wp = item.woolworths_price * item.quantity if item.woolworths_price else None
+            store_product_map = store_products.get(item.id, {})
+            has_match = (
+                store_product_map.get("coles") is not None
+                and store_product_map.get("woolworths") is not None
+            )
+            matched_available_both = (
+                has_match
+                and item.coles_price is not None
+                and item.woolworths_price is not None
+            )
+            for store_key, unit_price in (
+                ("coles", item.coles_price),
+                ("woolworths", item.woolworths_price),
+            ):
+                metrics = store_metrics[store_key]
+                product = store_product_map.get(store_key)
+                if product is None:
+                    metrics["unmatched_count"] += 1
+                    continue
+                if unit_price is None:
+                    metrics["unavailable_count"] += 1
+                    continue
+
+                line_total = unit_price * item.quantity
+                metrics["available_count"] += 1
+                metrics["available_total"] += line_total
+                if matched_available_both:
+                    metrics["matched_available_count"] += 1
+                    metrics["matched_available_total"] += line_total
+
+            cp = item.coles_price * item.quantity if item.coles_price is not None else None
+            wp = item.woolworths_price * item.quantity if item.woolworths_price is not None else None
             # Each store total uses that store's price where available, falls back to
             # the other store so all three totals always represent the full basket.
             coles_total += cp if cp is not None else (wp or 0)
@@ -555,6 +615,7 @@ async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContex
         "display_names": display_names,
         "store_names": store_names,
         "store_products": store_products,
+        "store_metrics": store_metrics,
         "single_store": single_store,
         "coles_total": coles_total,
         "woolworths_total": woolworths_total,

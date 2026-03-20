@@ -1,6 +1,8 @@
 """Price refresh service — fetch current prices for all products of a store."""
 import asyncio
+import inspect
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_, select
@@ -16,7 +18,10 @@ from ..scrapers.woolworths import woolworths_scraper as _ww_scraper
 logger = logging.getLogger(__name__)
 
 
-async def do_price_refresh(store_enum: Store) -> tuple[int, int]:
+async def do_price_refresh(
+    store_enum: Store,
+    progress_callback: Callable[[int, int], Awaitable[None] | None] | None = None,
+) -> tuple[int, int]:
     """Refresh current prices for all visible products of a given store.
 
     Fetches each product's current price concurrently (respecting per-store
@@ -30,6 +35,13 @@ async def do_price_refresh(store_enum: Store) -> tuple[int, int]:
         Tuple of (updated_count, total_count) — number of products whose price
         was successfully fetched and total products processed.
     """
+    async def _notify_progress(done: int, total: int) -> None:
+        if progress_callback is None:
+            return
+        result = progress_callback(done, total)
+        if inspect.isawaitable(result):
+            await result
+
     scraper = _coles_scraper if store_enum == Store.COLES else _ww_scraper
     concurrency = COLES_PRICE_REFRESH_CONCURRENCY if store_enum == Store.COLES else WOOLWORTHS_PRICE_REFRESH_CONCURRENCY
 
@@ -86,12 +98,19 @@ async def do_price_refresh(store_enum: Store) -> tuple[int, int]:
             sli_ids_by_product.setdefault(sli.product_id, []).append(sli.id)
 
     if not products:
+        await _notify_progress(0, 0)
         return 0, 0
 
     logger.info("[PriceRefresh] Starting %s refresh for %d products", store_enum.value, len(products))
     sem = asyncio.Semaphore(concurrency)
+    total_products = len(products)
+    completed = 0
+    progress_lock = asyncio.Lock()
+
+    await _notify_progress(0, total_products)
 
     async def fetch_one(product: Product) -> bool:
+        nonlocal completed
         async with sem:
             try:
                 try:
@@ -157,6 +176,10 @@ async def do_price_refresh(store_enum: Store) -> tuple[int, int]:
                 return bool(scraped and scraped.current_price)
             except Exception as e:
                 logger.error("[PriceRefresh] Error for product %s: %s", product.store_product_id, e)
+            finally:
+                async with progress_lock:
+                    completed += 1
+                    await _notify_progress(completed, total_products)
             return False
 
     results = await asyncio.gather(*[fetch_one(p) for p in products])

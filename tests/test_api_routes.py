@@ -284,6 +284,7 @@ async def test_refresh_prices_starts_background_task_and_progress(monkeypatch, f
     monkeypatch.setattr(refresh, "_coles_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=True)))
 
     response = await refresh.refresh_prices("coles", background_tasks, session)
+    assert refresh._refresh_progress["coles"] == {"done": 0, "total": 1, "running": True}
     refresh._refresh_progress["coles"] = {"done": 0, "total": 1, "running": True}
     running = await refresh.refresh_progress("coles")
     refresh._refresh_progress["coles"] = {"done": 1, "total": 1, "running": False, "updated": 1}
@@ -446,6 +447,7 @@ async def test_shopping_list_crud_items_stores_and_candidates_routes(monkeypatch
     monkeypatch.setattr(stores, "templates", dummy_templates)
     monkeypatch.setattr(candidates, "templates", dummy_templates)
     monkeypatch.setattr(crud, "_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
+    monkeypatch.setattr(crud, "get_list_history", AsyncMock(return_value=[]))
     monkeypatch.setattr(items, "_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
     monkeypatch.setattr(stores, "_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
     monkeypatch.setattr(candidates, "_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
@@ -477,6 +479,21 @@ async def test_shopping_list_crud_items_stores_and_candidates_routes(monkeypatch
 
     generate_response = await candidates.generate(AsyncMock())
     assert generate_response.body.decode() == "rendered:_shopping_list_content.html"
+
+
+@pytest.mark.asyncio
+async def test_shopping_list_delete_past_list_route(monkeypatch, dummy_templates):
+    monkeypatch.setattr(crud, "templates", dummy_templates)
+    monkeypatch.setattr(crud, "get_list_history", AsyncMock(return_value=[]))
+    past_list = ShoppingList(id=8, name="Past", target_date=date.today(), status=ListStatus.ORDERED)
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=past_list)
+
+    response = await crud.delete_past_list(8, session)
+
+    assert response.body.decode() == "rendered:_past_lists_section.html"
+    session.delete.assert_awaited_once_with(past_list)
+    session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio

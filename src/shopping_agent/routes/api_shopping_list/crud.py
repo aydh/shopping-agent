@@ -10,6 +10,7 @@ from ...database import get_session
 from ...models import ListStatus, Product, ShoppingList, ShoppingListItem
 from ...services.shopping_list import (
     confirm_list,
+    get_list_history,
     get_shopping_list_context as _shopping_list_context,
 )
 from ...templating import templates
@@ -28,6 +29,12 @@ def _list_header_oob(shopping_list: ShoppingList | None) -> str:
         new_disabled="disabled" if has_list else "",
         pred_disabled="disabled" if not has_list else "",
     )
+
+
+async def _past_lists_section_html(session: AsyncSession) -> str:
+    """Render the Past Shopping Lists section fragment."""
+    past_lists = await get_list_history(session)
+    return templates.get_template("_past_lists_section.html").render(past_lists=past_lists)
 
 
 @router.delete("/current")
@@ -122,6 +129,20 @@ async def list_details(list_id: int, session: AsyncSession = Depends(get_session
     ]
     html = templates.get_template("_past_list_details.html").render(items=items_data)
     return HTMLResponse(html)
+
+
+@router.delete("/history/{list_id}")
+async def delete_past_list(list_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    """Delete a past (ordered) shopping list and refresh the history section."""
+    shopping_list = await session.get(ShoppingList, list_id)
+    if shopping_list and shopping_list.status == ListStatus.ORDERED:
+        await session.execute(
+            delete(ShoppingListItem).where(ShoppingListItem.shopping_list_id == shopping_list.id)
+        )
+        await session.delete(shopping_list)
+        await session.commit()
+
+    return HTMLResponse(await _past_lists_section_html(session))
 
 
 @router.delete("/purge")

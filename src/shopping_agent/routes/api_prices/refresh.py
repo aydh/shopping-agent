@@ -36,11 +36,16 @@ _refresh_progress: dict[str, RefreshState] = {}
 async def _do_price_refresh(store_enum: Store) -> None:
     """Background task wrapper: delegates to service and updates progress."""
     key = store_enum.value
-    _refresh_progress[key] = {"done": 0, "total": 0, "running": True}
+    current_total = _refresh_progress.get(key, {}).get("total", 0)
+    _refresh_progress[key] = {"done": 0, "total": current_total, "running": True}
     updated = 0
     total = 0
+
+    async def _update_progress(done: int, total_count: int) -> None:
+        _refresh_progress[key] = {"done": done, "total": total_count, "running": True}
+
     try:
-        updated, total = await do_price_refresh(store_enum)
+        updated, total = await do_price_refresh(store_enum, progress_callback=_update_progress)
     except Exception:
         logger.exception("[PriceRefresh] Unexpected error during %s refresh", store_enum.value)
     finally:
@@ -67,6 +72,7 @@ async def refresh_prices(store: str, background_tasks: BackgroundTasks, session:
     if not count:
         return HTMLResponse(f'<span class="text-yellow-600 text-sm">No {store_enum.value.title()} products.</span>')
 
+    _refresh_progress[store_val] = {"done": 0, "total": count, "running": True}
     background_tasks.add_task(_do_price_refresh, store_enum)
     return HTMLResponse(
         f'<span id="refresh-progress-{store_val}" class="text-blue-600 text-sm"'

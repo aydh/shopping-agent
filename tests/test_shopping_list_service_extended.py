@@ -256,6 +256,7 @@ async def test_resolve_display_names_prefers_chosen_store_partner(fake_result):
 @pytest.mark.asyncio
 async def test_get_shopping_list_context_computes_totals_and_recommendation(fake_result, monkeypatch):
     coles_product = _product(1, Store.COLES, "Milk", 4.0)
+    ww_product = _product(2, Store.WOOLWORTHS, "Milk", 5.0)
     item = ShoppingListItem(
         id=3,
         shopping_list_id=1,
@@ -277,7 +278,7 @@ async def test_get_shopping_list_context_computes_totals_and_recommendation(fake
     session.execute = AsyncMock(return_value=fake_result(scalars=[shopping_list]))
     monkeypatch.setattr(
         "shopping_agent.services.shopping_list.resolve_display_names",
-        AsyncMock(return_value=({3: "Milk"}, {3: {"coles": "Milk", "woolworths": None}}, {3: {"coles": coles_product, "woolworths": None}})),
+        AsyncMock(return_value=({3: "Milk"}, {3: {"coles": "Milk", "woolworths": "Milk"}}, {3: {"coles": coles_product, "woolworths": ww_product}})),
     )
 
     ctx = await get_shopping_list_context(session)
@@ -285,9 +286,106 @@ async def test_get_shopping_list_context_computes_totals_and_recommendation(fake
     assert ctx["shopping_list"] is shopping_list
     assert ctx["single_store"] == Store.COLES
     assert ctx["coles_total"] == pytest.approx(8.0)
+    assert ctx["store_metrics"]["coles"]["matched_available_count"] == 1
+    assert ctx["store_metrics"]["coles"]["matched_available_total"] == pytest.approx(8.0)
     assert ctx["woolworths_total"] == pytest.approx(10.0)
+    assert ctx["store_metrics"]["woolworths"]["available_count"] == 1
     assert ctx["best_total"] == pytest.approx(8.0)
+    assert ctx["store_metrics"]["coles"]["available_count"] == 1
+    assert ctx["store_metrics"]["coles"]["available_total"] == pytest.approx(8.0)
+    assert ctx["store_metrics"]["woolworths"]["matched_available_count"] == ctx["store_metrics"]["coles"]["matched_available_count"]
+    assert ctx["store_metrics"]["woolworths"]["matched_available_count"] == 1
+    assert ctx["store_metrics"]["woolworths"]["matched_available_total"] == pytest.approx(10.0)
     assert "Coles is $2.00 cheaper overall" == ctx["recommendation"]
+
+
+@pytest.mark.asyncio
+async def test_get_shopping_list_context_builds_store_availability_metrics(fake_result, monkeypatch):
+    coles_product = _product(1, Store.COLES, "Milk", 4.0)
+    ww_product = _product(2, Store.WOOLWORTHS, "Milk", 5.0)
+    ww_only_product = _product(3, Store.WOOLWORTHS, "Bread", 3.0)
+    coles_partner = _product(4, Store.COLES, "Eggs", None)
+    ww_source_product = _product(5, Store.WOOLWORTHS, "Eggs", 6.0)
+
+    matched_item = ShoppingListItem(
+        id=3,
+        shopping_list_id=1,
+        product_id=1,
+        quantity=2,
+        coles_price=4.0,
+        woolworths_price=5.0,
+        chosen_store=Store.COLES,
+    )
+    matched_item.product = coles_product
+
+    unmatched_item = ShoppingListItem(
+        id=4,
+        shopping_list_id=1,
+        product_id=3,
+        quantity=1,
+        coles_price=None,
+        woolworths_price=3.0,
+        chosen_store=Store.WOOLWORTHS,
+    )
+    unmatched_item.product = ww_only_product
+
+    unavailable_item = ShoppingListItem(
+        id=5,
+        shopping_list_id=1,
+        product_id=5,
+        quantity=1,
+        coles_price=None,
+        woolworths_price=6.0,
+        chosen_store=Store.WOOLWORTHS,
+    )
+    unavailable_item.product = ww_source_product
+
+    shopping_list = ShoppingList(
+        id=1,
+        name="List",
+        target_date=date(2025, 1, 1),
+        status=ListStatus.DRAFT,
+        items=[matched_item, unmatched_item, unavailable_item],
+    )
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=fake_result(scalars=[shopping_list]))
+    monkeypatch.setattr(
+        "shopping_agent.services.shopping_list.resolve_display_names",
+        AsyncMock(
+            return_value=(
+                {3: "Milk", 4: "Bread", 5: "Eggs"},
+                {
+                    3: {"coles": "Milk", "woolworths": "Milk"},
+                    4: {"coles": None, "woolworths": "Bread"},
+                    5: {"coles": "Eggs", "woolworths": "Eggs"},
+                },
+                {
+                    3: {"coles": coles_product, "woolworths": ww_product},
+                    4: {"coles": None, "woolworths": ww_only_product},
+                    5: {"coles": coles_partner, "woolworths": ww_source_product},
+                },
+            )
+        ),
+    )
+
+    ctx = await get_shopping_list_context(session)
+
+    assert ctx["store_metrics"]["coles"] == {
+        "available_count": 1,
+        "available_total": 8.0,
+        "unavailable_count": 1,
+        "unmatched_count": 1,
+        "matched_available_count": 1,
+        "matched_available_total": 8.0,
+    }
+    assert ctx["store_metrics"]["woolworths"] == {
+        "available_count": 3,
+        "available_total": 19.0,
+        "unavailable_count": 0,
+        "unmatched_count": 0,
+        "matched_available_count": 1,
+        "matched_available_total": 10.0,
+    }
 
 
 @pytest.mark.asyncio
