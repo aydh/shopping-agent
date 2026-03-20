@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import settings
@@ -17,9 +18,12 @@ async def get_session() -> AsyncSession:
         yield session
 
 
-async def init_db() -> None:
-    """Verify the database connection is healthy at startup."""
-    from sqlalchemy import text
-
+async def verify_db_connection() -> None:
+    """Run a minimal query to confirm the database is reachable."""
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
+
+
+async def init_db() -> None:
+    """Verify the database connection is healthy at startup."""
+    await verify_db_connection()

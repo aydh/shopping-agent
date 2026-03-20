@@ -156,6 +156,21 @@ async def test_init_db_executes_healthcheck(monkeypatch, async_cm):
 
 
 @pytest.mark.asyncio
+async def test_verify_db_connection_executes_minimal_query(monkeypatch, async_cm):
+    from shopping_agent import database
+
+    conn = AsyncMock()
+    engine = SimpleNamespace(connect=MagicMock(return_value=async_cm(conn)))
+    monkeypatch.setattr(database, "engine", engine)
+
+    await database.verify_db_connection()
+
+    conn.execute.assert_awaited_once()
+    statement = conn.execute.await_args.args[0]
+    assert str(statement) == "SELECT 1"
+
+
+@pytest.mark.asyncio
 async def test_app_lifespan_runs_init_db(monkeypatch):
     from shopping_agent import main
 
@@ -176,3 +191,4 @@ def test_main_app_mounts_static_and_mcp():
     assert "/static" in paths
     assert "/mcp" in paths
     assert "/" in paths
+    assert "/healthz" in paths

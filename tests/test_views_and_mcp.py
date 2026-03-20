@@ -9,7 +9,7 @@ import pytest
 
 from shopping_agent.models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from shopping_agent.routes import mcp as mcp_routes
-from shopping_agent.routes.views import dashboard, orders, predictions, prices, product_lookup, settings, shopping_list
+from shopping_agent.routes.views import dashboard, health, orders, predictions, prices, product_lookup, settings, shopping_list
 from shopping_agent.services.prediction import PredictionView
 
 
@@ -98,6 +98,23 @@ async def test_orders_predictions_and_product_lookup_views(monkeypatch, fake_res
 
     lookup_response = await product_lookup.product_lookup_page(make_request("/product-lookup"))
     assert lookup_response.body.decode() == "template:product_lookup.html"
+
+
+@pytest.mark.asyncio
+async def test_health_check_reports_ok_and_failure(monkeypatch):
+    monkeypatch.setattr(health, "verify_db_connection", AsyncMock())
+
+    ok_response = await health.health_check()
+
+    assert ok_response.status_code == 200
+    assert ok_response.body.decode() == '{"status":"ok"}'
+
+    monkeypatch.setattr(health, "verify_db_connection", AsyncMock(side_effect=RuntimeError("db down")))
+
+    error_response = await health.health_check()
+
+    assert error_response.status_code == 503
+    assert error_response.body.decode() == '{"status":"unhealthy"}'
 
 
 @pytest.mark.asyncio

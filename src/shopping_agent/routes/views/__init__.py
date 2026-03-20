@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from .dashboard import router as dashboard_router
+from .health import router as health_router
 from .orders import router as orders_router
 from .predictions import router as predictions_router
 from .prices import router as prices_router
@@ -10,6 +11,7 @@ from .settings import router as settings_router
 from .shopping_list import router as shopping_list_router
 
 router = APIRouter()
+router.include_router(health_router)
 router.include_router(dashboard_router)
 router.include_router(orders_router)
 router.include_router(predictions_router)
