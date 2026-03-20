@@ -4,7 +4,7 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...cache import image_cache
@@ -25,6 +25,32 @@ _PROXY_HEADERS = {
 
 # 7 days — product images rarely change; browser will serve from cache without a network request
 _IMAGE_CACHE_CONTROL = "public, max-age=604800, immutable"
+
+
+async def _matched_product_ids(session: AsyncSession, product_id: int) -> set[int]:
+    """Return all products connected by active matches, including the source product."""
+    connected_ids = {product_id}
+    frontier = {product_id}
+
+    while frontier:
+        rows = await session.execute(
+            select(ProductMatch.product_a_id, ProductMatch.product_b_id).where(
+                ProductMatch.is_rejected == False,  # noqa: E712
+                or_(
+                    ProductMatch.product_a_id.in_(frontier),
+                    ProductMatch.product_b_id.in_(frontier),
+                ),
+            )
+        )
+        next_frontier: set[int] = set()
+        for a_id, b_id in rows.all():
+            for candidate_id in (a_id, b_id):
+                if candidate_id not in connected_ids:
+                    connected_ids.add(candidate_id)
+                    next_frontier.add(candidate_id)
+        frontier = next_frontier
+
+    return connected_ids
 
 
 @router.get("/image-proxy")
@@ -63,13 +89,17 @@ async def hide_product(product_id: int, session: AsyncSession = Depends(get_sess
     product = await session.get(Product, product_id)
     if not product:
         return HTMLResponse("")
-    product.is_hidden = True
-    pred_result = await session.execute(
-        select(ConsumptionPrediction).where(ConsumptionPrediction.product_id == product_id)
+
+    connected_ids = await _matched_product_ids(session, product_id)
+    matched_products = (
+        await session.execute(select(Product).where(Product.id.in_(connected_ids)))
+    ).scalars().all()
+    for matched_product in matched_products:
+        matched_product.is_hidden = True
+
+    await session.execute(
+        delete(ConsumptionPrediction).where(ConsumptionPrediction.product_id.in_(connected_ids))
     )
-    pred = pred_result.scalar_one_or_none()
-    if pred:
-        await session.delete(pred)
     await session.commit()
     return HTMLResponse("")
 
@@ -80,7 +110,14 @@ async def restore_product(product_id: int, session: AsyncSession = Depends(get_s
     product = await session.get(Product, product_id)
     if not product:
         return HTMLResponse("")
-    product.is_hidden = False
+
+    connected_ids = await _matched_product_ids(session, product_id)
+    matched_products = (
+        await session.execute(select(Product).where(Product.id.in_(connected_ids)))
+    ).scalars().all()
+    for matched_product in matched_products:
+        matched_product.is_hidden = False
+
     await session.commit()
     return HTMLResponse("")
 

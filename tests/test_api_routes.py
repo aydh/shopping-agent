@@ -247,32 +247,63 @@ async def test_product_image_proxy_turns_404_into_http_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_products_hide_restore_and_purge(fake_result):
     product = _product(1, Store.COLES, "Milk", 4.0)
-    prediction = ConsumptionPrediction(
-        product_id=1,
-        avg_purchase_interval_days=7.0,
-        avg_quantity_per_purchase=2.0,
-        estimated_daily_consumption=0.2,
-        confidence_score=0.8,
-        last_purchased_date=date(2025, 1, 1),
-        predicted_runout_date=date(2025, 1, 7),
-        next_purchase_date=date(2025, 1, 5),
-        purchase_count=4,
-        last_purchase_quantity=2,
-        last_purchase_store="coles",
-    )
+    partner = _product(2, Store.WOOLWORTHS, "Milk", 4.2)
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[product, product])
-    session.execute = AsyncMock(side_effect=[fake_result(scalar=prediction), fake_result(), fake_result(), fake_result(), SimpleNamespace(rowcount=4)])
+    session.execute = AsyncMock(side_effect=[
+        fake_result(rows=[(1, 2)]),
+        fake_result(rows=[(1, 2)]),
+        fake_result(scalars=[product, partner]),
+        fake_result(),
+        fake_result(rows=[(1, 2)]),
+        fake_result(rows=[(1, 2)]),
+        fake_result(scalars=[product, partner]),
+        fake_result(),
+        fake_result(),
+        fake_result(),
+        SimpleNamespace(rowcount=4),
+    ])
 
     await products.hide_product(1, session)
     assert product.is_hidden is True
-    session.delete.assert_awaited_once_with(prediction)
+    assert partner.is_hidden is True
 
     await products.restore_product(1, session)
     assert product.is_hidden is False
+    assert partner.is_hidden is False
 
     purge_response = await products.purge_products("coles", session)
     assert "Purged 4 coles products" in purge_response.body.decode()
+
+
+@pytest.mark.asyncio
+async def test_products_hide_restore_cascade_across_match_chain(fake_result):
+    first = _product(1, Store.COLES, "Milk", 4.0)
+    second = _product(2, Store.WOOLWORTHS, "Milk", 4.2)
+    third = _product(3, Store.COLES, "Milk Alt", 4.1)
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=[first, first])
+    session.execute = AsyncMock(side_effect=[
+        fake_result(rows=[(1, 2)]),
+        fake_result(rows=[(1, 2), (2, 3)]),
+        fake_result(rows=[(2, 3)]),
+        fake_result(scalars=[first, second, third]),
+        fake_result(),
+        fake_result(rows=[(1, 2)]),
+        fake_result(rows=[(1, 2), (2, 3)]),
+        fake_result(rows=[(2, 3)]),
+        fake_result(scalars=[first, second, third]),
+    ])
+
+    await products.hide_product(1, session)
+    assert first.is_hidden is True
+    assert second.is_hidden is True
+    assert third.is_hidden is True
+
+    await products.restore_product(1, session)
+    assert first.is_hidden is False
+    assert second.is_hidden is False
+    assert third.is_hidden is False
 
 
 @pytest.mark.asyncio
