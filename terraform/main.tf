@@ -128,6 +128,25 @@ resource "oci_core_instance" "app" {
 
   metadata = {
     ssh_authorized_keys = var.ssh_public_key
-    # user_data wired in Task 8 after cloud-init template is written
+    user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tpl", {
+      ssh_public_key     = var.ssh_public_key
+      gh_deploy_key      = var.gh_deploy_key
+      github_repo        = var.github_repo
+      database_url       = var.database_url
+      coles_api_key      = var.coles_api_key
+      woolworths_api_key = var.woolworths_api_key
+      cf_origin_cert     = var.cf_origin_cert
+      cf_origin_key      = var.cf_origin_key
+    }))
   }
+}
+
+# --- Cloudflare DNS ---
+
+resource "cloudflare_record" "shopping" {
+  zone_id = var.cf_zone_id
+  name    = "shopping"
+  value   = oci_core_instance.app.public_ip
+  type    = "A"
+  proxied = true
 }
