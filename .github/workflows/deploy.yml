@@ -1,0 +1,28 @@
+# .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: SSH Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_IP }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd /home/deploy/shopping-agent
+            git pull origin main
+            /home/deploy/venv/bin/pip install -e .
+            /home/deploy/venv/bin/alembic upgrade head
+            sudo systemctl restart shopping-agent
+            echo "Deploy complete"
