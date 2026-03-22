@@ -1,0 +1,50 @@
+# terraform/terraform.tfvars.example
+# Copy to terraform.tfvars and fill in your values (gitignored)
+
+# OCI auth — from OCI Console -> Profile -> API Keys
+tenancy_ocid = "ocid1.tenancy.oc1..aaaa..."
+user_ocid    = "ocid1.user.oc1..aaaa..."
+fingerprint  = "aa:bb:cc:dd:ee:ff:..."
+private_key  = <<EOF
+-----BEGIN RSA PRIVATE KEY-----
+...
+-----END RSA PRIVATE KEY-----
+EOF
+
+region = "ap-melbourne-1"
+
+# SSH key for the deploy user on the VM
+ssh_public_key = "ssh-ed25519 AAAA... your-comment"
+
+# GitHub deploy key — read-only key added to repo Settings -> Deploy Keys
+# Generate: ssh-keygen -t ed25519 -C "shopping-agent-deploy" -f deploy_key -N ""
+gh_deploy_key = <<EOF
+-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
+EOF
+
+# App secrets
+database_url       = "postgresql+asyncpg://postgres:password@db.xxx.supabase.co:5432/postgres"
+coles_api_key      = "your-coles-api-key"
+woolworths_api_key = "your-woolworths-api-key"
+
+# Cloudflare — CF_API_TOKEN must have DNS Edit permission on aydho.com only
+cf_api_token = "your-cloudflare-api-token"
+cf_zone_id   = "your-zone-id"  # Cloudflare dashboard -> aydho.com -> Zone ID (right sidebar)
+
+# Cloudflare Origin Certificate — generate in Cloudflare -> SSL/TLS -> Origin Server
+cf_origin_cert = <<EOF
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+EOF
+
+cf_origin_key = <<EOF
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+EOF
+
+# GitHub repo
+github_repo = "your-github-username/shopping-agent"
