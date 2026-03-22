@@ -1,0 +1,10 @@
+# terraform/backend.tfvars.example
+# Copy to backend.tfvars and fill in your values (gitignored)
+#
+# Customer Secret Keys are different from OCI API Keys.
+# Generate them in: OCI Console -> Profile -> Customer Secret Keys
+# The namespace is shown in: OCI Console -> Object Storage
+
+access_key = "your-customer-secret-key-id"
+secret_key = "your-customer-secret-key"
+endpoint   = "https://<namespace>.compat.objectstorage.ap-melbourne-1.oraclecloud.com"
