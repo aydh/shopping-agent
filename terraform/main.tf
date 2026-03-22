@@ -89,3 +89,45 @@ resource "oci_core_subnet" "main" {
   route_table_id    = oci_core_route_table.main.id
   security_list_ids = [oci_core_security_list.main.id]
 }
+
+# --- Ubuntu 22.04 ARM Image ---
+
+data "oci_core_images" "ubuntu_arm" {
+  compartment_id           = var.tenancy_ocid
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "22.04"
+  shape                    = "VM.Standard.A1.Flex"
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+}
+
+# --- Compute Instance ---
+
+resource "oci_core_instance" "app" {
+  compartment_id      = var.tenancy_ocid
+  availability_domain = local.availability_domain
+  display_name        = "shopping-agent"
+  shape               = "VM.Standard.A1.Flex"
+
+  shape_config {
+    ocpus         = 4
+    memory_in_gbs = 24
+  }
+
+  source_details {
+    source_type             = "image"
+    source_id               = data.oci_core_images.ubuntu_arm.images[0].id
+    boot_volume_size_in_gbs = 50
+  }
+
+  create_vnic_details {
+    subnet_id        = oci_core_subnet.main.id
+    assign_public_ip = true
+    display_name     = "shopping-agent-vnic"
+  }
+
+  metadata = {
+    ssh_authorized_keys = var.ssh_public_key
+    # user_data wired in Task 8 after cloud-init template is written
+  }
+}
