@@ -1,6 +1,6 @@
 #cloud-config
 # terraform/cloud-init.yaml.tpl
-# Rendered by Terraform templatefile() — all ${var} references are injected at apply time.
+# Rendered by Terraform templatefile() — all $${var} references are injected at apply time.
 
 package_update: true
 package_upgrade: true
