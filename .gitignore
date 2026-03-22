@@ -24,6 +24,12 @@ logs/*
 # mkcert local SSL certificates
 *.pem
 
+# SSH keys generated for OCI deployment
+deploy_key
+deploy_key.pub
+shopping_agent_vm
+shopping_agent_vm.pub
+
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl
