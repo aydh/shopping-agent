@@ -23,3 +23,12 @@ logs/*
 
 # mkcert local SSL certificates
 *.pem
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/backend.tfvars
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/crash.log
