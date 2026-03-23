@@ -25,7 +25,7 @@ variable "private_key" {
 variable "region" {
   description = "OCI region"
   type        = string
-  default     = "ap-sydney-1"
+  default     = "ap-melbourne-1"
 }
 
 # Compute
