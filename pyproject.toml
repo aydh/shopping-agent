@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Smart shopping agent that manages grocery orders across Coles and Woolworths"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115",
+    "fastapi>=0.115,<1.0",
+    "starlette>=0.40,<1.0",
     "fastmcp>=2.0",
     "uvicorn[standard]>=0.34",
     "jinja2>=3.1",
