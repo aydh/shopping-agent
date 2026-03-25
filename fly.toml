@@ -1,9 +1,9 @@
-app = "shopping-agent"
+app = "shopping-agent-jbd7ga"
 primary_region = "syd"
 
 [http_service]
 auto_start_machines = true
-auto_stop_machines = true
+auto_stop_machines = "suspend"
 force_https = true
 internal_port = 8_000
 min_machines_running = 1

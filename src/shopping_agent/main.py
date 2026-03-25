@@ -6,8 +6,6 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
 
 from .config import settings
 from .database import init_db
@@ -58,12 +56,18 @@ async def app_lifespan(app: FastAPI):
     yield
 
 
-class _MCPPathMiddleware(BaseHTTPMiddleware):
-    """Rewrite /mcp (no trailing slash) to /mcp/ so MCP clients don't get a 307."""
-    async def dispatch(self, request: StarletteRequest, call_next):
-        if request.scope["path"] == "/mcp":
-            request.scope["path"] = "/mcp/"
-        return await call_next(request)
+class _MCPPathMiddleware:
+    """Rewrite /mcp (no trailing slash) to /mcp/ so MCP clients don't get a 307.
+
+    Uses pure ASGI (no BaseHTTPMiddleware) to avoid buffering SSE streams.
+    """
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path") == "/mcp":
+            scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
+        await self.app(scope, receive, send)
 
 
 app = FastAPI(
