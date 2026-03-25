@@ -27,9 +27,9 @@ async def orders_page(
     orders = result.scalars().all()
 
     return templates.TemplateResponse(
+        request,
         "orders.html",
         {
-            "request": request,
             "active_page": "orders",
             "orders": orders,
             "store_filter": store or "all",

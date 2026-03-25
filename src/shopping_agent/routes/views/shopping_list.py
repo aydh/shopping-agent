@@ -25,8 +25,9 @@ async def shopping_list_page(
     ctx = await get_shopping_list_context(session)
     past_lists = await get_list_history(session)
     return templates.TemplateResponse(
+        request,
         "shopping_list.html",
-        {"request": request, "active_page": "shopping_list", "past_lists": past_lists, **ctx},
+        {"active_page": "shopping_list", "past_lists": past_lists, **ctx},
     )
 
 
@@ -41,8 +42,9 @@ async def find_match_page(
     if not product:
         return RedirectResponse("/shopping-list", status_code=303)
     return templates.TemplateResponse(
+        request,
         "find_match.html",
-        {"request": request, "active_page": "shopping_list", "product": product},
+        {"active_page": "shopping_list", "product": product},
     )
 
 
@@ -78,9 +80,9 @@ async def confirm_page(
                 woolworths_total += (item.woolworths_price or 0) * item.quantity
 
     return templates.TemplateResponse(
+        request,
         "confirm.html",
         {
-            "request": request,
             "active_page": "confirm",
             "shopping_list": shopping_list,
             "display_names": display_names,

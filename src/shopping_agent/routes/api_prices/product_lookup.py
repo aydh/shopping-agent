@@ -63,9 +63,9 @@ async def product_lookup_search(
     ][:MAX_LOOKUP_RESULTS_PER_STORE]
 
     return templates.TemplateResponse(
+        request,
         "_product_lookup_results.html",
         {
-            "request": request,
             "coles_results": coles_results,
             "woolworths_results": woolworths_results,
         },
@@ -122,9 +122,9 @@ async def product_lookup_select(
     target_store = Store.WOOLWORTHS if source_store == Store.COLES else Store.COLES
 
     return templates.TemplateResponse(
+        request,
         "_product_lookup_selected.html",
         {
-            "request": request,
             "product": product,
             "target_store": target_store.value,
         },

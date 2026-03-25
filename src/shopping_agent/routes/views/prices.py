@@ -100,9 +100,9 @@ async def prices_page(
     unavailable_products = list(unavailable_result.scalars().all())
 
     return templates.TemplateResponse(
+        request,
         "prices.html",
         {
-            "request": request,
             "active_page": "prices",
             "comparisons": comparisons,
             "unmatched_coles": unmatched_coles,
@@ -127,9 +127,9 @@ async def search_match_page(
         return HTMLResponse("Product not found", status_code=404)
     target_store = Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
     return templates.TemplateResponse(
+        request,
         "search_match.html",
         {
-            "request": request,
             "active_page": "prices",
             "product": product,
             "target_store": target_store.value,

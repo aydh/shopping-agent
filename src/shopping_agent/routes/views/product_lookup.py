@@ -11,9 +11,7 @@ router = APIRouter()
 async def product_lookup_page(request: Request) -> HTMLResponse:
     """Render the product lookup page."""
     return templates.TemplateResponse(
+        request,
         "product_lookup.html",
-        {
-            "request": request,
-            "active_page": "product_lookup",
-        },
+        {"active_page": "product_lookup"},
     )

@@ -85,9 +85,9 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
     sl_ctx = await get_shopping_list_context(session)
 
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "active_page": "dashboard",
             "coles_orders": coles_orders,
             "ww_orders": ww_orders,

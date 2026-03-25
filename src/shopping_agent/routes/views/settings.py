@@ -51,9 +51,9 @@ async def settings_page(
     )
 
     return templates.TemplateResponse(
+        request,
         "settings.html",
         {
-            "request": request,
             "active_page": "settings",
             "coles_connected": coles_connected,
             "woolworths_connected": woolworths_connected,

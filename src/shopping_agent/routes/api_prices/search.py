@@ -49,9 +49,9 @@ async def search_match(
         return HTMLResponse('<p class="text-sm text-red-600">Search failed. Are you authenticated?</p>')
 
     return templates.TemplateResponse(
+        request,
         "_search_match_results.html",
         {
-            "request": request,
             "results": results,
             "source_product_id": product_id,
             "target_store": target_store.value,

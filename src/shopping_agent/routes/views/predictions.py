@@ -17,6 +17,7 @@ async def predictions_page(
     """Render the predictions page."""
     predictions = await get_predictions_with_match_info(session)
     return templates.TemplateResponse(
+        request,
         "predictions.html",
-        {"request": request, "active_page": "predictions", "predictions": predictions},
+        {"active_page": "predictions", "predictions": predictions},
     )

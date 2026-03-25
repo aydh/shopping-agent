@@ -59,6 +59,7 @@ async def app_lifespan(app: FastAPI):
 app = FastAPI(
     title="Shopping Agent",
     lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
+    redirect_slashes=False,
 )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
