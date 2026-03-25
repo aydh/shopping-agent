@@ -26,6 +26,7 @@ from ..services.shopping_list import (
     get_active_list,
     get_list_history,
     remove_item,
+    resolve_display_names,
     update_item_quantity,
 )
 from ..services.price_comparison import compare_product_prices, find_or_create_match, match_unmatched_products
@@ -107,18 +108,21 @@ async def get_shopping_list() -> dict:
         shopping_list = await get_active_list(session)
         if not shopping_list:
             return {"shopping_list": None, "items": []}
+        active_items = [i for i in shopping_list.items if not i.is_removed]
+        _, store_names, _ = await resolve_display_names(session, active_items)
         items = [
             {
                 "item_id": item.id,
                 "product_id": item.product_id,
                 "quantity": item.quantity,
+                "coles_name": store_names.get(item.id, {}).get("coles"),
+                "woolworths_name": store_names.get(item.id, {}).get("woolworths"),
                 "coles_price": item.coles_price,
                 "woolworths_price": item.woolworths_price,
                 "chosen_store": item.chosen_store.value if item.chosen_store else None,
                 "is_user_added": item.is_user_added,
             }
-            for item in shopping_list.items
-            if not item.is_removed
+            for item in active_items
         ]
         return {
             "list_id": shopping_list.id,
