@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
 
 from .config import settings
 from .database import init_db
@@ -56,11 +58,19 @@ async def app_lifespan(app: FastAPI):
     yield
 
 
+class _MCPPathMiddleware(BaseHTTPMiddleware):
+    """Rewrite /mcp (no trailing slash) to /mcp/ so MCP clients don't get a 307."""
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if request.scope["path"] == "/mcp":
+            request.scope["path"] = "/mcp/"
+        return await call_next(request)
+
+
 app = FastAPI(
     title="Shopping Agent",
     lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
-    redirect_slashes=False,
 )
+app.add_middleware(_MCPPathMiddleware)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 from .routes import api_auth, api_cart, api_orders, api_predictions, api_prices, api_shopping_list, views  # noqa: E402
