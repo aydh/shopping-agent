@@ -30,6 +30,9 @@ deploy_key.pub
 shopping_agent_vm
 shopping_agent_vm.pub
 
+# Firebase
+firebase-debug.log
+
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl
