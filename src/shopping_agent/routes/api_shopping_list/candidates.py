@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...auth import CurrentUser, get_current_user_from_cookie
-from ...database import get_user_session_from_cookie
+from ...database import async_session, get_user_session_from_cookie, set_rls_claims
 from ...models import ConsumptionPrediction, Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.prediction import generate_candidates
 from ...services.price_comparison import build_price_map
@@ -86,7 +86,8 @@ async def add_predictions(
             chosen_store=chosen_store,
         ))
 
-    await session.commit()
+    # session.commit() removed: session.begin() context manager commits on exit;
+    # autoflush ensures the query below sees pending additions.
     ctx = await _shopping_list_context(session, user.user_id)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(list_html)
@@ -98,6 +99,10 @@ async def generate(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await generate_shopping_list(session, user.user_id)
-    ctx = await _shopping_list_context(session, user.user_id)
+    # generate_shopping_list commits internally; read context in a fresh session.
+    async with async_session() as fresh:
+        async with fresh.begin():
+            await set_rls_claims(fresh, user.user_id)
+            ctx = await _shopping_list_context(fresh, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)

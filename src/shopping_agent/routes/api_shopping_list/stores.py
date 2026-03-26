@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import CurrentUser, get_current_user_from_cookie
-from ...database import get_user_session_from_cookie
+from ...database import async_session, get_user_session_from_cookie, set_rls_claims
 from ...db_helpers import store_from_string
 from ...models import ListStatus, ShoppingList, ShoppingListItem, Store
 from ...services.shopping_list import (
@@ -40,7 +40,7 @@ async def set_all_store(
         )
         for item in items_result.scalars().all():
             item.chosen_store = store_enum
-        await session.commit()
+        # session.begin() context manager commits on exit; autoflush covers pending updates.
 
     ctx = await _shopping_list_context(session, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
@@ -90,7 +90,13 @@ async def submit_split(
     shopping_list = result.scalars().first()
     if not shopping_list:
         return RedirectResponse("/shopping-list", status_code=303)
+    list_id = shopping_list.id
     await assign_cheapest_stores(session, user.user_id)
-    shopping_list.status = ListStatus.CONFIRMED
-    await session.commit()
+    # assign_cheapest_stores commits internally; update status in a fresh session.
+    async with async_session() as fresh:
+        async with fresh.begin():
+            await set_rls_claims(fresh, user.user_id)
+            sl = await fresh.get(ShoppingList, list_id)
+            if sl:
+                sl.status = ListStatus.CONFIRMED
     return RedirectResponse("/confirm", status_code=303)

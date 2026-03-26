@@ -4,7 +4,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import CurrentUser, get_current_user_from_cookie
-from ..database import get_user_session_from_cookie
+from ..database import async_session, get_user_session_from_cookie, set_rls_claims
 from ..models import ConsumptionPrediction
 from ..services.prediction import refresh_predictions
 from ..templating import templates
@@ -19,7 +19,11 @@ async def refresh(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await refresh_predictions(session, user.user_id)
-    predictions = await _predictions_list(session, user.user_id)
+    # refresh_predictions commits its own transaction; read in a fresh session
+    async with async_session() as fresh_session:
+        async with fresh_session.begin():
+            await set_rls_claims(fresh_session, user.user_id)
+            predictions = await _predictions_list(fresh_session, user.user_id)
     html = templates.get_template("_predictions_grid.html").render(predictions=predictions)
     return HTMLResponse(html)
 

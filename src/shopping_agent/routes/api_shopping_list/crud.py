@@ -163,7 +163,7 @@ async def delete_past_list(
             delete(ShoppingListItem).where(ShoppingListItem.shopping_list_id == shopping_list.id)
         )
         await session.delete(shopping_list)
-        await session.commit()
+        # session.begin() context manager commits on exit; autoflush covers pending deletes.
 
     return HTMLResponse(await _past_lists_section_html(session, user.user_id))
 

@@ -5,7 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import CurrentUser, get_current_user_from_cookie
-from ...database import get_user_session_from_cookie
+from ...database import async_session, get_user_session_from_cookie, set_rls_claims
 from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.shopping_list import (
@@ -74,7 +74,11 @@ async def set_quantity(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await update_item_quantity(session, item_id, quantity)
-    ctx = await _shopping_list_context(session, user.user_id)
+    # service commits internally; read context in a fresh session
+    async with async_session() as fresh:
+        async with fresh.begin():
+            await set_rls_claims(fresh, user.user_id)
+            ctx = await _shopping_list_context(fresh, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
 
@@ -87,7 +91,11 @@ async def set_store(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await update_item_store(session, item_id, store_from_string(store))
-    ctx = await _shopping_list_context(session, user.user_id)
+    # service commits internally; read context in a fresh session
+    async with async_session() as fresh:
+        async with fresh.begin():
+            await set_rls_claims(fresh, user.user_id)
+            ctx = await _shopping_list_context(fresh, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
 
@@ -103,7 +111,11 @@ async def add_product_to_list(
     if item is None:
         return HTMLResponse('<span class="text-red-600 text-xs">No active list or product not found.</span>')
     status = "Added ✓" if item.quantity == 1 else "Qty updated ✓"
-    ctx = await _shopping_list_context(session, user.user_id)
+    # service commits internally; read context in a fresh session
+    async with async_session() as fresh:
+        async with fresh.begin():
+            await set_rls_claims(fresh, user.user_id)
+            ctx = await _shopping_list_context(fresh, user.user_id)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(
         f'<span class="text-green-600 text-xs">{status}</span>'
@@ -118,7 +130,11 @@ async def delete_item(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await remove_item(session, item_id)
-    ctx = await _shopping_list_context(session, user.user_id)
+    # service commits internally; read context in a fresh session
+    async with async_session() as fresh:
+        async with fresh.begin():
+            await set_rls_claims(fresh, user.user_id)
+            ctx = await _shopping_list_context(fresh, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
 
@@ -236,6 +252,6 @@ async def copy_list(
             is_user_added=True,
         ))
 
-    await session.commit()
+    # session.begin() context manager commits on exit; autoflush covers pending adds.
     ctx = await _shopping_list_context(session, user.user_id)
     return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))
