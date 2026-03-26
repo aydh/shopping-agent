@@ -25,8 +25,6 @@ class Settings(BaseSettings):
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
     migration_user_id: str = Field(default="", description="UUID of existing-data backfill user (MIGRATION_USER_ID)")
-    price_refresh_poll_interval_ms: int = 2000  # How often the browser polls for price refresh progress
-
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -108,8 +106,8 @@ PREDICTION_LEAD_TIME_DAYS: int = 14
 PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
-COLES_PRICE_REFRESH_CONCURRENCY: int = 20
-WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 1
+COLES_PRICE_REFRESH_CONCURRENCY: int = 10
+WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 5
 COLES_PRICE_FETCH_DELAY_S: float = 0.0      # Delay between individual Coles product price requests
 WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.25  # Delay between individual Woolworths product price requests
 

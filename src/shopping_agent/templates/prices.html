@@ -12,17 +12,15 @@
             </button>
             <span id="match-spinner" class="htmx-indicator text-gray-400 text-sm">matching...</span>
             <span id="match-result"></span>
-            <button hx-post="/api/prices/refresh/coles" hx-target="#coles-refresh-result" hx-indicator="#coles-price-spinner"
-                    class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+            <button id="refresh-btn-coles" onclick="refreshPrices('coles')"
+                    class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 Refresh Coles Prices
             </button>
-            <span id="coles-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
             <span id="coles-refresh-result"></span>
-            <button hx-post="/api/prices/refresh/woolworths" hx-target="#ww-refresh-result" hx-indicator="#ww-price-spinner"
-                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+            <button id="refresh-btn-woolworths" onclick="refreshPrices('woolworths')"
+                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 Refresh Woolworths Prices
             </button>
-            <span id="ww-price-spinner" class="htmx-indicator text-gray-400 text-sm">refreshing...</span>
             <span id="ww-refresh-result"></span>
         </div>
     </div>
@@ -672,5 +670,46 @@ document.getElementById('search-field').addEventListener('keyup', function() {
         updateTabCounts();
     }
 })();
+
+function refreshPrices(store) {
+    const btn = document.getElementById('refresh-btn-' + store);
+    const result = document.getElementById((store === 'coles' ? 'coles' : 'ww') + '-refresh-result');
+    btn.disabled = true;
+    result.innerHTML = '<span class="text-blue-600 text-sm">Connecting…</span>';
+
+    const es = new EventSource(`/api/prices/refresh-stream/${store}`);
+
+    es.addEventListener('progress', (e) => {
+        const {done, total} = JSON.parse(e.data);
+        result.innerHTML = `<span class="text-blue-600 text-sm">${done}/${total} updated…</span>`;
+    });
+
+    es.addEventListener('done', (e) => {
+        es.close();
+        btn.disabled = false;
+        const {updated, total} = JSON.parse(e.data);
+        result.innerHTML = `<span class="text-green-600 text-sm">Done — ${updated}/${total} updated</span>`;
+        setTimeout(() => location.reload(), 1500);
+    });
+
+    es.addEventListener('error', (e) => {
+        es.close();
+        btn.disabled = false;
+        try {
+            const {message} = JSON.parse(e.data);
+            result.innerHTML = `<span class="text-red-600 text-sm">${message}</span>`;
+        } catch {
+            result.innerHTML = '<span class="text-red-600 text-sm">Refresh failed</span>';
+        }
+    });
+
+    es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        if (!result.innerHTML.includes('Done') && !result.innerHTML.includes('failed')) {
+            result.innerHTML = '<span class="text-red-600 text-sm">Connection lost</span>';
+        }
+    };
+}
 </script>
 {% endblock %}
