@@ -82,7 +82,7 @@ async def new_list(
     name = f"Week of {today.strftime('%d %b %Y')}"
     shopping_list = ShoppingList(name=name, target_date=today, status=ListStatus.DRAFT, user_id=user.user_id)
     session.add(shopping_list)
-    await session.commit()
+    await session.flush()  # assigns the id; context manager commits on exit
 
     ctx = await _shopping_list_context(session, user.user_id)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
