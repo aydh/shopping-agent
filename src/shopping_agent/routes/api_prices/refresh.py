@@ -14,8 +14,7 @@ from ...models import (
     Product,
     Store,
 )
-from ...scrapers.coles import coles_scraper as _coles_scraper
-from ...scrapers.woolworths import woolworths_scraper as _ww_scraper
+from ...scrapers.registry import coles_scraper as _coles_scraper, woolworths_scraper as _ww_scraper
 from ...services.price_refresh import do_price_refresh
 
 router = APIRouter()

@@ -30,8 +30,7 @@ from ..services.shopping_list import (
     update_item_quantity,
 )
 from ..services.price_comparison import compare_product_prices, find_or_create_match, match_unmatched_products
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
+from ..scrapers.registry import coles_scraper, woolworths_scraper
 
 logger = logging.getLogger(__name__)
 

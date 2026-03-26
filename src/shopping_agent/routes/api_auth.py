@@ -3,8 +3,7 @@ from fastapi.responses import HTMLResponse
 
 from ..db_helpers import store_from_string
 from ..models import Store
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
+from ..scrapers.registry import coles_scraper, woolworths_scraper
 
 router = APIRouter()
 

@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
@@ -76,6 +77,10 @@ class ScrapedProduct:
 class BaseScraper(ABC):
     #: Default cookie domain for this store (e.g. ".coles.com.au").
     _cookie_domain: str = ""
+
+    #: User that owns this scraper instance.  None means the global singleton
+    #: (no per-user isolation).
+    user_id: uuid.UUID | None = None
 
     @abstractmethod
     async def is_authenticated(self) -> bool:
@@ -161,7 +166,10 @@ class BaseScraper(ABC):
         jar = httpx.Cookies()
         async with async_session() as session:
             result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == self.store)
+                select(StoreCookies).where(
+                    StoreCookies.store == self.store,
+                    StoreCookies.user_id == self.user_id,
+                )
             )
             row = result.scalar_one_or_none()
             if row:
@@ -217,13 +225,16 @@ class BaseScraper(ABC):
 
         async with async_session() as session:
             result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == self.store)
+                select(StoreCookies).where(
+                    StoreCookies.store == self.store,
+                    StoreCookies.user_id == self.user_id,
+                )
             )
             row = result.scalar_one_or_none()
             if row:
                 row.cookies_json = cookies_json
             else:
-                session.add(StoreCookies(store=self.store, cookies_json=cookies_json))
+                session.add(StoreCookies(store=self.store, user_id=self.user_id, cookies_json=cookies_json))
             await session.commit()
 
         logger.info("Saved %d cookies for %s", len(cookie_list), self.store.value)

@@ -9,8 +9,7 @@ from sqlalchemy.orm import selectinload
 from ..database import async_session, get_session
 from ..db_helpers import store_from_string
 from ..models import ListStatus, ShoppingList, ShoppingListItem, Store
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
+from ..scrapers.registry import coles_scraper, woolworths_scraper
 from ..services.cart import _resolve_store_product_id, add_to_cart
 from ..templating import templates
 

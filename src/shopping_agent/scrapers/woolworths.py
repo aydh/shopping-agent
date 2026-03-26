@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import time
+import uuid
 from datetime import datetime
 
 import httpx
@@ -43,7 +44,8 @@ class WoolworthsScraper(BaseScraper):
     store = Store.WOOLWORTHS
     _cookie_domain: str = ".woolworths.com.au"
 
-    def __init__(self) -> None:
+    def __init__(self, user_id: uuid.UUID | None = None) -> None:
+        self.user_id = user_id
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:

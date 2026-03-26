@@ -6,8 +6,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_session
-from ...scrapers.coles import coles_scraper
-from ...scrapers.woolworths import woolworths_scraper
+from ...scrapers.registry import coles_scraper, woolworths_scraper
 from ...services.data_management import get_db_counts
 from ...templating import templates
 

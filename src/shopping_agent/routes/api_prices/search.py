@@ -9,8 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_session
 from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, Store
-from ...scrapers.coles import coles_scraper
-from ...scrapers.woolworths import woolworths_scraper
+from ...scrapers.registry import coles_scraper, woolworths_scraper
 from ...templating import templates
 
 router = APIRouter()

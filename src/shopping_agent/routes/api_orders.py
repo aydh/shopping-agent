@@ -11,8 +11,7 @@ from sqlalchemy import delete, select
 from ..database import async_session, get_session
 from ..db_helpers import store_from_string
 from ..models import Order, OrderItem, PriceHistory, Product, Store
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
+from ..scrapers.registry import coles_scraper, woolworths_scraper
 from ..services.order_sync import sync_orders
 from ..templating import templates
 
