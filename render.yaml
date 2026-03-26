@@ -11,9 +11,25 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
       - key: COLES_API_KEY
+        sync: false
+      - key: WOOLWORTHS_API_KEY
+        sync: false
+      - key: MCP_OAUTH_CLIENT_ID
+        sync: false
+      - key: MCP_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: MCP_DEFAULT_USER_ID
+        sync: false
+      - key: BASE_URL
         sync: false
       - key: DEBUG
         value: "false"
       - key: PORT
-        value: 10000
+        value: "10000"
