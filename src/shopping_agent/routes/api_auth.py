@@ -9,7 +9,7 @@ from ..scrapers.registry import get_scraper
 router = APIRouter()
 
 
-@router.post("/api/auth/session")
+@router.post("/session")
 async def set_session(request: Request) -> JSONResponse:
     """Receive access_token from JS and set an httpOnly cookie."""
     body = await request.json()
@@ -32,7 +32,7 @@ async def set_session(request: Request) -> JSONResponse:
     return response
 
 
-@router.post("/api/auth/logout")
+@router.post("/logout")
 async def logout_session() -> Response:
     """Clear the httpOnly session cookie."""
     response = Response(status_code=204)
