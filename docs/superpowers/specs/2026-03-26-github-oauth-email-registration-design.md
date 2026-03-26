@@ -57,6 +57,8 @@ No new application env vars. The Supabase dashboard requires two one-time change
 
 2. **Redirect URL allowlist** — Authentication → URL Configuration → Redirect URLs: add `<base_url>/auth/callback` (e.g. `https://localhost:8000/auth/callback`). Required for both GitHub OAuth and email confirmation redirects.
 
+3. **Email template redirect URL** — In Authentication → Email Templates → Confirm signup, ensure the redirect URL in the template link points to `<base_url>/auth/callback`. Supabase uses the Site URL as the default; if `base_url` differs from the Site URL, the template must be updated explicitly.
+
 ## Template Design
 
 **`register.html`** mirrors `login.html` in structure:
