@@ -157,6 +157,11 @@ class BaseScraper(ABC):
     async def _load_cookies(self) -> httpx.Cookies:
         """Load persisted cookies for this store from the database.
 
+        When user_id is set, loads that user's cookies.  When user_id is None
+        (global singleton), falls back to the most recently updated cookies for
+        this store from any user, so the singleton always has valid session
+        cookies (including Akamai bot-challenge cookies).
+
         Returns:
             An httpx.Cookies jar populated with the stored cookies.
         """
@@ -166,12 +171,20 @@ class BaseScraper(ABC):
 
         jar = httpx.Cookies()
         async with async_session() as session:
-            result = await session.execute(
-                select(StoreCookies).where(
+            if self.user_id is not None:
+                query = select(StoreCookies).where(
                     StoreCookies.store == self.store,
                     StoreCookies.user_id == self.user_id,
                 )
-            )
+            else:
+                # Global singleton — use most recently updated cookies for this store
+                query = (
+                    select(StoreCookies)
+                    .where(StoreCookies.store == self.store)
+                    .order_by(StoreCookies.updated_at.desc())
+                    .limit(1)
+                )
+            result = await session.execute(query)
             row = result.scalar_one_or_none()
             if row:
                 try:
