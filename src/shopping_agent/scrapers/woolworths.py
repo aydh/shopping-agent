@@ -62,7 +62,38 @@ class WoolworthsScraper(BaseScraper):
                 follow_redirects=True,
                 timeout=30.0,
             )
+            if not cookies:
+                await self._bootstrap_akamai_cookies()
         return self._client
+
+    async def _bootstrap_akamai_cookies(self) -> None:
+        """Visit the Woolworths homepage to obtain Akamai bot-session cookies.
+
+        The Akamai CDN requires session cookies (_abck, bm_s, etc.) to let API
+        requests through.  A real browser obtains these automatically; we get
+        them by making a single homepage request, which causes the server to
+        set them via HTTP Set-Cookie headers.  No login is required.
+
+        Cookies are persisted so subsequent restarts don't need to re-bootstrap.
+        """
+        if self._client is None:
+            return
+        try:
+            logger.info("[Woolworths] Bootstrapping Akamai session cookies from homepage")
+            resp = await self._client.get(
+                "/",
+                headers={"Accept": "text/html,application/xhtml+xml,*/*"},
+            )
+            if resp.status_code == 200 and self._client.cookies.get("_abck"):
+                logger.info("[Woolworths] Akamai bootstrap succeeded")
+                await self._save_cookies_from_client()
+            else:
+                logger.warning(
+                    "[Woolworths] Bootstrap did not yield _abck cookie (status=%d)",
+                    resp.status_code,
+                )
+        except Exception:
+            logger.warning("[Woolworths] Failed to bootstrap Akamai cookies", exc_info=True)
 
     async def _request(
         self, method: str, path: str, **kwargs
