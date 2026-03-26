@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     mcp_oauth_client_id: str = Field(default="", description="OAuth client ID registered with Supabase for MCP")
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
+    migration_user_id: str = Field(default="", description="UUID of existing-data backfill user (MIGRATION_USER_ID)")
     price_refresh_poll_interval_ms: int = 2000  # How often the browser polls for price refresh progress
 
     def ensure_dirs(self) -> None:
