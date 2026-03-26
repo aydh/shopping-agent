@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import random
 import time
 import uuid
 from datetime import datetime
@@ -52,7 +53,7 @@ class WoolworthsScraper(BaseScraper):
         """Get or create the httpx client with current cookies."""
         if self._client is None or self._client.is_closed:
             cookies = await self._load_cookies()
-            self._client = httpx.AsyncClient(
+            client_kwargs: dict = dict(
                 base_url=WOOLWORTHS_BASE,
                 cookies=cookies,
                 headers={
@@ -62,6 +63,9 @@ class WoolworthsScraper(BaseScraper):
                 follow_redirects=True,
                 timeout=30.0,
             )
+            if settings.woolworths_proxy_url:
+                client_kwargs["proxy"] = settings.woolworths_proxy_url
+            self._client = httpx.AsyncClient(**client_kwargs)
             if not cookies:
                 await self._bootstrap_akamai_cookies()
         return self._client
@@ -462,7 +466,9 @@ class WoolworthsScraper(BaseScraper):
             ScrapedProduct with current price, or None if not found.
         """
         try:
-            await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S)
+            if WOOLWORTHS_PRICE_FETCH_DELAY_S:
+                jitter = random.uniform(0.0, WOOLWORTHS_PRICE_FETCH_DELAY_S * 0.5)
+                await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S + jitter)
             kwargs: dict = {}
             if timeout is not None:
                 kwargs["timeout"] = timeout

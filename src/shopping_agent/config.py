@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
     migration_user_id: str = Field(default="", description="UUID of existing-data backfill user (MIGRATION_USER_ID)")
+    woolworths_proxy_url: str | None = Field(default=None, description="HTTP/SOCKS proxy URL for Woolworths requests (WOOLWORTHS_PROXY_URL). Use a sticky-session residential proxy to avoid Akamai blocks, e.g. http://user:pass@host:port")
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
