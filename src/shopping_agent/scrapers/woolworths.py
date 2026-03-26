@@ -13,7 +13,7 @@ from sqlalchemy import select
 from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
-from ..config import WOOLWORTHS_PRICE_FETCH_DELAY_S, settings
+from ..config import WOOLWORTHS_PRICE_FETCH_DELAY_S, WOOLWORTHS_PRICE_FETCH_JITTER_S, settings
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class WoolworthsScraper(BaseScraper):
         """Get or create the httpx client with current cookies."""
         if self._client is None or self._client.is_closed:
             cookies = await self._load_cookies()
-            client_kwargs: dict = dict(
+            self._client = httpx.AsyncClient(
                 base_url=WOOLWORTHS_BASE,
                 cookies=cookies,
                 headers={
@@ -63,9 +63,6 @@ class WoolworthsScraper(BaseScraper):
                 follow_redirects=True,
                 timeout=30.0,
             )
-            if settings.woolworths_proxy_url:
-                client_kwargs["proxy"] = settings.woolworths_proxy_url
-            self._client = httpx.AsyncClient(**client_kwargs)
             if not cookies:
                 await self._bootstrap_akamai_cookies()
         return self._client
@@ -466,8 +463,8 @@ class WoolworthsScraper(BaseScraper):
             ScrapedProduct with current price, or None if not found.
         """
         try:
-            if WOOLWORTHS_PRICE_FETCH_DELAY_S:
-                jitter = random.uniform(0.0, WOOLWORTHS_PRICE_FETCH_DELAY_S * 0.5)
+            if WOOLWORTHS_PRICE_FETCH_DELAY_S or WOOLWORTHS_PRICE_FETCH_JITTER_S:
+                jitter = random.uniform(0.0, WOOLWORTHS_PRICE_FETCH_JITTER_S) if WOOLWORTHS_PRICE_FETCH_JITTER_S else 0.0
                 await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S + jitter)
             kwargs: dict = {}
             if timeout is not None:

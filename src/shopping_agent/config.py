@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
     migration_user_id: str = Field(default="", description="UUID of existing-data backfill user (MIGRATION_USER_ID)")
-    woolworths_proxy_url: str | None = Field(default=None, description="HTTP/SOCKS proxy URL for Woolworths requests (WOOLWORTHS_PROXY_URL). Use a sticky-session residential proxy to avoid Akamai blocks, e.g. http://user:pass@host:port")
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -108,9 +107,10 @@ PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
 COLES_PRICE_REFRESH_CONCURRENCY: int = 10
-WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 5
+WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 1
 COLES_PRICE_FETCH_DELAY_S: float = 0.0      # Delay between individual Coles product price requests
 WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.1  # Delay between individual Woolworths product price requests
+WOOLWORTHS_PRICE_FETCH_JITTER_S: float = 0.05  # Max random jitter added on top of delay (uniform 0–jitter)
 
 # Chart colours
 COLES_COLOUR: str = "#dc2626"

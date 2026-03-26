@@ -17,7 +17,6 @@ primary_region = "syd"
 #   fly secrets set MCP_OAUTH_CLIENT_SECRET="..."
 #   fly secrets set MCP_DEFAULT_USER_ID="..."
 #   fly secrets set BASE_URL="https://shopping-agent-jbd7ga.fly.dev"
-#   fly secrets set WOOLWORTHS_PROXY_URL="http://user:pass@host:port"  # optional sticky residential proxy
 
 [http_service]
 auto_start_machines = true
