@@ -64,12 +64,24 @@ async def get_current_user(
 
 
 async def get_current_user_from_cookie(request: Request) -> CurrentUser:
-    """Verify from sb-access-token cookie — for HTML page routes."""
+    """Verify from sb-access-token cookie — for HTML page routes.
+
+    Raises a 307 redirect to /login when unauthenticated so HTMX pages
+    land on the login screen rather than returning a bare 401.
+    """
+    from fastapi.responses import RedirectResponse
+
     token = request.cookies.get("sb-access-token")
     if not token:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/login"},
         )
-    claims = _decode_token(token)
+    try:
+        claims = _decode_token(token)
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/login"},
+        )
     return _claims_to_user(claims)

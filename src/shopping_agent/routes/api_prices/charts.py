@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...config import COLES_COLOUR, PRICE_LINE_COLOUR, WOOLWORTHS_COLOUR
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user
+from ...database import get_user_session
 from ...models import PriceHistory, Product, ProductMatch, Store
 from ...templating import templates
 
@@ -67,7 +68,8 @@ def _render_match(match_id: int, coles_rows: list, ww_rows: list) -> str:
 @router.get("/product-history/batch")
 async def product_price_history_batch(
     ids: str = Query(..., description="Comma-separated product IDs"),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> JSONResponse:
     """Return charts for multiple products in one request."""
     product_ids = [int(i) for i in ids.split(",") if i.strip().isdigit()]
@@ -105,7 +107,8 @@ async def product_price_history_batch(
 
 
 @router.get("/product-history/{product_id}")
-async def product_price_history(product_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def product_price_history(product_id: int, user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
     """Return a chart for a single product."""
     product = await session.get(Product, product_id)
     if not product:
@@ -122,7 +125,8 @@ async def product_price_history(product_id: int, session: AsyncSession = Depends
 @router.get("/history/batch")
 async def price_history_batch(
     ids: str = Query(..., description="Comma-separated match IDs"),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> JSONResponse:
     """Return charts for multiple matched pairs in one request."""
     match_ids = [int(i) for i in ids.split(",") if i.strip().isdigit()]
@@ -166,7 +170,8 @@ async def price_history_batch(
 
 
 @router.get("/history/{match_id}")
-async def price_history(match_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def price_history(match_id: int, user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
     """Return a chart for a matched product pair."""
     match = await session.get(ProductMatch, match_id, options=[
         selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b)

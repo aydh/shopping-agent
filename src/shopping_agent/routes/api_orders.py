@@ -8,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
 
-from ..database import async_session, get_session
+from ..auth import CurrentUser, get_current_user
+from ..database import async_session, get_user_session, set_rls_claims
 from ..db_helpers import store_from_string
 from ..models import Order, OrderItem, PriceHistory, Product, Store
-from ..scrapers.registry import coles_scraper, woolworths_scraper
+from ..scrapers.registry import get_scraper
 from ..services.order_sync import sync_orders
 from ..templating import templates
 
@@ -21,10 +22,13 @@ router = APIRouter()
 
 
 @router.get("/sync-stream/{store}")
-async def sync_orders_stream(store: str) -> StreamingResponse:
+async def sync_orders_stream(
+    store: str,
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
     """SSE endpoint: fetches orders and streams each row as it's saved."""
     store_enum = store_from_string(store)
-    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    scraper = get_scraper(user.user_id, store_enum)
 
     async def generate():
         if not await scraper.is_authenticated():
@@ -41,17 +45,19 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
                 yield f"event: progress\ndata: {json.dumps({'fetched': fetched})}\n\n"
                 try:
                     async with async_session() as session:
-                        count = await sync_orders(session, [scraped_order], store_enum)
-                        new_count += count
-                        result = await session.execute(
-                            select(Order)
-                            .options(selectinload(Order.items))
-                            .where(
-                                Order.store_order_id == scraped_order.store_order_id,
-                                Order.store == store_enum,
+                        async with session.begin():
+                            await set_rls_claims(session, user.user_id)
+                            count = await sync_orders(session, [scraped_order], store_enum, user.user_id)
+                            new_count += count
+                            result = await session.execute(
+                                select(Order)
+                                .options(selectinload(Order.items))
+                                .where(
+                                    Order.store_order_id == scraped_order.store_order_id,
+                                    Order.store == store_enum,
+                                )
                             )
-                        )
-                        order = result.scalars().first()
+                            order = result.scalars().first()
                     if order:
                         row_html = templates.env.get_template("partials/order_row.html").render(order=order)
                         yield f"event: order\ndata: {json.dumps({'html': row_html, 'is_new': count > 0})}\n\n"
@@ -73,7 +79,11 @@ async def sync_orders_stream(store: str) -> StreamingResponse:
 
 
 @router.delete("/purge/{store}")
-async def purge_store_orders(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def purge_store_orders(
+    store: str,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
     store_enum = store_from_string(store)
 
     order_subq = select(Order.id).where(Order.store == store_enum).scalar_subquery()
@@ -91,7 +101,11 @@ async def purge_store_orders(store: str, session: AsyncSession = Depends(get_ses
 
 
 @router.get("/{order_id}/items")
-async def get_order_items(order_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def get_order_items(
+    order_id: int,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
     result = await session.execute(
         select(Order)
         .options(selectinload(Order.items).selectinload(OrderItem.product))

@@ -5,7 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
 from ...services.shopping_list import (
     get_list_history,
@@ -19,11 +20,13 @@ router = APIRouter()
 
 @router.get("/shopping-list")
 async def shopping_list_page(
-    request: Request, session: AsyncSession = Depends(get_session)
+    request: Request,
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Render the shopping list page."""
-    ctx = await get_shopping_list_context(session)
-    past_lists = await get_list_history(session)
+    ctx = await get_shopping_list_context(session, user.user_id)
+    past_lists = await get_list_history(session, user.user_id)
     return templates.TemplateResponse(
         request,
         "shopping_list.html",
@@ -35,7 +38,8 @@ async def shopping_list_page(
 async def find_match_page(
     product_id: int,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Render the find-match page for a shopping list product."""
     product = await session.get(Product, product_id)
@@ -50,7 +54,9 @@ async def find_match_page(
 
 @router.get("/confirm")
 async def confirm_page(
-    request: Request, session: AsyncSession = Depends(get_session)
+    request: Request,
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Render the order confirmation page."""
     query = (

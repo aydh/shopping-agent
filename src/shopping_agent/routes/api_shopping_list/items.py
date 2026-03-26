@@ -4,7 +4,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user
+from ...database import get_user_session
 from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.shopping_list import (
@@ -23,7 +24,8 @@ router = APIRouter()
 @router.get("/product-search")
 async def product_search(
     q: str = Query(default=""),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> HTMLResponse:
     """Return an HTML dropdown of products matching the search query."""
     q = q.strip()
@@ -68,10 +70,11 @@ async def product_search(
 async def set_quantity(
     item_id: int,
     quantity: int = Form(..., ge=1, le=99),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> HTMLResponse:
     await update_item_quantity(session, item_id, quantity)
-    ctx = await _shopping_list_context(session)
+    ctx = await _shopping_list_context(session, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
 
@@ -80,10 +83,11 @@ async def set_quantity(
 async def set_store(
     item_id: int,
     store: str = Form(...),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> HTMLResponse:
     await update_item_store(session, item_id, store_from_string(store))
-    ctx = await _shopping_list_context(session)
+    ctx = await _shopping_list_context(session, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
 
@@ -91,14 +95,15 @@ async def set_store(
 @router.post("/items/add-product")
 async def add_product_to_list(
     product_id: int = Form(...),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> HTMLResponse:
     """Add a product (by id) to the active shopping list."""
-    item = await _add_item_to_list(session, product_id=product_id, quantity=1)
+    item = await _add_item_to_list(session, user.user_id, product_id=product_id, quantity=1)
     if item is None:
         return HTMLResponse('<span class="text-red-600 text-xs">No active list or product not found.</span>')
     status = "Added ✓" if item.quantity == 1 else "Qty updated ✓"
-    ctx = await _shopping_list_context(session)
+    ctx = await _shopping_list_context(session, user.user_id)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(
         f'<span class="text-green-600 text-xs">{status}</span>'
@@ -107,15 +112,23 @@ async def add_product_to_list(
 
 
 @router.delete("/items/{item_id}")
-async def delete_item(item_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def delete_item(
+    item_id: int,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
     await remove_item(session, item_id)
-    ctx = await _shopping_list_context(session)
+    ctx = await _shopping_list_context(session, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)
 
 
 @router.post("/copy/{source_list_id}")
-async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def copy_list(
+    source_list_id: int,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
     """Copy all items from a past list into the current active list."""
     active = (await session.execute(
         select(ShoppingList)
@@ -141,7 +154,7 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
     )).scalars().all()
 
     if not source_items:
-        ctx = await _shopping_list_context(session)
+        ctx = await _shopping_list_context(session, user.user_id)
         return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))
 
     source_product_ids = [s.product_id for s in source_items]
@@ -224,5 +237,5 @@ async def copy_list(source_list_id: int, session: AsyncSession = Depends(get_ses
         ))
 
     await session.commit()
-    ctx = await _shopping_list_context(session)
+    ctx = await _shopping_list_context(session, user.user_id)
     return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))
