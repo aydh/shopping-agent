@@ -1,7 +1,9 @@
 import enum
+import uuid
 from datetime import date
 
 from sqlalchemy import Boolean, Date, Enum as SAEnum, Float, ForeignKey, Index, Integer, String, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -17,6 +19,7 @@ class ListStatus(enum.Enum):
 class ShoppingList(TimestampMixin, Base):
     __tablename__ = "shopping_lists"
 
+    user_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
     target_date: Mapped[date] = mapped_column(Date)
@@ -46,7 +49,7 @@ class ShoppingListItem(TimestampMixin, Base):
     is_ordered: Mapped[bool] = mapped_column(Boolean, default=False)
 
     shopping_list: Mapped["ShoppingList"] = relationship(back_populates="items")
-    product: Mapped["Product"] = relationship()
+    product: Mapped["Product"] = relationship(back_populates="shopping_list_items")
 
     __table_args__ = (
         Index(

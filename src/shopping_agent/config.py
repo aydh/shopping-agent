@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     woolworths_api_key: str | None = Field(default=None, description="Woolworths mobile API key (WOOLWORTHS_API_KEY)")
     ssl_certfile: Path | None = Field(default=None, description="Path to SSL certificate file (SSL_CERTFILE)")
     ssl_keyfile: Path | None = Field(default=None, description="Path to SSL private key file (SSL_KEYFILE)")
+    supabase_jwt_secret: str = Field(default="", description="Supabase JWT secret for token verification")
+    supabase_url: str | None = Field(default=None, description="Supabase project URL")
+    supabase_anon_key: str | None = Field(default=None, description="Supabase anon/public key")
+    base_url: str = Field(default="https://localhost:8000", description="Public HTTPS URL of this app")
+    mcp_oauth_client_id: str = Field(default="", description="OAuth client ID registered with Supabase for MCP")
+    mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     price_refresh_poll_interval_ms: int = 2000  # How often the browser polls for price refresh progress
 
     def ensure_dirs(self) -> None:

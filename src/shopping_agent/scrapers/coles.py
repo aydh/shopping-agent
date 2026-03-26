@@ -1018,4 +1018,6 @@ class ColesScraper(BaseScraper):
             return None
 
 
-coles_scraper = ColesScraper()
+# The singleton instance lives in scrapers.registry to avoid circular imports.
+# Legacy code that imports `coles_scraper` from this module will break; update
+# those call-sites to use `from ..scrapers.registry import coles_scraper`.

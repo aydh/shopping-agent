@@ -20,6 +20,7 @@ dependencies = [
     "rapidfuzz>=3.10",
     "apscheduler>=3.10",
     "httpx>=0.28",
+    "python-jose[cryptography]>=3.3",
 ]
 
 [project.optional-dependencies]

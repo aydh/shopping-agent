@@ -1,5 +1,6 @@
 import logging
 import math
+import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
 from statistics import mean, stdev
@@ -169,7 +170,7 @@ def compute_prediction(
     }
 
 
-async def refresh_predictions(session: AsyncSession) -> int:
+async def refresh_predictions(session: AsyncSession, user_id: uuid.UUID) -> int:
     """Recompute all consumption predictions and persist them to the database.
 
     Groups products by their cross-store equivalency using union-find so that
@@ -237,7 +238,9 @@ async def refresh_predictions(session: AsyncSession) -> int:
     # Bulk-fetch all existing predictions upfront — keyed by product_id
     existing_preds: dict[int, ConsumptionPrediction] = {
         p.product_id: p
-        for p in (await session.execute(select(ConsumptionPrediction))).scalars().all()
+        for p in (await session.execute(
+            select(ConsumptionPrediction).where(ConsumptionPrediction.user_id == user_id)
+        )).scalars().all()
     }
 
     count = 0
@@ -293,7 +296,7 @@ async def refresh_predictions(session: AsyncSession) -> int:
             for key, value in pred_data.items():
                 setattr(pred, key, value)
         else:
-            pred = ConsumptionPrediction(product_id=canon_id, **pred_data)
+            pred = ConsumptionPrediction(product_id=canon_id, user_id=user_id, **pred_data)
             session.add(pred)
 
         # Remove stale predictions for non-canonical members
@@ -310,6 +313,7 @@ async def refresh_predictions(session: AsyncSession) -> int:
 
 async def get_predictions_with_match_info(
     session: AsyncSession,
+    user_id: uuid.UUID,
     max_runout_date: date | None = None,
 ) -> list[PredictionView]:
     """Load all predictions as PredictionView objects with pre-computed match info.
@@ -325,6 +329,7 @@ async def get_predictions_with_match_info(
     query = (
         select(ConsumptionPrediction)
         .options(selectinload(ConsumptionPrediction.product))
+        .where(ConsumptionPrediction.user_id == user_id)
         .order_by(ConsumptionPrediction.predicted_runout_date)
     )
     if max_runout_date is not None:

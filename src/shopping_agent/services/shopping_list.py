@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import date, datetime
 from typing import TypedDict
 
@@ -85,6 +86,7 @@ def choose_best_store(
 
 async def generate_shopping_list(
     session: AsyncSession,
+    user_id: uuid.UUID,
     target_date: date | None = None,
     lookahead_days: int = 7,
 ) -> ShoppingList:
@@ -142,7 +144,7 @@ async def generate_shopping_list(
     # Create or update shopping list
     existing = await session.execute(
         select(ShoppingList)
-        .where(ShoppingList.status == ListStatus.DRAFT)
+        .where(ShoppingList.status == ListStatus.DRAFT, ShoppingList.user_id == user_id)
         .order_by(ShoppingList.created_at.desc())
     )
     shopping_list = existing.scalars().first()
@@ -159,6 +161,7 @@ async def generate_shopping_list(
         shopping_list.target_date = target_date
     else:
         shopping_list = ShoppingList(
+            user_id=user_id,
             name=list_name,
             target_date=target_date,
             status=ListStatus.DRAFT,
@@ -264,11 +267,12 @@ async def remove_item(session: AsyncSession, item_id: int) -> bool:
     return False
 
 
-async def get_active_list(session: AsyncSession) -> ShoppingList | None:
+async def get_active_list(session: AsyncSession, user_id: uuid.UUID) -> ShoppingList | None:
     """Return the most recent non-ordered shopping list with items eagerly loaded.
 
     Args:
         session: Async database session.
+        user_id: UUID of the current user.
 
     Returns:
         The most recent ShoppingList not in ORDERED status, or None if none exist.
@@ -276,7 +280,7 @@ async def get_active_list(session: AsyncSession) -> ShoppingList | None:
     result = await session.execute(
         select(ShoppingList)
         .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
-        .where(ShoppingList.status != ListStatus.ORDERED)
+        .where(ShoppingList.status != ListStatus.ORDERED, ShoppingList.user_id == user_id)
         .order_by(ShoppingList.created_at.desc())
     )
     return result.scalars().first()
@@ -299,18 +303,19 @@ async def confirm_list(session: AsyncSession, list_id: int) -> ShoppingList | No
     return shopping_list
 
 
-async def assign_cheapest_stores(session: AsyncSession) -> int:
+async def assign_cheapest_stores(session: AsyncSession, user_id: uuid.UUID) -> int:
     """Assign each active list item to its cheapest available store.
 
     Args:
         session: Async database session.
+        user_id: UUID of the current user.
 
     Returns:
         Number of items whose store was assigned (0 if no active list).
     """
     result = await session.execute(
         select(ShoppingList)
-        .where(ShoppingList.status != ListStatus.ORDERED)
+        .where(ShoppingList.status != ListStatus.ORDERED, ShoppingList.user_id == user_id)
         .order_by(ShoppingList.created_at.desc())
     )
     shopping_list = result.scalars().first()
@@ -334,6 +339,7 @@ async def assign_cheapest_stores(session: AsyncSession) -> int:
 
 async def add_item_to_list(
     session: AsyncSession,
+    user_id: uuid.UUID,
     product_id: int,
     quantity: int = 1,
 ) -> ShoppingListItem | None:
@@ -357,7 +363,7 @@ async def add_item_to_list(
 
     result = await session.execute(
         select(ShoppingList)
-        .where(ShoppingList.status != ListStatus.ORDERED)
+        .where(ShoppingList.status != ListStatus.ORDERED, ShoppingList.user_id == user_id)
         .order_by(ShoppingList.created_at.desc())
     )
     shopping_list = result.scalars().first()
@@ -516,7 +522,7 @@ async def resolve_display_names(
     return display_names, store_names, store_products
 
 
-async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContext:
+async def get_shopping_list_context(session: AsyncSession, user_id: uuid.UUID) -> ShoppingListContext:
     """Build the full shopping list context dict for template rendering.
 
     Returns a dict with keys: shopping_list, display_names, store_names,
@@ -526,7 +532,7 @@ async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContex
     query = (
         select(ShoppingList)
         .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
-        .where(ShoppingList.status != ListStatus.ORDERED)
+        .where(ShoppingList.status != ListStatus.ORDERED, ShoppingList.user_id == user_id)
         .order_by(ShoppingList.created_at.desc())
     )
     result = await session.execute(query)
@@ -624,12 +630,12 @@ async def get_shopping_list_context(session: AsyncSession) -> ShoppingListContex
     }
 
 
-async def get_list_history(session: AsyncSession) -> list[ListHistoryRow]:
+async def get_list_history(session: AsyncSession, user_id: uuid.UUID) -> list[ListHistoryRow]:
     """Return summary rows for past (ordered) shopping lists."""
     result = await session.execute(
         select(ShoppingList)
         .options(selectinload(ShoppingList.items))
-        .where(ShoppingList.status == ListStatus.ORDERED)
+        .where(ShoppingList.status == ListStatus.ORDERED, ShoppingList.user_id == user_id)
         .order_by(ShoppingList.created_at.desc())
     )
     rows: list[ListHistoryRow] = []

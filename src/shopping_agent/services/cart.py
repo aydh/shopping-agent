@@ -6,8 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
 from .product_resolution import get_partner_product
 
 
@@ -47,7 +45,7 @@ async def _resolve_store_product_id(
     return None
 
 
-async def add_to_cart(session: AsyncSession, store: Store) -> CartResult:
+async def add_to_cart(session: AsyncSession, store: Store, coles_scraper, woolworths_scraper) -> CartResult:
     """Add confirmed shopping list items to the specified store's cart.
 
     Retrieves the most recent CONFIRMED shopping list, resolves each item's

@@ -713,4 +713,6 @@ class WoolworthsScraper(BaseScraper):
             return None
 
 
-woolworths_scraper = WoolworthsScraper()
+# The singleton instance lives in scrapers.registry to avoid circular imports.
+# Legacy code that imports `woolworths_scraper` from this module will break; update
+# those call-sites to use `from ..scrapers.registry import woolworths_scraper`.
