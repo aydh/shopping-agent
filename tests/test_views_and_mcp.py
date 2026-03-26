@@ -294,6 +294,23 @@ async def test_auth_callback_page_renders_with_supabase_config(monkeypatch, dumm
 
 
 @pytest.mark.asyncio
+async def test_register_page_renders_with_supabase_config(monkeypatch, dummy_templates, make_request):
+    from shopping_agent.routes.views import register as register_view
+    monkeypatch.setattr(register_view, "templates", dummy_templates)
+    monkeypatch.setattr(register_view, "settings", SimpleNamespace(
+        supabase_url="https://test.supabase.co",
+        supabase_anon_key="test-anon-key",
+    ))
+    request = make_request("/register")
+    response = await register_view.register_page(request)
+    assert len(dummy_templates.template_calls) == 1
+    name, ctx = dummy_templates.template_calls[0]
+    assert name == "register.html"
+    assert ctx["supabase_url"] == "https://test.supabase.co"
+    assert ctx["supabase_anon_key"] == "test-anon-key"
+
+
+@pytest.mark.asyncio
 async def test_mcp_sync_refresh_and_matching_tools(monkeypatch, async_cm):
     product = _product(1, Store.COLES, "Milk", 4.0)
     partner = _product(2, Store.WOOLWORTHS, "Milk", 4.5)
