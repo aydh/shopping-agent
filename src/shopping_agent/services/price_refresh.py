@@ -114,12 +114,13 @@ async def do_price_refresh(
         async with sem:
             try:
                 try:
-                    scraped = await asyncio.wait_for(
-                        scraper.get_product_price(product.store_product_id, product.name),
-                        timeout=20.0,
+                    # Pass timeout to httpx directly — asyncio.wait_for corrupts the
+                    # connection pool when it cancels a mid-flight httpx request.
+                    scraped = await scraper.get_product_price(
+                        product.store_product_id, product.name, timeout=20.0
                     )
-                except asyncio.TimeoutError:
-                    logger.warning("[PriceRefresh] Timeout fetching %s", product.store_product_id)
+                except Exception as e:
+                    logger.warning("[PriceRefresh] Request failed for %s: %s", product.store_product_id, e)
                     scraped = None
                 async with async_session() as session:
                     db_product = await session.get(Product, product.id)

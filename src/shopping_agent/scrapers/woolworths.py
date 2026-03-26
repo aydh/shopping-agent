@@ -420,7 +420,7 @@ class WoolworthsScraper(BaseScraper):
 
     # ── Product Price ────────────────────────────────────────────────
 
-    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None, timeout: float | None = None) -> ScrapedProduct | None:
         """Fetch the current price for a specific Woolworths product.
 
         Args:
@@ -432,8 +432,11 @@ class WoolworthsScraper(BaseScraper):
         """
         try:
             await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S)
+            kwargs: dict = {}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
             resp = await self._request(
-                "GET", f"/apis/ui/product/detail/{store_product_id}"
+                "GET", f"/apis/ui/product/detail/{store_product_id}", **kwargs
             )
             if resp and resp.status_code == 200:
                 result = resp.json()

@@ -122,12 +122,13 @@ class BaseScraper(ABC):
         ...
 
     @abstractmethod
-    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None, timeout: float | None = None) -> ScrapedProduct | None:
         """Fetch current price and availability for a specific product.
 
         Args:
             store_product_id: Store-specific product identifier.
             product_name: Optional product name to aid search-based lookups.
+            timeout: Per-request timeout in seconds passed to the HTTP client.
 
         Returns:
             ScrapedProduct with current price, or None if not found.

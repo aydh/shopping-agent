@@ -634,7 +634,7 @@ class ColesScraper(BaseScraper):
                 logger.debug("[Coles] Failed to get Next.js build ID", exc_info=True)
         return None
 
-    async def get_product_price(self, store_product_id: str, product_name: str | None = None) -> ScrapedProduct | None:
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None, timeout: float | None = None) -> ScrapedProduct | None:
         """Fetch the current price for a specific Coles product.
 
         Searches the BFF API by product name (or ID as fallback) and returns
@@ -658,15 +658,15 @@ class ColesScraper(BaseScraper):
                     timeout=15.0,
                 )
             search_term = product_name or store_product_id
-            resp = await self._bare_client.get(
-                "/api/bff/products/search",
-                params={
-                    "searchTerm": search_term,
-                    "subscription-key": settings.coles_api_key or "",
-                    "storeId": COLES_STORE_ID.split(":")[-1],
-                    "start": 0,
-                },
-            )
+            kwargs: dict = {"params": {
+                "searchTerm": search_term,
+                "subscription-key": settings.coles_api_key or "",
+                "storeId": COLES_STORE_ID.split(":")[-1],
+                "start": 0,
+            }}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            resp = await self._bare_client.get("/api/bff/products/search", **kwargs)
             if resp and resp.status_code == 200:
                 results = resp.json().get("results") or []
                 for item in results:
