@@ -4,8 +4,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.shopping_list import (
@@ -24,8 +24,8 @@ router = APIRouter()
 @router.get("/product-search")
 async def product_search(
     q: str = Query(default=""),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Return an HTML dropdown of products matching the search query."""
     q = q.strip()
@@ -70,8 +70,8 @@ async def product_search(
 async def set_quantity(
     item_id: int,
     quantity: int = Form(..., ge=1, le=99),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await update_item_quantity(session, item_id, quantity)
     ctx = await _shopping_list_context(session, user.user_id)
@@ -83,8 +83,8 @@ async def set_quantity(
 async def set_store(
     item_id: int,
     store: str = Form(...),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await update_item_store(session, item_id, store_from_string(store))
     ctx = await _shopping_list_context(session, user.user_id)
@@ -95,8 +95,8 @@ async def set_store(
 @router.post("/items/add-product")
 async def add_product_to_list(
     product_id: int = Form(...),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Add a product (by id) to the active shopping list."""
     item = await _add_item_to_list(session, user.user_id, product_id=product_id, quantity=1)
@@ -114,8 +114,8 @@ async def add_product_to_list(
 @router.delete("/items/{item_id}")
 async def delete_item(
     item_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await remove_item(session, item_id)
     ctx = await _shopping_list_context(session, user.user_id)
@@ -126,8 +126,8 @@ async def delete_item(
 @router.post("/copy/{source_list_id}")
 async def copy_list(
     source_list_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Copy all items from a past list into the current active list."""
     active = (await session.execute(

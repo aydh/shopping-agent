@@ -6,8 +6,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
 from ...models import Product, ProductMatch, Store
 from ...scrapers.registry import coles_scraper, woolworths_scraper
@@ -25,8 +25,8 @@ async def search_match(
     request: Request,
     q: str = Query(default=""),
     return_to: str = Query(default=""),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Search the opposite store for products to match against the given product."""
     product = await session.get(Product, product_id)
@@ -75,8 +75,8 @@ async def confirm_search_match(
     image_url: str = Form(default=""),
     product_url: str = Form(default=""),
     return_to: str = Form(default=""),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> Response:
     """Upsert a searched product and create a manual match."""
     target_store = store_from_string(store)

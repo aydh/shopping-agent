@@ -4,8 +4,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
 from ...models import ListStatus, ShoppingList, ShoppingListItem, Store
 from ...services.shopping_list import (
@@ -20,8 +20,8 @@ router = APIRouter()
 @router.post("/set-store/{store}")
 async def set_all_store(
     store: str,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Set all items in the active list to the given store."""
     store_enum = store_from_string(store)
@@ -50,8 +50,8 @@ async def set_all_store(
 @router.post("/submit-store/{store}")
 async def submit_store(
     store: str,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> RedirectResponse:
     """Set all items to a single store, confirm, and redirect to review."""
     store_enum = store_from_string(store)
@@ -78,8 +78,8 @@ async def submit_store(
 
 @router.post("/submit-split")
 async def submit_split(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> RedirectResponse:
     """Set each item to its cheapest available store, confirm, and redirect to review."""
     result = await session.execute(

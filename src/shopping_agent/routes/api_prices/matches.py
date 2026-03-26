@@ -7,8 +7,8 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...models import Order, OrderItem, PriceHistory, Product, ProductMatch, Store
 from ...services.price_comparison import match_unmatched_products, matches_to_comparisons
 from ...templating import templates
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/match-products")
-async def run_match_products(user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def run_match_products(user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     """Run auto-matching for all unmatched products across both stores.
 
     One pass from Coles→Woolworths is sufficient: each match removes both
@@ -31,8 +31,8 @@ async def run_match_products(user: CurrentUser = Depends(get_current_user),
 
 
 @router.post("/confirm-match/{match_id}")
-async def confirm_match(match_id: int, user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def confirm_match(match_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     match = await session.get(ProductMatch, match_id, options=[selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b)])
     if not match:
         return HTMLResponse("")
@@ -60,8 +60,8 @@ async def confirm_match(match_id: int, user: CurrentUser = Depends(get_current_u
 async def create_manual_match(
     coles_id: int = Form(...),
     woolworths_id: int = Form(...),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> Response:
     """Create a manual match between a Coles and Woolworths product."""
     coles_product = await session.get(Product, coles_id)
@@ -99,8 +99,8 @@ async def create_manual_match(
 
 
 @router.post("/match/{match_id}/undo")
-async def undo_rejected_match(match_id: int, user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def undo_rejected_match(match_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     """Restore a rejected match."""
     match = await session.get(ProductMatch, match_id)
     if not match:
@@ -111,8 +111,8 @@ async def undo_rejected_match(match_id: int, user: CurrentUser = Depends(get_cur
 
 
 @router.delete("/matches/purge")
-async def purge_all_matches(user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def purge_all_matches(user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     result = await session.execute(delete(ProductMatch))
     await session.commit()
     return HTMLResponse(
@@ -121,8 +121,8 @@ async def purge_all_matches(user: CurrentUser = Depends(get_current_user),
 
 
 @router.delete("/history/purge")
-async def purge_price_history(user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def purge_price_history(user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     result = await session.execute(delete(PriceHistory))
     await session.commit()
     return HTMLResponse(
@@ -131,8 +131,8 @@ async def purge_price_history(user: CurrentUser = Depends(get_current_user),
 
 
 @router.delete("/match/{match_id}")
-async def delete_match(match_id: int, user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def delete_match(match_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     """Reject a product match so it is never auto-matched again."""
     result = await session.execute(
         update(ProductMatch)

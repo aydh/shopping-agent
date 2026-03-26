@@ -8,8 +8,8 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...cache import image_cache
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
 from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, Store
 
@@ -85,8 +85,8 @@ async def image_proxy(url: str) -> Response:
 
 
 @router.post("/product/{product_id}/hide")
-async def hide_product(product_id: int, user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def hide_product(product_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     """Mark a product as hidden (no longer buying). Removes its prediction."""
     product = await session.get(Product, product_id)
     if not product:
@@ -107,8 +107,8 @@ async def hide_product(product_id: int, user: CurrentUser = Depends(get_current_
 
 
 @router.post("/product/{product_id}/restore")
-async def restore_product(product_id: int, user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def restore_product(product_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     """Restore a hidden product."""
     product = await session.get(Product, product_id)
     if not product:
@@ -126,8 +126,8 @@ async def restore_product(product_id: int, user: CurrentUser = Depends(get_curre
 
 
 @router.delete("/products/purge/{store}")
-async def purge_products(store: str, user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
+async def purge_products(store: str, user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
     store_enum = store_from_string(store)
     product_subq = select(Product.id).where(Product.store == store_enum).scalar_subquery()
     await session.execute(delete(ProductMatch).where(

@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, select
 
-from ..auth import CurrentUser, get_current_user
-from ..database import async_session, get_user_session, set_rls_claims
+from ..auth import CurrentUser, get_current_user_from_cookie
+from ..database import async_session, get_user_session_from_cookie, set_rls_claims
 from ..db_helpers import store_from_string
 from ..models import Order, OrderItem, PriceHistory, Product, Store
 from ..scrapers.registry import get_scraper
@@ -24,7 +24,7 @@ router = APIRouter()
 @router.get("/sync-stream/{store}")
 async def sync_orders_stream(
     store: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
 ) -> StreamingResponse:
     """SSE endpoint: fetches orders and streams each row as it's saved."""
     store_enum = store_from_string(store)
@@ -81,8 +81,8 @@ async def sync_orders_stream(
 @router.delete("/purge/{store}")
 async def purge_store_orders(
     store: str,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     store_enum = store_from_string(store)
 
@@ -103,8 +103,8 @@ async def purge_store_orders(
 @router.get("/{order_id}/items")
 async def get_order_items(
     order_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     result = await session.execute(
         select(Order)

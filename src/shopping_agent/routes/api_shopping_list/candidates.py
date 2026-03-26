@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...models import ConsumptionPrediction, Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.prediction import generate_candidates
 from ...services.price_comparison import build_price_map
@@ -24,8 +24,8 @@ router = APIRouter()
 
 @router.post("/add-predictions")
 async def add_predictions(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Add predicted items to the current active list without replacing existing items."""
     active = (await session.execute(
@@ -94,8 +94,8 @@ async def add_predictions(
 
 @router.post("/generate")
 async def generate(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await generate_shopping_list(session, user.user_id)
     ctx = await _shopping_list_context(session, user.user_id)

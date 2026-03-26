@@ -6,8 +6,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...models import ListStatus, Product, ShoppingList, ShoppingListItem
 from ...services.shopping_list import (
     confirm_list,
@@ -40,8 +40,8 @@ async def _past_lists_section_html(session: AsyncSession, user_id) -> str:
 
 @router.delete("/current")
 async def delete_current_list(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Delete the current active (non-ordered) shopping list."""
     shopping_list = (await session.execute(
@@ -64,8 +64,8 @@ async def delete_current_list(
 
 @router.post("/new")
 async def new_list(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Create a new empty shopping list (disabled if one already exists)."""
     existing = (await session.execute(
@@ -92,8 +92,8 @@ async def new_list(
 @router.post("/confirm/{list_id}")
 async def confirm(
     list_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> RedirectResponse:
     await confirm_list(session, list_id)
     return RedirectResponse("/confirm", status_code=303)
@@ -102,8 +102,8 @@ async def confirm(
 @router.post("/close/{list_id}")
 async def close_list(
     list_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> RedirectResponse:
     """Mark the shopping list as ordered (closed)."""
     shopping_list = await session.get(ShoppingList, list_id)
@@ -116,8 +116,8 @@ async def close_list(
 @router.get("/details/{list_id}")
 async def list_details(
     list_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Return an HTML fragment listing all items in a past shopping list."""
     items_result = await session.execute(
@@ -153,8 +153,8 @@ async def list_details(
 @router.delete("/history/{list_id}")
 async def delete_past_list(
     list_id: int,
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Delete a past (ordered) shopping list and refresh the history section."""
     shopping_list = await session.get(ShoppingList, list_id)
@@ -170,8 +170,8 @@ async def delete_past_list(
 
 @router.delete("/purge")
 async def purge_shopping_lists(
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     items = await session.execute(delete(ShoppingListItem))
     lists = await session.execute(delete(ShoppingList))

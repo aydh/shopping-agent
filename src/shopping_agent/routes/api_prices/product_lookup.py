@@ -7,8 +7,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...auth import CurrentUser, get_current_user
-from ...database import get_user_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
 from ...models import Product, Store
 from ...scrapers.registry import coles_scraper, woolworths_scraper
@@ -32,8 +32,8 @@ async def _safe_search(scraper, q: str) -> list:
 async def product_lookup_search(
     request: Request,
     q: str = Query(default=""),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Search both stores in parallel and return combined results."""
     if not q.strip():
@@ -86,8 +86,8 @@ async def product_lookup_select(
     unit_price_measure: str = Form(default=""),
     image_url: str = Form(default=""),
     product_url: str = Form(default=""),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_user_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Upsert the selected product and return the match-search panel."""
     source_store = store_from_string(store)
