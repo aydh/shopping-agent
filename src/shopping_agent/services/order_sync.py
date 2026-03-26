@@ -59,6 +59,8 @@ async def sync_orders(
     for scraped in scraped_orders:
         existing_order = existing_orders.get(scraped.store_order_id)
         if existing_order:
+            if scraped.status:
+                existing_order.status = scraped.status
             if scraped.store_name and not existing_order.store_name:
                 existing_order.store_name = scraped.store_name
             if scraped.store_id and not existing_order.store_id:
