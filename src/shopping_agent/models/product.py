@@ -32,6 +32,7 @@ class Product(TimestampMixin, Base):
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     order_items: Mapped[list["OrderItem"]] = relationship(back_populates="product")  # noqa: F821
+    shopping_list_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="product")  # noqa: F821
 
 
 class ProductMatch(TimestampMixin, Base):

@@ -28,7 +28,14 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 async def set_rls_claims(session: AsyncSession, user_id: UUID) -> None:
     """Inject Supabase JWT claims into the current transaction so RLS auth.uid() works."""
     claims_json = json.dumps({"sub": str(user_id), "role": "authenticated"})
-    await session.execute(text("SET LOCAL request.jwt.claims = :c"), {"c": claims_json})
+    # Postgres "SET <guc> = <value>" does not reliably accept bind parameters for
+    # the RHS (it can produce syntax errors like "at or near $1").
+    # We inline a properly-escaped JSON literal instead.
+    claims_literal = claims_json.replace("'", "''")
+    # Supabase expects this parameter as a JSON string for its JWT claims logic.
+    # Don't cast here: in some setups, Postgres may not accept `::jsonb` on this
+    # GUC assignment.
+    await session.execute(text(f"SET LOCAL request.jwt.claims = '{claims_literal}'"))
     await session.execute(text("SET LOCAL ROLE authenticated"))
 
 

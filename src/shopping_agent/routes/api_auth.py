@@ -1,10 +1,18 @@
-from fastapi import APIRouter, Depends, Request
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from ..auth import CurrentUser, _decode_token, _claims_to_user, get_current_user
+from ..auth import (
+    CurrentUser,
+    _decode_token,
+    get_current_user_from_cookie,
+)
 from ..db_helpers import store_from_string
 from ..models import Store
 from ..scrapers.registry import get_scraper
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,14 +26,18 @@ async def set_session(request: Request) -> JSONResponse:
         return JSONResponse({"error": "access_token required"}, status_code=400)
     try:
         _decode_token(token)
+    except HTTPException as exc:
+        logger.warning("JWT verification failed: %s", exc.detail)
+        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
     except Exception:
+        logger.exception("Unexpected error verifying JWT")
         return JSONResponse({"error": "Invalid token"}, status_code=401)
     response = JSONResponse({"ok": True})
     response.set_cookie(
         key="sb-access-token",
         value=token,
         httponly=True,
-        secure=True,
+        secure=request.url.scheme == "https",
         samesite="strict",
         max_age=3600,
     )
@@ -33,10 +45,15 @@ async def set_session(request: Request) -> JSONResponse:
 
 
 @router.post("/logout")
-async def logout_session() -> Response:
+async def logout_session(request: Request) -> Response:
     """Clear the httpOnly session cookie."""
     response = Response(status_code=204)
-    response.delete_cookie(key="sb-access-token", httponly=True, secure=True, samesite="strict")
+    response.delete_cookie(
+        key="sb-access-token",
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+    )
     return response
 
 
@@ -55,7 +72,7 @@ _MAX_COOKIE_BODY = 1_000_000  # 1 MB
 async def import_cookies(
     store: str,
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     """Import cookies from browser DevTools or Cookie-Editor extension."""
     store_enum = store_from_string(store)
@@ -89,7 +106,7 @@ async def import_cookies(
 @router.get("/validate/{store}")
 async def validate(
     store: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     """Test stored cookies against the live API and report the result."""
     store_enum = store_from_string(store)
@@ -112,7 +129,7 @@ async def validate(
 @router.post("/logout/{store}")
 async def logout_store(
     store: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     store_enum = store_from_string(store)
     scraper = get_scraper(user.user_id, store_enum)
