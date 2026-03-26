@@ -7,8 +7,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...auth import CurrentUser, get_current_user_from_cookie
 from ...config import MIN_PREDICTION_CONFIDENCE
-from ...database import get_session
+from ...database import get_user_session_from_cookie
 from ...models import (
     ConsumptionPrediction,
     Order,
@@ -25,7 +26,11 @@ router = APIRouter()
 
 
 @router.get("/")
-async def dashboard(request: Request, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def dashboard(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
+) -> HTMLResponse:
     """Render the dashboard page."""
     today = date.today()
     week_ahead = today + timedelta(days=7)
@@ -75,14 +80,14 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
     pred_count = pred_count_result.scalar() or 0
     list_count = list_count_result.scalar() or 0
 
-    upcoming_runouts_all = await get_predictions_with_match_info(session, max_runout_date=week_ahead)
+    upcoming_runouts_all = await get_predictions_with_match_info(session, user.user_id, max_runout_date=week_ahead)
     upcoming_runouts = [
         p for p in upcoming_runouts_all
         if p.confidence_score >= MIN_PREDICTION_CONFIDENCE
     ]
 
     # Current shopping list context
-    sl_ctx = await get_shopping_list_context(session)
+    sl_ctx = await get_shopping_list_context(session, user.user_id)
 
     return templates.TemplateResponse(
         request,

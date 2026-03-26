@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -14,6 +15,7 @@ async def sync_orders(
     session: AsyncSession,
     scraped_orders: list[ScrapedOrder],
     store: Store,
+    user_id: uuid.UUID,
 ) -> int:
     """Upsert scraped orders into the database. Returns count of new orders."""
     if not scraped_orders:
@@ -24,7 +26,10 @@ async def sync_orders(
     existing_orders = {
         o.store_order_id: o
         for o in (await session.execute(
-            select(Order).where(Order.store_order_id.in_(store_order_ids))
+            select(Order).where(
+                Order.store_order_id.in_(store_order_ids),
+                Order.user_id == user_id,
+            )
         )).scalars().all()
     }
 
@@ -61,6 +66,7 @@ async def sync_orders(
             continue
 
         order = Order(
+            user_id=user_id,
             store=store,
             store_order_id=scraped.store_order_id,
             order_date=scraped.order_date,

@@ -7,7 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
 from ...db_helpers import visible_products_query
 from ...models import Order, OrderItem, Product, ProductMatch, Store
 from ...services.price_comparison import matches_to_comparisons
@@ -18,7 +19,9 @@ router = APIRouter()
 
 @router.get("/prices")
 async def prices_page(
-    request: Request, session: AsyncSession = Depends(get_session)
+    request: Request,
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Render the price comparison page."""
     # Fetch all visible products
@@ -119,7 +122,8 @@ async def prices_page(
 async def search_match_page(
     product_id: int,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Render the manual search-match page for a given product."""
     product = await session.get(Product, product_id)

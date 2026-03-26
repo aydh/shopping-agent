@@ -6,12 +6,14 @@ predictions, shopping lists, cart, order sync, price refresh, and product matchi
 Mount: app.mount("/mcp", mcp.http_app()) in main.py
 """
 import logging
+import uuid
 from typing import cast
 
 from fastapi import HTTPException
 from fastmcp import FastMCP
 
-from ..database import async_session
+from ..config import settings
+from ..database import async_session, set_rls_claims
 from ..db_helpers import store_from_string
 from ..models import ListStatus, Product, ProductMatch, ShoppingList, Store
 from ..services.cart import add_to_cart
@@ -30,17 +32,36 @@ from ..services.shopping_list import (
     update_item_quantity,
 )
 from ..services.price_comparison import compare_product_prices, find_or_create_match, match_unmatched_products
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
+from ..scrapers.registry import get_scraper
 
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("shopping-agent")
 
 
-def _scraper_for(store: str):
-    """Return the scraper instance for the given store name."""
+def _get_mcp_user_id() -> uuid.UUID:
+    """Return the configured MCP default user UUID.
+
+    This is a stopgap until FastMCP OAuth 2.1 is configured. Set
+    MCP_DEFAULT_USER_ID in the environment to the UUID of the user
+    whose data MCP tools should operate on.
+    """
+    uid = settings.mcp_default_user_id
+    if not uid:
+        raise ValueError(
+            "MCP_DEFAULT_USER_ID is not configured. "
+            "Set it to a valid user UUID to enable MCP tools."
+        )
+    return uuid.UUID(uid)
+
+
+def _scraper_for(store: str, user_id: uuid.UUID | None = None):
+    """Return a scraper instance for the given store name."""
     s = store_from_string(store)
+    if user_id:
+        return get_scraper(user_id, s)
+    # Fallback to global singleton (no user context)
+    from ..scrapers.registry import coles_scraper, woolworths_scraper
     return coles_scraper if s == Store.COLES else woolworths_scraper
 
 
@@ -59,7 +80,8 @@ async def get_auth_status(store: str) -> dict:
         {"store": str, "authenticated": bool, "message": str}
     """
     try:
-        scraper = _scraper_for(store)
+        user_id = _get_mcp_user_id()
+        scraper = _scraper_for(store, user_id)
         authenticated = await scraper.is_authenticated()
         return {
             "store": store,
@@ -78,9 +100,12 @@ async def get_predictions() -> list[dict]:
     product name, store, confidence score, days until runout, and whether
     a cross-store price match exists.
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        predictions = await get_predictions_with_match_info(session)
-        return [
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            predictions = await get_predictions_with_match_info(session, user_id)
+    return [
             {
                 "product_id": p.product_id,
                 "product_name": cast(Product, p.product).name,
@@ -104,8 +129,11 @@ async def get_shopping_list() -> dict:
     Returns the active DRAFT or CONFIRMED list with per-item details.
     If no active list exists, returns {"shopping_list": null}.
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        shopping_list = await get_active_list(session)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            shopping_list = await get_active_list(session, user_id)
         if not shopping_list:
             return {"shopping_list": None, "items": []}
         active_items = [i for i in shopping_list.items if not i.is_removed]
@@ -139,8 +167,11 @@ async def get_shopping_list_history() -> list[dict]:
 
     Returns a list of completed lists ordered by most recent first.
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        history = await get_list_history(session)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            history = await get_list_history(session, user_id)
     return [
         {
             "list_id": row["id"],
@@ -177,8 +208,9 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
     else:
         stores_to_search = [Store.COLES, Store.WOOLWORTHS]
 
+    user_id = _get_mcp_user_id()
     for s in stores_to_search:
-        scraper = coles_scraper if s == Store.COLES else woolworths_scraper
+        scraper = _scraper_for(s.value, user_id)
         if not await scraper.is_authenticated():
             results.append({"store": s.value, "error": f"Not authenticated for {s.value}"})
             continue
@@ -215,8 +247,11 @@ async def get_price_comparison(product_id: int) -> dict:
         Price comparison with coles_price, woolworths_price, cheaper_store, savings.
         Returns error if product not found or no match exists.
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        comparisons = await compare_product_prices(session, [product_id])
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            comparisons = await compare_product_prices(session, [product_id])
     if not comparisons:
         return {"error": f"No price comparison found for product {product_id}"}
     c = comparisons[0]
@@ -250,16 +285,19 @@ async def create_shopping_list(from_predictions: bool = False) -> dict:
     Returns:
         {"list_id": int, "item_count": int, "status": str} or {"error": str}
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        existing = await get_active_list(session)
-        if existing:
-            return {"error": f"An active shopping list already exists (id={existing.id}, status={existing.status.value}). Close or delete it first."}
-        if from_predictions:
-            shopping_list = await generate_shopping_list(session)
-        else:
-            shopping_list = ShoppingList(name="Shopping List", status=ListStatus.DRAFT)
-            session.add(shopping_list)
-            await session.commit()
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            existing = await get_active_list(session, user_id)
+            if existing:
+                return {"error": f"An active shopping list already exists (id={existing.id}, status={existing.status.value}). Close or delete it first."}
+            if from_predictions:
+                shopping_list = await generate_shopping_list(session, user_id)
+            else:
+                shopping_list = ShoppingList(name="Shopping List", status=ListStatus.DRAFT, user_id=user_id)
+                session.add(shopping_list)
+                await session.flush()
         list_id = shopping_list.id
         item_count = sum(1 for item in shopping_list.items if not getattr(item, "is_removed", False))
         status = shopping_list.status.value
@@ -283,8 +321,11 @@ async def add_item_to_shopping_list(product_id: int, quantity: int = 1) -> dict:
     """
     if quantity < 1:
         return {"error": "Quantity must be at least 1"}
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        item = await add_item_to_list(session, product_id=product_id, quantity=quantity)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            item = await add_item_to_list(session, user_id, product_id=product_id, quantity=quantity)
         if item is None:
             return {"error": "No active shopping list or product not found"}
         return {
@@ -309,8 +350,11 @@ async def update_list_item_quantity(item_id: int, quantity: int) -> dict:
     """
     if quantity < 1:
         return {"error": "Quantity must be at least 1"}
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        await update_item_quantity(session, item_id, quantity)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            await update_item_quantity(session, item_id, quantity)
     return {"item_id": item_id, "quantity": quantity}
 
 
@@ -324,8 +368,11 @@ async def remove_list_item(item_id: int) -> dict:
     Returns:
         {"item_id": int, "removed": bool}
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        removed = await remove_item(session, item_id)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            removed = await remove_item(session, item_id)
     return {"item_id": item_id, "removed": removed}
 
 
@@ -340,8 +387,11 @@ async def assign_cheapest_store_to_all() -> dict:
     Returns:
         {"items_assigned": int} or {"error": str} if no active list.
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        count = await assign_cheapest_stores(session)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            count = await assign_cheapest_stores(session, user_id)
     if count == 0:
         return {"error": "No active list or no items to assign"}
     return {"items_assigned": count}
@@ -357,11 +407,14 @@ async def confirm_shopping_list() -> dict:
     Returns:
         {"list_id": int, "status": str} or {"error": str}
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        shopping_list = await get_active_list(session)
-        if not shopping_list:
-            return {"error": "No active shopping list found"}
-        confirmed = await confirm_list(session, shopping_list.id)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            shopping_list = await get_active_list(session, user_id)
+            if not shopping_list:
+                return {"error": "No active shopping list found"}
+            confirmed = await confirm_list(session, shopping_list.id)
         if not confirmed:
             return {"error": "Failed to confirm list"}
         list_id = confirmed.id
@@ -379,15 +432,17 @@ async def close_shopping_list() -> dict:
     Returns:
         {"list_id": int, "status": "ordered"} or {"error": str}
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        shopping_list = await get_active_list(session)
-        if not shopping_list:
-            return {"error": "No active shopping list found"}
-        if shopping_list.status != ListStatus.CONFIRMED:
-            return {"error": f"List must be CONFIRMED before closing (current status: {shopping_list.status.value})"}
-        shopping_list.status = ListStatus.ORDERED
-        await session.commit()
-        list_id = shopping_list.id
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            shopping_list = await get_active_list(session, user_id)
+            if not shopping_list:
+                return {"error": "No active shopping list found"}
+            if shopping_list.status != ListStatus.CONFIRMED:
+                return {"error": f"List must be CONFIRMED before closing (current status: {shopping_list.status.value})"}
+            shopping_list.status = ListStatus.ORDERED
+            list_id = shopping_list.id
     return {"list_id": list_id, "status": "ordered"}
 
 
@@ -417,12 +472,17 @@ async def add_confirmed_list_to_cart(store: str) -> dict:
     except (ValueError, HTTPException) as e:
         return {"error": str(e)}
 
-    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
-    if not await scraper.is_authenticated():
+    user_id = _get_mcp_user_id()
+    coles_s = get_scraper(user_id, Store.COLES)
+    ww_s = get_scraper(user_id, Store.WOOLWORTHS)
+    target_scraper = coles_s if store_enum == Store.COLES else ww_s
+    if not await target_scraper.is_authenticated():
         return {"error": f"Not authenticated for {store} — import cookies first"}
 
     async with async_session() as session:
-        result = await add_to_cart(session, store_enum)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            result = await add_to_cart(session, store_enum, coles_s, ww_s)
     return dict(result)
 
 
@@ -452,7 +512,8 @@ async def sync_orders(store: str, limit: int | None = None) -> dict:
     except (ValueError, HTTPException) as e:
         return {"error": str(e)}
 
-    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    user_id = _get_mcp_user_id()
+    scraper = _scraper_for(store, user_id)
     if not await scraper.is_authenticated():
         return {"error": f"Not authenticated for {store} — import cookies first"}
 
@@ -463,7 +524,9 @@ async def sync_orders(store: str, limit: int | None = None) -> dict:
             scraped_orders.append(order)
 
         async with async_session() as session:
-            new_count = await _sync_orders(session, scraped_orders, store_enum)
+            async with session.begin():
+                await set_rls_claims(session, user_id)
+                new_count = await _sync_orders(session, scraped_orders, store_enum, user_id)
     except Exception as e:
         logger.warning("[MCP] sync_orders failed for %s: %s", store, e)
         return {"error": f"Sync failed: {e}"}
@@ -492,7 +555,8 @@ async def refresh_prices(store: str) -> dict:
     except (ValueError, HTTPException) as e:
         return {"error": str(e)}
 
-    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    user_id = _get_mcp_user_id()
+    scraper = _scraper_for(store, user_id)
     if not await scraper.is_authenticated():
         return {"error": f"Not authenticated for {store} — import cookies first"}
 
@@ -510,8 +574,11 @@ async def refresh_predictions() -> dict:
     Returns:
         {"predictions_updated": int}
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        count = await _refresh_predictions(session)
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            count = await _refresh_predictions(session, user_id)
     return {"predictions_updated": count}
 
 
@@ -543,10 +610,13 @@ async def match_products(store: str | None = None) -> dict:
     else:
         stores_to_process = [Store.COLES]
 
+    user_id = _get_mcp_user_id()
     results: dict[str, int] = {}
     for s in stores_to_process:
         async with async_session() as session:
-            count = await match_unmatched_products(session, s)
+            async with session.begin():
+                await set_rls_claims(session, user_id)
+                count = await match_unmatched_products(session, s)
         results[s.value] = count
 
     total = sum(results.values())
@@ -570,36 +640,39 @@ async def find_product_match(product_id: int, query: str | None = None) -> dict:
         Match details if found, or {"match": null, "message": str} if not found.
         Returns {"error": str} if product not found.
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        product = await session.get(Product, product_id)
-        if not product:
-            return {"error": f"Product {product_id} not found"}
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            product = await session.get(Product, product_id)
+            if not product:
+                return {"error": f"Product {product_id} not found"}
 
-        target_store = Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
-        target_scraper = woolworths_scraper if target_store == Store.WOOLWORTHS else coles_scraper
+            target_store = Store.WOOLWORTHS if product.store == Store.COLES else Store.COLES
+            target_scraper = get_scraper(user_id, target_store)
 
-        scraper_to_use = None
-        if await target_scraper.is_authenticated():
-            scraper_to_use = target_scraper
+            scraper_to_use = None
+            if await target_scraper.is_authenticated():
+                scraper_to_use = target_scraper
 
-        match = await find_or_create_match(session, product, target_store, scraper=scraper_to_use, search_query=query)
-        if not match:
-            return {"match": None, "message": "No match found"}
+            match = await find_or_create_match(session, product, target_store, scraper=scraper_to_use, search_query=query)
+            if not match:
+                return {"match": None, "message": "No match found"}
 
-        partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
-        partner = await session.get(Product, partner_id)
+            partner_id = match.product_b_id if match.product_a_id == product_id else match.product_a_id
+            partner = await session.get(Product, partner_id)
 
-        result = {
-            "match_id": match.id,
-            "product_id": product_id,
-            "partner_product_id": partner_id,
-            "partner_name": partner.name if partner else None,
-            "partner_store": partner.store.value if partner else None,
-            "confidence": match.confidence,
-            "match_method": match.match_method,
-            "is_confirmed": match.is_confirmed,
-            "is_rejected": match.is_rejected,
-        }
+            result = {
+                "match_id": match.id,
+                "product_id": product_id,
+                "partner_product_id": partner_id,
+                "partner_name": partner.name if partner else None,
+                "partner_store": partner.store.value if partner else None,
+                "confidence": match.confidence,
+                "match_method": match.match_method,
+                "is_confirmed": match.is_confirmed,
+                "is_rejected": match.is_rejected,
+            }
     return result
 
 
@@ -613,11 +686,13 @@ async def confirm_product_match(match_id: int) -> dict:
     Returns:
         {"match_id": int, "confirmed": bool} or {"error": str}
     """
+    user_id = _get_mcp_user_id()
     async with async_session() as session:
-        match = await session.get(ProductMatch, match_id)
-        if not match:
-            return {"error": f"ProductMatch {match_id} not found"}
-        match.is_confirmed = True
-        match.is_rejected = False
-        await session.commit()
+        async with session.begin():
+            await set_rls_claims(session, user_id)
+            match = await session.get(ProductMatch, match_id)
+            if not match:
+                return {"error": f"ProductMatch {match_id} not found"}
+            match.is_confirmed = True
+            match.is_rejected = False
     return {"match_id": match_id, "confirmed": True}

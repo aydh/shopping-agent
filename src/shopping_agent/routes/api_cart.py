@@ -6,11 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..database import async_session, get_session
+from ..auth import CurrentUser, get_current_user
+from ..database import async_session, get_user_session, set_rls_claims
 from ..db_helpers import store_from_string
 from ..models import ListStatus, ShoppingList, ShoppingListItem, Store
-from ..scrapers.coles import coles_scraper
-from ..scrapers.woolworths import woolworths_scraper
+from ..scrapers.registry import get_scraper
 from ..services.cart import _resolve_store_product_id, add_to_cart
 from ..templating import templates
 
@@ -18,31 +18,36 @@ router = APIRouter()
 
 
 @router.get("/stream/{store}")
-async def add_to_cart_stream(store: str) -> StreamingResponse:
+async def add_to_cart_stream(
+    store: str,
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
     """SSE endpoint: adds items to cart one at a time, streaming per-item results."""
     store_enum = store_from_string(store)
-    scraper = coles_scraper if store_enum == Store.COLES else woolworths_scraper
+    scraper = get_scraper(user.user_id, store_enum)
 
     async def generate():
         async with async_session() as session:
-            result = await session.execute(
-                select(ShoppingList)
-                .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
-                .where(ShoppingList.status == ListStatus.CONFIRMED)
-                .order_by(ShoppingList.created_at.desc())
-            )
-            shopping_list = result.scalars().first()
-            if not shopping_list:
-                yield f"event: done\ndata: {json.dumps({'error': 'No confirmed list'})}\n\n"
-                return
+            async with session.begin():
+                await set_rls_claims(session, user.user_id)
+                result = await session.execute(
+                    select(ShoppingList)
+                    .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
+                    .where(ShoppingList.status == ListStatus.CONFIRMED)
+                    .order_by(ShoppingList.created_at.desc())
+                )
+                shopping_list = result.scalars().first()
+                if not shopping_list:
+                    yield f"event: done\ndata: {json.dumps({'error': 'No confirmed list'})}\n\n"
+                    return
 
-            items_to_process = []
-            for item in shopping_list.items:
-                if item.is_removed or item.chosen_store != store_enum:
-                    continue
-                spid = await _resolve_store_product_id(session, item.product, store_enum)
-                if spid:
-                    items_to_process.append((item.id, str(spid), item.quantity))
+                items_to_process = []
+                for item in shopping_list.items:
+                    if item.is_removed or item.chosen_store != store_enum:
+                        continue
+                    spid = await _resolve_store_product_id(session, item.product, store_enum)
+                    if spid:
+                        items_to_process.append((item.id, str(spid), item.quantity))
 
         succeeded = 0
         failed_ids = []
@@ -50,10 +55,11 @@ async def add_to_cart_stream(store: str) -> StreamingResponse:
             results = await scraper.add_to_cart([(spid, quantity)])
             success = results.get(spid, False)
             async with async_session() as session:
-                item = await session.get(ShoppingListItem, item_id)
-                if item and success:
-                    item.is_ordered = True
-                    await session.commit()
+                async with session.begin():
+                    await set_rls_claims(session, user.user_id)
+                    item = await session.get(ShoppingListItem, item_id)
+                    if item and success:
+                        item.is_ordered = True
             if success:
                 succeeded += 1
             else:
@@ -68,9 +74,15 @@ async def add_to_cart_stream(store: str) -> StreamingResponse:
 
 
 @router.post("/add/{store}")
-async def add_items_to_cart(store: str, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def add_items_to_cart(
+    store: str,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
     store_enum = store_from_string(store)
-    result = await add_to_cart(session, store_enum)
+    coles_scraper = get_scraper(user.user_id, Store.COLES)
+    woolworths_scraper = get_scraper(user.user_id, Store.WOOLWORTHS)
+    result = await add_to_cart(session, store_enum, coles_scraper, woolworths_scraper)
 
     failed_ids = result.get("failed_item_ids", [])
     highlight_js = templates.env.get_template("fragments/_cart_highlight.html").render(

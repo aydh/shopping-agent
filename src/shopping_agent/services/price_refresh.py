@@ -12,8 +12,8 @@ from ..config import COLES_PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_PRICE_REFRESH_C
 from ..database import async_session
 from ..db_helpers import visible_products_query
 from ..models import ListStatus, PriceHistory, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
-from ..scrapers.coles import coles_scraper as _coles_scraper
-from ..scrapers.woolworths import woolworths_scraper as _ww_scraper
+from ..scrapers.registry import coles_scraper as _coles_scraper
+from ..scrapers.registry import woolworths_scraper as _ww_scraper
 
 logger = logging.getLogger(__name__)
 

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
@@ -63,7 +64,8 @@ class ColesScraper(BaseScraper):
     store = Store.COLES
     _cookie_domain: str = ".coles.com.au"
 
-    def __init__(self) -> None:
+    def __init__(self, user_id: uuid.UUID | None = None) -> None:
+        self.user_id = user_id
         self._client: httpx.AsyncClient | None = None
         self._bare_client: httpx.AsyncClient | None = None
         self._next_build_id: str | None = None
@@ -1018,4 +1020,6 @@ class ColesScraper(BaseScraper):
             return None
 
 
-coles_scraper = ColesScraper()
+# The singleton instance lives in scrapers.registry to avoid circular imports.
+# Legacy code that imports `coles_scraper` from this module will break; update
+# those call-sites to use `from ..scrapers.registry import coles_scraper`.

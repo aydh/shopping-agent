@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user
+from ...database import get_user_session
 from ...models import ConsumptionPrediction, Product, ProductMatch, ShoppingList, ShoppingListItem, Store, ListStatus
 from ...services.prediction import generate_candidates
 from ...services.price_comparison import build_price_map
@@ -22,7 +23,10 @@ router = APIRouter()
 
 
 @router.post("/add-predictions")
-async def add_predictions(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def add_predictions(
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
     """Add predicted items to the current active list without replacing existing items."""
     active = (await session.execute(
         select(ShoppingList)
@@ -31,7 +35,7 @@ async def add_predictions(session: AsyncSession = Depends(get_session)) -> HTMLR
     )).scalars().first()
 
     if not active:
-        ctx = await _shopping_list_context(session)
+        ctx = await _shopping_list_context(session, user.user_id)
         list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
         return HTMLResponse(list_html)
 
@@ -83,14 +87,17 @@ async def add_predictions(session: AsyncSession = Depends(get_session)) -> HTMLR
         ))
 
     await session.commit()
-    ctx = await _shopping_list_context(session)
+    ctx = await _shopping_list_context(session, user.user_id)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(list_html)
 
 
 @router.post("/generate")
-async def generate(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
-    await generate_shopping_list(session)
-    ctx = await _shopping_list_context(session)
+async def generate(
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
+) -> HTMLResponse:
+    await generate_shopping_list(session, user.user_id)
+    ctx = await _shopping_list_context(session, user.user_id)
     html = templates.get_template("_shopping_list_content.html").render(**ctx)
     return HTMLResponse(html)

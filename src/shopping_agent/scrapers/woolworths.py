@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import time
+import uuid
 from datetime import datetime
 
 import httpx
@@ -43,7 +44,8 @@ class WoolworthsScraper(BaseScraper):
     store = Store.WOOLWORTHS
     _cookie_domain: str = ".woolworths.com.au"
 
-    def __init__(self) -> None:
+    def __init__(self, user_id: uuid.UUID | None = None) -> None:
+        self.user_id = user_id
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -713,4 +715,6 @@ class WoolworthsScraper(BaseScraper):
             return None
 
 
-woolworths_scraper = WoolworthsScraper()
+# The singleton instance lives in scrapers.registry to avoid circular imports.
+# Legacy code that imports `woolworths_scraper` from this module will break; update
+# those call-sites to use `from ..scrapers.registry import woolworths_scraper`.

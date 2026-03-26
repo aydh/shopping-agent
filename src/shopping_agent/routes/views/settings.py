@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...database import get_session
-from ...scrapers.coles import coles_scraper
-from ...scrapers.woolworths import woolworths_scraper
+from ...auth import CurrentUser, get_current_user_from_cookie
+from ...database import get_user_session_from_cookie
+from ...scrapers.registry import coles_scraper, woolworths_scraper
 from ...services.data_management import get_db_counts
 from ...templating import templates
 
@@ -29,7 +29,10 @@ def _counts_rows(counts: dict) -> list[dict]:
 
 
 @router.get("/api/settings/counts")
-async def settings_counts(session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def settings_counts(
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
+) -> HTMLResponse:
     """Return HTML fragment of data-management counts (polled by HTMX)."""
     counts = await get_db_counts(session)
     html = templates.env.get_template("_settings_counts.html").render(rows=_counts_rows(counts))
@@ -38,7 +41,9 @@ async def settings_counts(session: AsyncSession = Depends(get_session)) -> HTMLR
 
 @router.get("/settings")
 async def settings_page(
-    request: Request, session: AsyncSession = Depends(get_session)
+    request: Request,
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+    session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     """Render the settings page."""
     coles_connected, woolworths_connected = await asyncio.gather(

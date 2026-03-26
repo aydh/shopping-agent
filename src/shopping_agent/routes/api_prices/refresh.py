@@ -8,14 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user
+from ...database import get_user_session
 from ...db_helpers import store_from_string
 from ...models import (
     Product,
     Store,
 )
-from ...scrapers.coles import coles_scraper as _coles_scraper
-from ...scrapers.woolworths import woolworths_scraper as _ww_scraper
+from ...scrapers.registry import coles_scraper as _coles_scraper, woolworths_scraper as _ww_scraper
 from ...services.price_refresh import do_price_refresh
 
 router = APIRouter()
@@ -53,7 +53,8 @@ async def _do_price_refresh(store_enum: Store) -> None:
 
 
 @router.post("/refresh/{store}")
-async def refresh_prices(store: str, background_tasks: BackgroundTasks, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+async def refresh_prices(store: str, background_tasks: BackgroundTasks, user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session)) -> HTMLResponse:
     """Kick off a background price refresh for the given store."""
     store_enum = store_from_string(store)
     store_val = store_enum.value

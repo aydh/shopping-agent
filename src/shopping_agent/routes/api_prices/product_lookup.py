@@ -7,11 +7,11 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...database import get_session
+from ...auth import CurrentUser, get_current_user
+from ...database import get_user_session
 from ...db_helpers import store_from_string
 from ...models import Product, Store
-from ...scrapers.coles import coles_scraper
-from ...scrapers.woolworths import woolworths_scraper
+from ...scrapers.registry import coles_scraper, woolworths_scraper
 from ...templating import templates
 
 router = APIRouter()
@@ -32,7 +32,8 @@ async def _safe_search(scraper, q: str) -> list:
 async def product_lookup_search(
     request: Request,
     q: str = Query(default=""),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> HTMLResponse:
     """Search both stores in parallel and return combined results."""
     if not q.strip():
@@ -85,7 +86,8 @@ async def product_lookup_select(
     unit_price_measure: str = Form(default=""),
     image_url: str = Form(default=""),
     product_url: str = Form(default=""),
-    session: AsyncSession = Depends(get_session),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_user_session),
 ) -> HTMLResponse:
     """Upsert the selected product and return the match-search panel."""
     source_store = store_from_string(store)
