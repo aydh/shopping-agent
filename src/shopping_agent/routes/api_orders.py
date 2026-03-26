@@ -49,6 +49,11 @@ async def sync_orders_stream(
                             await set_rls_claims(session, user.user_id)
                             count = await sync_orders(session, [scraped_order], store_enum, user.user_id)
                             new_count += count
+                    # sync_orders commits its own transaction; fetch the saved order in a fresh session
+                    order = None
+                    async with async_session() as session:
+                        async with session.begin():
+                            await set_rls_claims(session, user.user_id)
                             result = await session.execute(
                                 select(Order)
                                 .options(selectinload(Order.items))
