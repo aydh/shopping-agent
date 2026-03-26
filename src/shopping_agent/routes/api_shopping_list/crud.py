@@ -55,7 +55,7 @@ async def delete_current_list(
             delete(ShoppingListItem).where(ShoppingListItem.shopping_list_id == shopping_list.id)
         )
         await session.delete(shopping_list)
-        await session.commit()
+        # session.begin() context manager commits on exit; autoflush covers pending deletes.
 
     ctx = await _shopping_list_context(session, user.user_id)
     list_html = templates.get_template("_shopping_list_content.html").render(**ctx)

@@ -118,7 +118,7 @@ async def product_lookup_select(
         )
         session.add(product)
 
-    await session.commit()
+    await session.flush()  # populates server-generated id; context manager commits on exit
     await session.refresh(product)
 
     target_store = Store.WOOLWORTHS if source_store == Store.COLES else Store.COLES
