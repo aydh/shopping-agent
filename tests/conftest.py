@@ -86,7 +86,12 @@ class DummyTemplates:
 
         return _Template()
 
-    def TemplateResponse(self, name: str, context: dict[str, Any]) -> HTMLResponse:
+    def TemplateResponse(self, *args: Any, **kwargs: Any) -> HTMLResponse:
+        # Supports new-style (request, name, context) and old-style (name, context)
+        if len(args) == 3:
+            _, name, context = args
+        else:
+            name, context = args
         self.template_calls.append((name, context))
         return HTMLResponse(f"template:{name}")
 
