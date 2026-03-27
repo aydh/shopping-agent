@@ -5,6 +5,7 @@ from .auth_callback import router as auth_callback_router
 from .dashboard import router as dashboard_router
 from .health import router as health_router
 from .login import router as login_router
+from .oauth_consent import router as oauth_consent_router
 from .orders import router as orders_router
 from .predictions import router as predictions_router
 from .prices import router as prices_router
@@ -18,6 +19,7 @@ router.include_router(health_router)
 router.include_router(login_router)
 router.include_router(register_router)
 router.include_router(auth_callback_router)
+router.include_router(oauth_consent_router)
 router.include_router(dashboard_router)
 router.include_router(orders_router)
 router.include_router(predictions_router)
