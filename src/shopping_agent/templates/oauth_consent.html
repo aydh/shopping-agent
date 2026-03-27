@@ -88,6 +88,23 @@
                 return;
             }
 
+            // Check for an active Supabase session (set by Supabase's hosted login in localStorage).
+            // We must NOT redirect to /login here — doing so forces a second login which creates a
+            // new session that can't approve the authorization_id from the original session.
+            const { data: sessionData, error: sessionError } = await sb.auth.getSession();
+            if (sessionError || !sessionData.session) {
+                const nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
+                window.location.href = '/login?next=' + nextUrl;
+                return;
+            }
+
+            // Set the httpOnly cookie so other app routes recognise the user (best-effort).
+            await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ access_token: sessionData.session.access_token }),
+            });
+
             let details;
             try {
                 const { data, error } = await sb.auth.oauth.getAuthorizationDetails(AUTHORIZATION_ID);
