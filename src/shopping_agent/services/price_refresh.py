@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 async def do_price_refresh(
     store_enum: Store,
     progress_callback: Callable[[int, int], Awaitable[None] | None] | None = None,
+    all_products: bool = False,
 ) -> tuple[int, int]:
-    """Refresh current prices for all visible products of a given store.
+    """Refresh current prices for products of a given store.
 
     Fetches each product's current price concurrently (respecting per-store
     concurrency limits), updates Product.current_price, upserts today's
@@ -30,6 +31,9 @@ async def do_price_refresh(
 
     Args:
         store_enum: The store to refresh prices for.
+        progress_callback: Optional callback invoked with (done, total) after each product.
+        all_products: If True, refresh all products regardless of visibility/availability.
+                      If False (default), only refresh visible (non-hidden) products.
 
     Returns:
         Tuple of (updated_count, total_count) — number of products whose price
@@ -48,6 +52,8 @@ async def do_price_refresh(
     async with async_session() as session:
         result = await session.execute(
             visible_products_query().where(Product.store == store_enum)
+            if not all_products
+            else select(Product).where(Product.store == store_enum)
         )
         products = list(result.scalars().all())
         product_ids = [p.id for p in products]

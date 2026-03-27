@@ -106,11 +106,17 @@ PREDICTION_LEAD_TIME_DAYS: int = 14
 PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
+# KNOWNN WORKING SETTINGS FOR ~400 prods 10, 0
 COLES_PRICE_REFRESH_CONCURRENCY: int = 10
-WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 1
 COLES_PRICE_FETCH_DELAY_S: float = 0.0      # Delay between individual Coles product price requests
-WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.1  # Delay between individual Woolworths product price requests
+# KNOWNN WORKING SETTINGS FOR ~400 prods 2, 0.15, 0.05
+WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 2
+WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.15  # Delay between individual Woolworths product price requests
 WOOLWORTHS_PRICE_FETCH_JITTER_S: float = 0.05  # Max random jitter added on top of delay (uniform 0–jitter)
+
+# Scheduled price refresh
+PRICE_REFRESH_INTERVAL_HOURS: int = 8        # How often to run the scheduled refresh
+PRICE_REFRESH_JITTER_MINUTES: int = 30       # Max random offset (±minutes) applied to each scheduled run
 
 # Chart colours
 COLES_COLOUR: str = "#dc2626"

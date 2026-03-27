@@ -1,17 +1,23 @@
 import logging
 import logging.handlers
+import random
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
 
-from .config import settings
+from .config import PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
 from .database import init_db
+from .models import Store
 from .routes.mcp import mcp
+from .services.price_refresh import do_price_refresh
 
 BASE_DIR = Path(__file__).resolve().parent
+logger = logging.getLogger(__name__)
 
 
 def _configure_logging() -> None:
@@ -50,10 +56,50 @@ _configure_logging()
 mcp_app = mcp.http_app(path="/")
 
 
+_scheduler = AsyncIOScheduler()
+
+
+async def _scheduled_price_refresh() -> None:
+    """Run a full price refresh for both stores (all products, no filters)."""
+    for store in (Store.COLES, Store.WOOLWORTHS):
+        try:
+            updated, total = await do_price_refresh(store, all_products=True)
+            logger.info("[Scheduler] %s price refresh complete: %d/%d updated", store.value, updated, total)
+        except Exception:
+            logger.exception("[Scheduler] Price refresh failed for %s", store.value)
+
+
+def _schedule_next_refresh() -> None:
+    """Schedule the next price refresh with random jitter applied."""
+    jitter_s = random.uniform(
+        -PRICE_REFRESH_JITTER_MINUTES * 60,
+        PRICE_REFRESH_JITTER_MINUTES * 60,
+    )
+    run_at = datetime.now(timezone.utc) + timedelta(hours=PRICE_REFRESH_INTERVAL_HOURS, seconds=jitter_s)
+    _scheduler.add_job(
+        _run_refresh_then_reschedule,
+        "date",
+        run_date=run_at,
+        id="price_refresh",
+        replace_existing=True,
+    )
+    logger.info("[Scheduler] Next price refresh scheduled for %s", run_at.isoformat())
+
+
+async def _run_refresh_then_reschedule() -> None:
+    await _scheduled_price_refresh()
+    _schedule_next_refresh()
+
+
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     await init_db()
-    yield
+    _scheduler.start()
+    _schedule_next_refresh()
+    try:
+        yield
+    finally:
+        _scheduler.shutdown(wait=False)
 
 
 class _MCPPathMiddleware:
