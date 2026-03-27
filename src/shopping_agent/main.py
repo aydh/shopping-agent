@@ -218,11 +218,14 @@ async def oauth_protected_resource_metadata():
     MCP clients fetch this after receiving a 401 from /mcp to discover
     the authorization server and start the OAuth 2.1 + PKCE flow.
     """
-    return {
+    doc: dict = {
         "resource": f"{settings.base_url}/mcp",
         "authorization_servers": [settings.supabase_url],
         "bearer_methods_supported": ["header"],
     }
+    if settings.mcp_oauth_client_id:
+        doc["client_id"] = settings.mcp_oauth_client_id
+    return doc
 
 
 app.mount("/mcp", mcp_app)

@@ -114,9 +114,20 @@
                 scopes.forEach(scope => {
                     const li = document.createElement('li');
                     li.className = 'flex items-center gap-2 text-sm text-gray-700';
-                    li.innerHTML = `<svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>${scope}`;
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('class', 'w-4 h-4 text-green-500 flex-shrink-0');
+                    svg.setAttribute('fill', 'none');
+                    svg.setAttribute('viewBox', '0 0 24 24');
+                    svg.setAttribute('stroke', 'currentColor');
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('stroke-linecap', 'round');
+                    path.setAttribute('stroke-linejoin', 'round');
+                    path.setAttribute('stroke-width', '2');
+                    path.setAttribute('d', 'M5 13l4 4L19 7');
+                    svg.appendChild(path);
+                    const text = document.createTextNode(scope);
+                    li.appendChild(svg);
+                    li.appendChild(text);
                     list.appendChild(li);
                 });
                 document.getElementById('scopes-section').classList.remove('hidden');
