@@ -1,7 +1,11 @@
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Display timezone — used for log messages and template date rendering
+APP_TIMEZONE = ZoneInfo("Australia/Sydney")
 
 
 class Settings(BaseSettings):
@@ -115,8 +119,8 @@ WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.15  # Delay between individual Woolwor
 WOOLWORTHS_PRICE_FETCH_JITTER_S: float = 0.05  # Max random jitter added on top of delay (uniform 0–jitter)
 
 # Scheduled price refresh
-PRICE_REFRESH_INTERVAL_HOURS: int = 8        # How often to run the scheduled refresh
-PRICE_REFRESH_JITTER_MINUTES: int = 30       # Max random offset (±minutes) applied to each scheduled run
+PRICE_REFRESH_INTERVAL_HOURS: int = 4        # How often to run the scheduled refresh
+PRICE_REFRESH_JITTER_MINUTES: int = 60       # Max random offset (±minutes) applied to each scheduled run
 
 # Chart colours
 COLES_COLOUR: str = "#dc2626"

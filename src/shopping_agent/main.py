@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
 
-from .config import PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
+from .config import APP_TIMEZONE, PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
 from .database import init_db
 from .models import Store
 from .routes.mcp import mcp
@@ -83,7 +83,7 @@ def _schedule_next_refresh() -> None:
         id="price_refresh",
         replace_existing=True,
     )
-    logger.info("[Scheduler] Next price refresh scheduled for %s", run_at.astimezone().isoformat())
+    logger.info("[Scheduler] Next price refresh scheduled for %s", run_at.astimezone(APP_TIMEZONE).isoformat())
 
 
 async def _run_refresh_then_reschedule() -> None:
@@ -104,7 +104,7 @@ async def app_lifespan(app: FastAPI):
         id="price_refresh",
         replace_existing=True,
     )
-    logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.astimezone().isoformat())
+    logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.astimezone(APP_TIMEZONE).isoformat())
     try:
         yield
     finally:

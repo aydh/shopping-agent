@@ -1,7 +1,10 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi.templating import Jinja2Templates
+
+from .config import APP_TIMEZONE
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
@@ -37,5 +40,15 @@ def _product_url(
     return None
 
 
+def _localtime(dt: datetime) -> datetime:
+    """Convert a UTC (or naive-UTC) datetime to APP_TIMEZONE for display."""
+    if dt is None:
+        return dt
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TIMEZONE)
+
+
 templates.env.filters["product_image_url"] = _product_image_url
 templates.env.filters["product_url"] = _product_url
+templates.env.filters["localtime"] = _localtime
