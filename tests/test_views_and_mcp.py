@@ -344,3 +344,154 @@ async def test_mcp_sync_refresh_and_matching_tools(monkeypatch, async_cm):
     assert matched["matches_created"] == 6
     assert found["match_id"] == 9
     assert confirmed["confirmed"] is True
+
+
+# ---------------------------------------------------------------------------
+# MCP OAuth middleware + discovery endpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_mcp_auth_middleware_rejects_missing_token(monkeypatch):
+    import uuid
+    from shopping_agent.main import MCPAuthMiddleware
+    import shopping_agent.main as main_module
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+    ))
+
+    received = []
+
+    async def downstream(scope, receive, send):
+        received.append("called")
+
+    middleware = MCPAuthMiddleware(downstream)
+    responses = []
+
+    async def send_fn(msg):
+        responses.append(msg)
+
+    scope = {"type": "http", "path": "/mcp/", "headers": []}
+    await middleware(scope, None, send_fn)
+
+    assert not received
+    start = responses[0]
+    assert start["status"] == 401
+    www_auth = dict(start["headers"])[b"www-authenticate"].decode()
+    assert 'resource_metadata="https://app.example.com/.well-known/oauth-protected-resource"' in www_auth
+
+
+@pytest.mark.asyncio
+async def test_mcp_auth_middleware_rejects_invalid_token(monkeypatch):
+    from fastapi import HTTPException
+    from shopping_agent.main import MCPAuthMiddleware
+    import shopping_agent.main as main_module
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+    ))
+    monkeypatch.setattr(main_module, "_decode_token", lambda token: (_ for _ in ()).throw(HTTPException(status_code=401, detail="bad")))
+
+    received = []
+
+    async def downstream(scope, receive, send):
+        received.append("called")
+
+    middleware = MCPAuthMiddleware(downstream)
+    responses = []
+
+    async def send_fn(msg):
+        responses.append(msg)
+
+    scope = {
+        "type": "http",
+        "path": "/mcp/",
+        "headers": [[b"authorization", b"Bearer bad-token"]],
+    }
+    await middleware(scope, None, send_fn)
+
+    assert not received
+    start = responses[0]
+    assert start["status"] == 401
+    www_auth = dict(start["headers"])[b"www-authenticate"].decode()
+    assert 'error="invalid_token"' in www_auth
+
+
+@pytest.mark.asyncio
+async def test_mcp_auth_middleware_allows_valid_token_and_sets_user(monkeypatch):
+    import uuid
+    from shopping_agent.main import MCPAuthMiddleware
+    from shopping_agent.routes.mcp import _mcp_user_id_var
+    import shopping_agent.main as main_module
+
+    user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+    ))
+    monkeypatch.setattr(main_module, "_decode_token", lambda token: {"sub": str(user_id), "email": "test@example.com"})
+    monkeypatch.setattr(main_module, "_claims_to_user", lambda claims: SimpleNamespace(user_id=user_id))
+
+    captured_user_id = None
+
+    async def downstream(scope, receive, send):
+        nonlocal captured_user_id
+        captured_user_id = _mcp_user_id_var.get()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
+
+    middleware = MCPAuthMiddleware(downstream)
+
+    async def send_fn(msg):
+        pass
+
+    scope = {
+        "type": "http",
+        "path": "/mcp/",
+        "headers": [[b"authorization", b"Bearer valid-token"]],
+    }
+    await middleware(scope, None, send_fn)
+
+    assert captured_user_id == user_id
+    # ContextVar is reset after the request
+    assert _mcp_user_id_var.get() is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_auth_middleware_passes_through_non_mcp_paths(monkeypatch):
+    from shopping_agent.main import MCPAuthMiddleware
+    import shopping_agent.main as main_module
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(base_url="https://app.example.com"))
+
+    received = []
+
+    async def downstream(scope, receive, send):
+        received.append(scope["path"])
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
+
+    middleware = MCPAuthMiddleware(downstream)
+
+    async def send_fn(msg):
+        pass
+
+    scope = {"type": "http", "path": "/api/auth/session", "headers": []}
+    await middleware(scope, None, send_fn)
+
+    assert received == ["/api/auth/session"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_protected_resource_metadata(monkeypatch):
+    import shopping_agent.main as main_module
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+        supabase_url="https://proj.supabase.co",
+    ))
+
+    result = await main_module.oauth_protected_resource_metadata()
+
+    assert result["resource"] == "https://app.example.com/mcp"
+    assert result["authorization_servers"] == ["https://proj.supabase.co"]
+    assert result["bearer_methods_supported"] == ["header"]

@@ -5,6 +5,7 @@ predictions, shopping lists, cart, order sync, price refresh, and product matchi
 
 Mount: app.mount("/mcp", mcp.http_app()) in main.py
 """
+import contextvars
 import logging
 import uuid
 from typing import cast
@@ -38,19 +39,28 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP("shopping-agent")
 
+# Holds the authenticated user UUID for the current MCP request.
+# Set by MCPAuthMiddleware from the validated Bearer token before each request.
+_mcp_user_id_var: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
+    "mcp_user_id", default=None
+)
+
 
 def _get_mcp_user_id() -> uuid.UUID:
-    """Return the configured MCP default user UUID.
+    """Return the authenticated user UUID for the current MCP request.
 
-    This is a stopgap until FastMCP OAuth 2.1 is configured. Set
-    MCP_DEFAULT_USER_ID in the environment to the UUID of the user
-    whose data MCP tools should operate on.
+    Reads from the per-request ContextVar set by MCPAuthMiddleware.
+    Falls back to MCP_DEFAULT_USER_ID as a dev convenience when no middleware
+    is in the call chain (e.g. direct tool invocation in tests).
     """
+    user_id = _mcp_user_id_var.get()
+    if user_id is not None:
+        return user_id
     uid = settings.mcp_default_user_id
     if not uid:
         raise ValueError(
-            "MCP_DEFAULT_USER_ID is not configured. "
-            "Set it to a valid user UUID to enable MCP tools."
+            "No authenticated MCP user. Provide a Bearer token or set "
+            "MCP_DEFAULT_USER_ID for local development."
         )
     return uuid.UUID(uid)
 
