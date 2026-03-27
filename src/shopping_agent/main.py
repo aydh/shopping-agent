@@ -95,7 +95,16 @@ async def _run_refresh_then_reschedule() -> None:
 async def app_lifespan(app: FastAPI):
     await init_db()
     _scheduler.start()
-    _schedule_next_refresh()
+    # First run 60 seconds after startup, then every PRICE_REFRESH_INTERVAL_HOURS ± jitter
+    first_run_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+    _scheduler.add_job(
+        _run_refresh_then_reschedule,
+        "date",
+        run_date=first_run_at,
+        id="price_refresh",
+        replace_existing=True,
+    )
+    logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.isoformat())
     try:
         yield
     finally:
