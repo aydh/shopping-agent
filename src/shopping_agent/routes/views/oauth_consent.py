@@ -10,7 +10,7 @@ from ...templating import templates
 router = APIRouter()
 
 
-@router.get("/oauth/consent")
+@router.get("/oauth/consent", response_model=None)
 async def oauth_consent_page(request: Request) -> HTMLResponse | RedirectResponse:
     """Render the OAuth consent screen.
 
