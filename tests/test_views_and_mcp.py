@@ -488,6 +488,7 @@ async def test_oauth_protected_resource_metadata(monkeypatch):
     monkeypatch.setattr(main_module, "settings", SimpleNamespace(
         base_url="https://app.example.com",
         supabase_url="https://proj.supabase.co",
+        mcp_oauth_client_id="my-client-id",
     ))
 
     result = await main_module.oauth_protected_resource_metadata()
@@ -495,3 +496,86 @@ async def test_oauth_protected_resource_metadata(monkeypatch):
     assert result["resource"] == "https://app.example.com/mcp"
     assert result["authorization_servers"] == ["https://proj.supabase.co"]
     assert result["bearer_methods_supported"] == ["header"]
+    assert result["client_id"] == "my-client-id"
+
+
+@pytest.mark.asyncio
+async def test_oauth_protected_resource_metadata_omits_client_id_when_unconfigured(monkeypatch):
+    import shopping_agent.main as main_module
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+        supabase_url="https://proj.supabase.co",
+        mcp_oauth_client_id="",
+    ))
+
+    result = await main_module.oauth_protected_resource_metadata()
+
+    assert "client_id" not in result
+
+
+@pytest.mark.asyncio
+async def test_oauth_consent_page_renders_with_authorization_id(monkeypatch, dummy_templates):
+    from shopping_agent.routes.views import oauth_consent as oauth_consent_view
+    from starlette.requests import Request
+
+    monkeypatch.setattr(oauth_consent_view, "templates", dummy_templates)
+    monkeypatch.setattr(oauth_consent_view, "settings", SimpleNamespace(
+        supabase_url="https://test.supabase.co",
+        supabase_anon_key="test-anon-key",
+    ))
+
+    async def _receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/oauth/consent",
+            "headers": [],
+            "query_string": b"authorization_id=test-auth-id-123",
+        },
+        receive=_receive,
+    )
+
+    response = await oauth_consent_view.oauth_consent_page(request)
+
+    assert len(dummy_templates.template_calls) == 1
+    name, ctx = dummy_templates.template_calls[0]
+    assert name == "oauth_consent.html"
+    assert ctx["authorization_id"] == "test-auth-id-123"
+    assert ctx["supabase_url"] == "https://test.supabase.co"
+    assert ctx["supabase_anon_key"] == "test-anon-key"
+
+
+@pytest.mark.asyncio
+async def test_oauth_consent_page_handles_missing_authorization_id(monkeypatch, dummy_templates):
+    from shopping_agent.routes.views import oauth_consent as oauth_consent_view
+    from starlette.requests import Request
+
+    monkeypatch.setattr(oauth_consent_view, "templates", dummy_templates)
+    monkeypatch.setattr(oauth_consent_view, "settings", SimpleNamespace(
+        supabase_url="https://test.supabase.co",
+        supabase_anon_key="test-anon-key",
+    ))
+
+    async def _receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/oauth/consent",
+            "headers": [],
+            "query_string": b"",
+        },
+        receive=_receive,
+    )
+
+    response = await oauth_consent_view.oauth_consent_page(request)
+
+    name, ctx = dummy_templates.template_calls[0]
+    assert name == "oauth_consent.html"
+    assert ctx["authorization_id"] == ""
