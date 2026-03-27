@@ -64,8 +64,11 @@
         const submitBtn = document.getElementById('submit-btn');
         const githubBtn = document.getElementById('github-btn');
 
+        const params = new URLSearchParams(window.location.search);
+        const nextUrl = params.get('next') || '/';
+
         // Show error from callback redirect if present
-        const urlError = new URLSearchParams(window.location.search).get('error');
+        const urlError = params.get('error');
         if (urlError) {
             errorDiv.textContent = urlError === 'auth_failed' ? 'Authentication failed. Please try again.' : 'Failed to establish session.';
             errorDiv.classList.remove('hidden');
@@ -74,9 +77,10 @@
         githubBtn.addEventListener('click', async () => {
             githubBtn.disabled = true;
             githubBtn.textContent = 'Redirecting\u2026';
+            const callbackUrl = window.location.origin + '/auth/callback?next=' + encodeURIComponent(nextUrl);
             await sb.auth.signInWithOAuth({
                 provider: 'github',
-                options: { redirectTo: window.location.origin + '/auth/callback' },
+                options: { redirectTo: callbackUrl },
             });
         });
 
@@ -110,7 +114,7 @@
                 submitBtn.textContent = 'Sign in';
                 return;
             }
-            window.location.href = '/';
+            window.location.href = nextUrl;
         });
     </script>
 </body>
