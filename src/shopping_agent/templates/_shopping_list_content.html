@@ -126,7 +126,7 @@
 <!-- Items Table -->
 <style>
     @media (min-width: 768px) {
-        .sl-header, .sl-row { display: grid; grid-template-columns: 1fr 1fr 8rem 3rem; gap: 1rem; align-items: center; }
+        .sl-header, .sl-row { display: grid; grid-template-columns: 1fr 1fr 8rem 5rem; gap: 1rem; align-items: center; }
         .sl-products { display: contents; }
         .sl-actions { display: contents; }
     }
@@ -149,6 +149,7 @@
         {% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price < item.woolworths_price) %}
         {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
 
+        {% set ph_ids = ([coles_p.id] if coles_p else []) + ([ww_p.id] if ww_p else []) %}
         <div class="sl-row px-4 sm:px-6 py-3" data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}">
 
             <!-- Products: side-by-side on mobile, grid cells on desktop -->
@@ -231,13 +232,31 @@
                             class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-l border-gray-300 leading-none">+</button>
                 </div>
 
-                <!-- Remove -->
-                <button hx-delete="/api/shopping-list/items/{{ item.id }}"
-                        hx-target="#list-content" hx-swap="innerHTML"
-                        class="text-red-400 hover:text-red-600 text-xs ml-auto md:ml-0">✕</button>
+                <!-- Icon actions -->
+                <div class="flex items-center gap-2 ml-auto md:ml-0">
+                    {% if ph_ids %}
+                    <button onclick="toggleSLItemHistory(this, 'sl-hist-{{ item.id }}', '{{ ph_ids | join(',') }}')"
+                            title="Price history"
+                            class="text-gray-400 hover:text-blue-600 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                        </svg>
+                    </button>
+                    {% endif %}
+                    <button hx-delete="/api/shopping-list/items/{{ item.id }}"
+                            hx-target="#list-content" hx-swap="innerHTML"
+                            title="Remove item"
+                            class="text-red-400 hover:text-red-600 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.021-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                    </button>
+                </div>
             </div>
 
         </div>
+        <!-- Price history panel (lazy-loaded) -->
+        <div id="sl-hist-{{ item.id }}" class="hidden px-4 sm:px-6 pb-3 space-y-2"></div>
         {% endif %}
         {% endfor %}
     </div>
@@ -250,6 +269,29 @@
 {% endif %}
 
 <script>
+function toggleSLItemHistory(btn, containerId, ids) {
+    const body = document.getElementById(containerId);
+    if (!body.classList.contains('hidden') && body.innerHTML.trim()) {
+        body.innerHTML = '';
+        body.classList.add('hidden');
+        btn.classList.remove('text-blue-600');
+        return;
+    }
+    btn.classList.add('text-blue-600');
+    body.classList.remove('hidden');
+    body.innerHTML = '<p class="text-xs text-gray-400 py-2">Loading...</p>';
+    fetch('/api/prices/product-history/batch?ids=' + ids)
+        .then(r => r.json())
+        .then(data => {
+            body.innerHTML = Object.values(data).join('');
+            body.querySelectorAll('script').forEach(s => {
+                const ns = document.createElement('script');
+                ns.textContent = s.textContent;
+                s.replaceWith(ns);
+            });
+        });
+}
+
 function filterShoppingList(query) {
     const q = query.toLowerCase().trim();
     document.querySelectorAll('[data-item-name]').forEach(row => {
