@@ -83,7 +83,7 @@ def _schedule_next_refresh() -> None:
         id="price_refresh",
         replace_existing=True,
     )
-    logger.info("[Scheduler] Next price refresh scheduled for %s", run_at.isoformat())
+    logger.info("[Scheduler] Next price refresh scheduled for %s", run_at.astimezone().isoformat())
 
 
 async def _run_refresh_then_reschedule() -> None:
@@ -104,7 +104,7 @@ async def app_lifespan(app: FastAPI):
         id="price_refresh",
         replace_existing=True,
     )
-    logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.isoformat())
+    logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.astimezone().isoformat())
     try:
         yield
     finally:
