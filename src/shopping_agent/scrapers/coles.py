@@ -635,17 +635,14 @@ class ColesScraper(BaseScraper):
         return None
 
     async def get_product_price(self, store_product_id: str, product_name: str | None = None, timeout: float | None = None) -> ScrapedProduct | None:
-        """Fetch the current price for a specific Coles product.
-
-        Searches the BFF API by product name (or ID as fallback) and returns
-        the matching product entry for the given store_product_id.
+        """Fetch the current price for a specific Coles product via direct ID lookup.
 
         Args:
             store_product_id: Coles product ID to look up.
-            product_name: Optional product name to use as the search term.
+            product_name: Unused; kept for interface compatibility.
 
         Returns:
-            ScrapedProduct with current price, or None if not found.
+            ScrapedProduct with current price, or None if the request fails.
         """
         try:
             if COLES_PRICE_FETCH_DELAY_S:
@@ -657,33 +654,23 @@ class ColesScraper(BaseScraper):
                     follow_redirects=True,
                     timeout=15.0,
                 )
-            search_term = product_name or store_product_id
             kwargs: dict = {"params": {
-                "searchTerm": search_term,
                 "subscription-key": settings.coles_api_key or "",
                 "storeId": COLES_STORE_ID.split(":")[-1],
-                "start": 0,
             }}
             if timeout is not None:
                 kwargs["timeout"] = timeout
-            resp = await self._bare_client.get("/api/bff/products/search", **kwargs)
+            resp = await self._bare_client.get(f"/api/bff/products/{store_product_id}", **kwargs)
             if resp and resp.status_code == 200:
-                results = resp.json().get("results") or []
-                for item in results:
-                    p = self._parse_graphql_product(item)
-                    if p and p.store_product_id == store_product_id:
-                        logger.debug(
-                            "[Coles price] %s raw fields: availability=%s pricing=%s",
-                            store_product_id,
-                            item.get("availability"),
-                            item.get("pricing"),
-                        )
-                        return p
-                # Search succeeded but product not in results — treat as unavailable/delisted
-                logger.info(
-                    "[Coles price] %s not found in search results (delisted/unavailable)",
+                item = resp.json()
+                logger.debug(
+                    "[Coles price] %s raw fields: availability=%s pricing=%s",
                     store_product_id,
+                    item.get("availability"),
+                    item.get("pricing"),
                 )
+                return self._parse_graphql_product(item)
+            if resp and resp.status_code == 404:
                 return ScrapedProduct(
                     store_product_id=store_product_id,
                     name=product_name or store_product_id,
