@@ -130,6 +130,10 @@ async def do_price_refresh(
                             db_product.is_available = True
                             if scraped.name:
                                 db_product.name = scraped.name
+                            if scraped.brand:
+                                db_product.brand = scraped.brand
+                            if scraped.unit_size:
+                                db_product.unit_size = scraped.unit_size
                             if scraped.unit_price:
                                 db_product.unit_price = scraped.unit_price
                             if scraped.unit_price_measure:
