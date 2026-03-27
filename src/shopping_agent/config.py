@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     base_url: str = Field(default="https://localhost:8000", description="Public HTTPS URL of this app")
     mcp_oauth_client_id: str = Field(default="", description="OAuth client ID registered with Supabase for MCP")
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
+    mcp_jwt_algorithm: str = Field(default="ES256", description="JWT algorithm Supabase uses (ES256/RS256 use JWKS; HS256 uses SUPABASE_JWT_SECRET)")
     mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
     migration_user_id: str = Field(default="", description="UUID of existing-data backfill user (MIGRATION_USER_ID)")
     enable_scheduler: bool = Field(default=False, description="Enable scheduled price refresh (ENABLE_SCHEDULER)")
