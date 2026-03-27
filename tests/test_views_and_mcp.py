@@ -579,3 +579,59 @@ async def test_oauth_consent_page_handles_missing_authorization_id(monkeypatch, 
     name, ctx = dummy_templates.template_calls[0]
     assert name == "oauth_consent.html"
     assert ctx["authorization_id"] == ""
+
+
+@pytest.mark.asyncio
+async def test_oauth_authorization_server_metadata(monkeypatch):
+    import shopping_agent.main as main_module
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+        supabase_url="https://proj.supabase.co",
+        mcp_oauth_client_id="my-client-id",
+    ))
+
+    result = await main_module.oauth_authorization_server_metadata()
+
+    assert result["issuer"] == "https://proj.supabase.co"
+    assert result["authorization_endpoint"] == "https://proj.supabase.co/auth/v1/authorize"
+    assert result["token_endpoint"] == "https://proj.supabase.co/auth/v1/token"
+    assert "S256" in result["code_challenge_methods_supported"]
+    assert "code" in result["response_types_supported"]
+
+
+@pytest.mark.asyncio
+async def test_authorize_redirect_passes_through_query_params(monkeypatch):
+    import shopping_agent.main as main_module
+    from starlette.requests import Request
+
+    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
+        base_url="https://app.example.com",
+        supabase_url="https://proj.supabase.co",
+        mcp_oauth_client_id="my-client-id",
+    ))
+
+    async def _receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/authorize",
+            "headers": [],
+            "query_string": b"response_type=code&client_id=abc&code_challenge=xyz&code_challenge_method=S256",
+            "server": ("app.example.com", 443),
+            "scheme": "https",
+        },
+        receive=_receive,
+    )
+
+    response = await main_module.authorize_redirect(request)
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert location.startswith("https://proj.supabase.co/auth/v1/authorize?")
+    assert "response_type=code" in location
+    assert "client_id=abc" in location
+    assert "code_challenge=xyz" in location

@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request as FastAPIRequest
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
 
@@ -226,6 +227,45 @@ async def oauth_protected_resource_metadata():
     if settings.mcp_oauth_client_id:
         doc["client_id"] = settings.mcp_oauth_client_id
     return doc
+
+
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_authorization_server_metadata():
+    """Authorization Server Metadata document (RFC 8414).
+
+    Some MCP clients (e.g. Claude.ai) perform AS discovery on the resource
+    server host rather than following the authorization_servers pointer in the
+    protected resource metadata.  We expose this document so those clients can
+    discover Supabase's authorization and token endpoints without needing to
+    reach Supabase's own discovery URL.
+    """
+    supabase_url = (settings.supabase_url or "").rstrip("/")
+    return {
+        "issuer": supabase_url,
+        "authorization_endpoint": f"{supabase_url}/auth/v1/authorize",
+        "token_endpoint": f"{supabase_url}/auth/v1/token",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+    }
+
+
+@app.get("/authorize")
+async def authorize_redirect(request: FastAPIRequest):
+    """Redirect OAuth authorization requests to Supabase.
+
+    Some MCP clients fall back to hitting /authorize on the resource server
+    host when AS discovery fails or is skipped.  We forward all query params
+    to Supabase's authorization endpoint so the user ends up at the correct
+    login page.
+    """
+    supabase_url = (settings.supabase_url or "").rstrip("/")
+    target = f"{supabase_url}/auth/v1/authorize"
+    params = str(request.url.query)
+    if params:
+        target = f"{target}?{params}"
+    return RedirectResponse(url=target, status_code=302)
 
 
 app.mount("/mcp", mcp_app)
