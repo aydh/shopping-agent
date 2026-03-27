@@ -115,6 +115,13 @@
                 return;
             }
 
+            // Supabase auto-approves for trusted clients (e.g. project owner).
+            // redirect_to is already set — skip the consent UI and redirect immediately.
+            if (details.redirect_to) {
+                window.location.href = details.redirect_to;
+                return;
+            }
+
             // Populate UI
             document.getElementById('client-name').textContent = details.client_name || details.client_id || 'An application';
 
@@ -157,9 +164,9 @@
                 document.getElementById('allow-btn').disabled = true;
                 document.getElementById('allow-btn').textContent = 'Authorizing…';
                 try {
-                    const { redirect_to, error } = await sb.auth.oauth.approveAuthorization(AUTHORIZATION_ID);
+                    const { data, error } = await sb.auth.oauth.approveAuthorization(AUTHORIZATION_ID);
                     if (error) throw error;
-                    window.location.href = redirect_to;
+                    window.location.href = data.redirect_to;
                 } catch (err) {
                     showError(err.message || 'Failed to approve authorization.');
                 }
@@ -169,9 +176,9 @@
                 document.getElementById('deny-btn').disabled = true;
                 document.getElementById('deny-btn').textContent = 'Denying…';
                 try {
-                    const { redirect_to, error } = await sb.auth.oauth.denyAuthorization(AUTHORIZATION_ID);
+                    const { data, error } = await sb.auth.oauth.denyAuthorization(AUTHORIZATION_ID);
                     if (error) throw error;
-                    window.location.href = redirect_to;
+                    window.location.href = data.redirect_to;
                 } catch (err) {
                     showError(err.message || 'Failed to deny authorization.');
                 }
