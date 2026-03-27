@@ -347,143 +347,85 @@ async def test_mcp_sync_refresh_and_matching_tools(monkeypatch, async_cm):
 
 
 # ---------------------------------------------------------------------------
-# MCP OAuth middleware + discovery endpoint
+# MCP OAuth — SupabaseProvider + discovery
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_mcp_auth_middleware_rejects_missing_token(monkeypatch):
+async def test_mcp_uses_supabase_provider_when_configured(monkeypatch):
+    """SupabaseProvider is attached to the FastMCP instance when supabase_url is set."""
+    from shopping_agent.routes import mcp as mcp_module
+    from fastmcp.server.auth.providers.supabase import SupabaseProvider
+
+    # The mcp instance was created at import time; if supabase_url is configured
+    # in the test environment the auth is set, otherwise it's None.
+    # This test verifies _create_mcp_auth() returns a SupabaseProvider when configured.
+    original_settings = mcp_module.settings
+    try:
+        mcp_module.settings = SimpleNamespace(
+            supabase_url="https://proj.supabase.co",
+            base_url="https://app.example.com",
+            mcp_jwt_algorithm="ES256",
+            supabase_jwt_secret="",
+        )
+        auth = mcp_module._create_mcp_auth()
+        assert isinstance(auth, SupabaseProvider)
+    finally:
+        mcp_module.settings = original_settings
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_auth_returns_none_without_supabase_url(monkeypatch):
+    """_create_mcp_auth returns None when supabase_url is not configured."""
+    from shopping_agent.routes import mcp as mcp_module
+
+    original_settings = mcp_module.settings
+    try:
+        mcp_module.settings = SimpleNamespace(
+            supabase_url=None,
+            base_url="https://app.example.com",
+            mcp_jwt_algorithm="ES256",
+            supabase_jwt_secret="",
+        )
+        auth = mcp_module._create_mcp_auth()
+        assert auth is None
+    finally:
+        mcp_module.settings = original_settings
+
+
+@pytest.mark.asyncio
+async def test_get_mcp_user_id_falls_back_to_default(monkeypatch):
+    """_get_mcp_user_id returns MCP_DEFAULT_USER_ID when no access token is present."""
     import uuid
-    from shopping_agent.main import MCPAuthMiddleware
-    import shopping_agent.main as main_module
+    from shopping_agent.routes import mcp as mcp_module
 
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
-        base_url="https://app.example.com",
-    ))
-
-    received = []
-
-    async def downstream(scope, receive, send):
-        received.append("called")
-
-    middleware = MCPAuthMiddleware(downstream)
-    responses = []
-
-    async def send_fn(msg):
-        responses.append(msg)
-
-    scope = {"type": "http", "path": "/mcp/", "headers": []}
-    await middleware(scope, None, send_fn)
-
-    assert not received
-    start = responses[0]
-    assert start["status"] == 401
-    www_auth = dict(start["headers"])[b"www-authenticate"].decode()
-    assert 'resource_metadata="https://app.example.com/.well-known/oauth-protected-resource"' in www_auth
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000042")
+    original_settings = mcp_module.settings
+    try:
+        mcp_module.settings = SimpleNamespace(mcp_default_user_id=str(uid))
+        monkeypatch.setattr(mcp_module, "get_access_token", lambda: None)
+        result = mcp_module._get_mcp_user_id()
+        assert result == uid
+    finally:
+        mcp_module.settings = original_settings
 
 
 @pytest.mark.asyncio
-async def test_mcp_auth_middleware_rejects_invalid_token(monkeypatch):
-    from fastapi import HTTPException
-    from shopping_agent.main import MCPAuthMiddleware
-    import shopping_agent.main as main_module
-
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
-        base_url="https://app.example.com",
-    ))
-    monkeypatch.setattr(main_module, "_decode_token", lambda token: (_ for _ in ()).throw(HTTPException(status_code=401, detail="bad")))
-
-    received = []
-
-    async def downstream(scope, receive, send):
-        received.append("called")
-
-    middleware = MCPAuthMiddleware(downstream)
-    responses = []
-
-    async def send_fn(msg):
-        responses.append(msg)
-
-    scope = {
-        "type": "http",
-        "path": "/mcp/",
-        "headers": [[b"authorization", b"Bearer bad-token"]],
-    }
-    await middleware(scope, None, send_fn)
-
-    assert not received
-    start = responses[0]
-    assert start["status"] == 401
-    www_auth = dict(start["headers"])[b"www-authenticate"].decode()
-    assert 'error="invalid_token"' in www_auth
-
-
-@pytest.mark.asyncio
-async def test_mcp_auth_middleware_allows_valid_token_and_sets_user(monkeypatch):
+async def test_get_mcp_user_id_reads_from_access_token(monkeypatch):
+    """_get_mcp_user_id returns the UUID from the access token sub claim."""
     import uuid
-    from shopping_agent.main import MCPAuthMiddleware
-    from shopping_agent.routes.mcp import _mcp_user_id_var
-    import shopping_agent.main as main_module
+    from shopping_agent.routes import mcp as mcp_module
 
-    user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
-        base_url="https://app.example.com",
-    ))
-    monkeypatch.setattr(main_module, "_decode_token", lambda token: {"sub": str(user_id), "email": "test@example.com"})
-    monkeypatch.setattr(main_module, "_claims_to_user", lambda claims: SimpleNamespace(user_id=user_id))
-
-    captured_user_id = None
-
-    async def downstream(scope, receive, send):
-        nonlocal captured_user_id
-        captured_user_id = _mcp_user_id_var.get()
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
-
-    middleware = MCPAuthMiddleware(downstream)
-
-    async def send_fn(msg):
-        pass
-
-    scope = {
-        "type": "http",
-        "path": "/mcp/",
-        "headers": [[b"authorization", b"Bearer valid-token"]],
-    }
-    await middleware(scope, None, send_fn)
-
-    assert captured_user_id == user_id
-    # ContextVar is reset after the request
-    assert _mcp_user_id_var.get() is None
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000099")
+    fake_token = SimpleNamespace(claims={"sub": str(uid)})
+    monkeypatch.setattr(mcp_module, "get_access_token", lambda: fake_token)
+    result = mcp_module._get_mcp_user_id()
+    assert result == uid
 
 
 @pytest.mark.asyncio
-async def test_mcp_auth_middleware_passes_through_non_mcp_paths(monkeypatch):
-    from shopping_agent.main import MCPAuthMiddleware
+async def test_authorize_redirect_passes_through_query_params(monkeypatch):
     import shopping_agent.main as main_module
-
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(base_url="https://app.example.com"))
-
-    received = []
-
-    async def downstream(scope, receive, send):
-        received.append(scope["path"])
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
-
-    middleware = MCPAuthMiddleware(downstream)
-
-    async def send_fn(msg):
-        pass
-
-    scope = {"type": "http", "path": "/api/auth/session", "headers": []}
-    await middleware(scope, None, send_fn)
-
-    assert received == ["/api/auth/session"]
-
-
-@pytest.mark.asyncio
-async def test_oauth_protected_resource_metadata(monkeypatch):
-    import shopping_agent.main as main_module
+    from starlette.requests import Request
 
     monkeypatch.setattr(main_module, "settings", SimpleNamespace(
         base_url="https://app.example.com",
@@ -491,27 +433,30 @@ async def test_oauth_protected_resource_metadata(monkeypatch):
         mcp_oauth_client_id="my-client-id",
     ))
 
-    result = await main_module.oauth_protected_resource_metadata()
+    async def _receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
 
-    assert result["resource"] == "https://app.example.com/mcp"
-    assert result["authorization_servers"] == ["https://proj.supabase.co"]
-    assert result["bearer_methods_supported"] == ["header"]
-    assert result["client_id"] == "my-client-id"
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/authorize",
+            "headers": [],
+            "query_string": b"response_type=code&client_id=abc&code_challenge=xyz&code_challenge_method=S256",
+            "server": ("app.example.com", 443),
+            "scheme": "https",
+        },
+        receive=_receive,
+    )
 
+    response = await main_module.authorize_redirect(request)
 
-@pytest.mark.asyncio
-async def test_oauth_protected_resource_metadata_omits_client_id_when_unconfigured(monkeypatch):
-    import shopping_agent.main as main_module
-
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
-        base_url="https://app.example.com",
-        supabase_url="https://proj.supabase.co",
-        mcp_oauth_client_id="",
-    ))
-
-    result = await main_module.oauth_protected_resource_metadata()
-
-    assert "client_id" not in result
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert location.startswith("https://proj.supabase.co/auth/v1/authorize?")
+    assert "response_type=code" in location
+    assert "client_id=abc" in location
+    assert "code_challenge=xyz" in location
 
 
 @pytest.mark.asyncio
@@ -581,57 +526,3 @@ async def test_oauth_consent_page_handles_missing_authorization_id(monkeypatch, 
     assert ctx["authorization_id"] == ""
 
 
-@pytest.mark.asyncio
-async def test_oauth_authorization_server_metadata(monkeypatch):
-    import shopping_agent.main as main_module
-
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
-        base_url="https://app.example.com",
-        supabase_url="https://proj.supabase.co",
-        mcp_oauth_client_id="my-client-id",
-    ))
-
-    result = await main_module.oauth_authorization_server_metadata()
-
-    assert result["issuer"] == "https://proj.supabase.co"
-    assert result["authorization_endpoint"] == "https://proj.supabase.co/auth/v1/authorize"
-    assert result["token_endpoint"] == "https://proj.supabase.co/auth/v1/token"
-    assert "S256" in result["code_challenge_methods_supported"]
-    assert "code" in result["response_types_supported"]
-
-
-@pytest.mark.asyncio
-async def test_authorize_redirect_passes_through_query_params(monkeypatch):
-    import shopping_agent.main as main_module
-    from starlette.requests import Request
-
-    monkeypatch.setattr(main_module, "settings", SimpleNamespace(
-        base_url="https://app.example.com",
-        supabase_url="https://proj.supabase.co",
-        mcp_oauth_client_id="my-client-id",
-    ))
-
-    async def _receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/authorize",
-            "headers": [],
-            "query_string": b"response_type=code&client_id=abc&code_challenge=xyz&code_challenge_method=S256",
-            "server": ("app.example.com", 443),
-            "scheme": "https",
-        },
-        receive=_receive,
-    )
-
-    response = await main_module.authorize_redirect(request)
-
-    assert response.status_code == 302
-    location = response.headers["location"]
-    assert location.startswith("https://proj.supabase.co/auth/v1/authorize?")
-    assert "response_type=code" in location
-    assert "client_id=abc" in location
-    assert "code_challenge=xyz" in location

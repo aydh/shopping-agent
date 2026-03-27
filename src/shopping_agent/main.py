@@ -1,4 +1,3 @@
-import json
 import logging
 import logging.handlers
 import random
@@ -12,11 +11,10 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
 
-from .auth import _claims_to_user, _decode_token
 from .config import APP_TIMEZONE, PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
 from .database import init_db
 from .models import Store
-from .routes.mcp import _mcp_user_id_var, mcp
+from .routes.mcp import mcp
 from .services.price_refresh import do_price_refresh
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -117,68 +115,6 @@ async def app_lifespan(app: FastAPI):
             _scheduler.shutdown(wait=False)
 
 
-async def _mcp_401(send, resource_metadata_url: str, error: str | None = None) -> None:
-    """Send a 401 Unauthorized ASGI response with a WWW-Authenticate header."""
-    www_auth = f'Bearer resource_metadata="{resource_metadata_url}"'
-    if error:
-        www_auth += f', error="{error}"'
-    body = json.dumps({"error": error or "unauthorized"}).encode()
-    await send({
-        "type": "http.response.start",
-        "status": 401,
-        "headers": [
-            [b"content-type", b"application/json"],
-            [b"www-authenticate", www_auth.encode()],
-            [b"content-length", str(len(body)).encode()],
-        ],
-    })
-    await send({"type": "http.response.body", "body": body, "more_body": False})
-
-
-class MCPAuthMiddleware:
-    """Validate Bearer tokens for /mcp/* requests per the MCP OAuth spec.
-
-    On an unauthenticated or invalid request, returns HTTP 401 with a
-    WWW-Authenticate header pointing to the Protected Resource Metadata
-    document (RFC 9728), which MCP clients use to discover the authorization
-    server and start the OAuth 2.1 + PKCE flow.
-
-    On a valid request, stores the authenticated user UUID in _mcp_user_id_var
-    so MCP tool handlers can retrieve it via _get_mcp_user_id().
-
-    Non-/mcp paths are passed through unchanged.
-    """
-
-    def __init__(self, app) -> None:
-        self.app = app
-
-    async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http" or not scope.get("path", "").startswith("/mcp"):
-            await self.app(scope, receive, send)
-            return
-
-        headers = {k.lower(): v for k, v in scope.get("headers", [])}
-        auth = headers.get(b"authorization", b"").decode()
-        resource_metadata_url = f"{settings.base_url}/.well-known/oauth-protected-resource"
-
-        if not auth.startswith("Bearer "):
-            await _mcp_401(send, resource_metadata_url)
-            return
-
-        token = auth[len("Bearer "):]
-        try:
-            claims = _decode_token(token)
-            user = _claims_to_user(claims)
-        except Exception:
-            await _mcp_401(send, resource_metadata_url, error="invalid_token")
-            return
-
-        ctx_token = _mcp_user_id_var.set(user.user_id)
-        try:
-            await self.app(scope, receive, send)
-        finally:
-            _mcp_user_id_var.reset(ctx_token)
-
 
 class _MCPPathMiddleware:
     """Rewrite /mcp (no trailing slash) to /mcp/ so MCP clients don't get a 307.
@@ -199,7 +135,6 @@ app = FastAPI(
     lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
 )
 app.add_middleware(_MCPPathMiddleware)
-app.add_middleware(MCPAuthMiddleware)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 from .routes import api_auth, api_cart, api_orders, api_predictions, api_prices, api_shopping_list, views  # noqa: E402
@@ -212,53 +147,22 @@ app.include_router(api_shopping_list.router, prefix="/api/shopping-list")
 app.include_router(api_cart.router, prefix="/api/cart")
 app.include_router(api_prices.router, prefix="/api/prices")
 
-@app.get("/.well-known/oauth-protected-resource")
-async def oauth_protected_resource_metadata():
-    """Protected Resource Metadata document (RFC 9728).
-
-    MCP clients fetch this after receiving a 401 from /mcp to discover
-    the authorization server and start the OAuth 2.1 + PKCE flow.
-    """
-    doc: dict = {
-        "resource": f"{settings.base_url}/mcp",
-        "authorization_servers": [settings.supabase_url],
-        "bearer_methods_supported": ["header"],
-    }
-    if settings.mcp_oauth_client_id:
-        doc["client_id"] = settings.mcp_oauth_client_id
-    return doc
-
-
-@app.get("/.well-known/oauth-authorization-server")
-async def oauth_authorization_server_metadata():
-    """Authorization Server Metadata document (RFC 8414).
-
-    Some MCP clients (e.g. Claude.ai) perform AS discovery on the resource
-    server host rather than following the authorization_servers pointer in the
-    protected resource metadata.  We expose this document so those clients can
-    discover Supabase's authorization and token endpoints without needing to
-    reach Supabase's own discovery URL.
-    """
-    supabase_url = (settings.supabase_url or "").rstrip("/")
-    return {
-        "issuer": supabase_url,
-        "authorization_endpoint": f"{supabase_url}/auth/v1/authorize",
-        "token_endpoint": f"{supabase_url}/auth/v1/token",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["none"],
-    }
+# Register OAuth discovery routes at the app root.
+# SupabaseProvider supplies /.well-known/oauth-protected-resource (RFC 9728) and
+# /.well-known/oauth-authorization-server (RFC 8414, proxied from Supabase).
+# These must live at root level, not inside the /mcp sub-app mount.
+if mcp.auth:
+    for _route in mcp.auth.get_well_known_routes(mcp_path="/mcp"):
+        app.add_route(_route.path, _route.endpoint, methods=list(_route.methods or {"GET"}))
 
 
 @app.get("/authorize")
 async def authorize_redirect(request: FastAPIRequest):
-    """Redirect OAuth authorization requests to Supabase.
+    """Fallback: redirect /authorize to Supabase.
 
-    Some MCP clients fall back to hitting /authorize on the resource server
-    host when AS discovery fails or is skipped.  We forward all query params
-    to Supabase's authorization endpoint so the user ends up at the correct
-    login page.
+    Some MCP clients hit /authorize on the resource server host when AS
+    discovery is skipped.  Forward all query params to Supabase's authorize
+    endpoint so the browser lands on the correct login page.
     """
     supabase_url = (settings.supabase_url or "").rstrip("/")
     target = f"{supabase_url}/auth/v1/authorize"

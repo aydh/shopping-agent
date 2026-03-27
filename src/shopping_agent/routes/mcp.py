@@ -5,13 +5,13 @@ predictions, shopping lists, cart, order sync, price refresh, and product matchi
 
 Mount: app.mount("/mcp", mcp.http_app()) in main.py
 """
-import contextvars
 import logging
 import uuid
 from typing import cast
 
 from fastapi import HTTPException
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_access_token
 
 from ..config import settings
 from ..database import async_session, set_rls_claims
@@ -37,25 +37,46 @@ from ..scrapers.registry import get_scraper
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("shopping-agent")
 
-# Holds the authenticated user UUID for the current MCP request.
-# Set by MCPAuthMiddleware from the validated Bearer token before each request.
-_mcp_user_id_var: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
-    "mcp_user_id", default=None
-)
+def _create_mcp_auth():
+    """Create a SupabaseProvider if Supabase is configured, else None (dev mode)."""
+    if not settings.supabase_url:
+        return None
+    from fastmcp.server.auth.providers.supabase import SupabaseProvider
+    alg = settings.mcp_jwt_algorithm
+    if alg == "HS256":
+        from fastmcp.server.auth.providers.jwt import JWTVerifier
+        verifier = JWTVerifier(
+            public_key=settings.supabase_jwt_secret,
+            algorithm="HS256",
+            audience="authenticated",
+            issuer=f"{settings.supabase_url}/auth/v1",
+        )
+        return SupabaseProvider(
+            project_url=settings.supabase_url,
+            base_url=settings.base_url,
+            token_verifier=verifier,
+        )
+    return SupabaseProvider(
+        project_url=settings.supabase_url,
+        base_url=settings.base_url,
+        algorithm=alg,
+    )
+
+
+mcp = FastMCP("shopping-agent", auth=_create_mcp_auth())
 
 
 def _get_mcp_user_id() -> uuid.UUID:
     """Return the authenticated user UUID for the current MCP request.
 
-    Reads from the per-request ContextVar set by MCPAuthMiddleware.
-    Falls back to MCP_DEFAULT_USER_ID as a dev convenience when no middleware
-    is in the call chain (e.g. direct tool invocation in tests).
+    Reads from fastmcp's access token (set by SupabaseProvider middleware).
+    Falls back to MCP_DEFAULT_USER_ID as a dev convenience when no auth
+    provider is configured (e.g. local development without Supabase).
     """
-    user_id = _mcp_user_id_var.get()
-    if user_id is not None:
-        return user_id
+    token = get_access_token()
+    if token is not None:
+        return uuid.UUID(token.claims["sub"])
     uid = settings.mcp_default_user_id
     if not uid:
         raise ValueError(
