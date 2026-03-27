@@ -661,7 +661,7 @@ class ColesScraper(BaseScraper):
             if timeout is not None:
                 kwargs["timeout"] = timeout
             resp = await self._bare_client.get(f"/api/bff/products/{store_product_id}", **kwargs)
-            if resp and resp.status_code == 200:
+            if resp and resp.status_code == 200 and resp.content:
                 item = resp.json()
                 logger.debug(
                     "[Coles price] %s raw fields: availability=%s pricing=%s",
