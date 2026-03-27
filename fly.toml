@@ -5,6 +5,7 @@ primary_region = "syd"
 [env]
   DEBUG = "false"
   PORT = "8000"
+  ENABLE_SCHEDULER = "true"
 
 # Secrets — set once via CLI (never stored in this file):
 #   fly secrets set DATABASE_URL="postgresql+asyncpg://..."

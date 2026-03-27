@@ -94,21 +94,24 @@ async def _run_refresh_then_reschedule() -> None:
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     await init_db()
-    _scheduler.start()
-    # First run 60 seconds after startup, then every PRICE_REFRESH_INTERVAL_HOURS ± jitter
-    first_run_at = datetime.now(timezone.utc) + timedelta(seconds=60)
-    _scheduler.add_job(
-        _run_refresh_then_reschedule,
-        "date",
-        run_date=first_run_at,
-        id="price_refresh",
-        replace_existing=True,
-    )
-    logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.astimezone(APP_TIMEZONE).isoformat())
+    if settings.enable_scheduler:
+        _scheduler.start()
+        first_run_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+        _scheduler.add_job(
+            _run_refresh_then_reschedule,
+            "date",
+            run_date=first_run_at,
+            id="price_refresh",
+            replace_existing=True,
+        )
+        logger.info("[Scheduler] Initial price refresh scheduled for %s", first_run_at.astimezone(APP_TIMEZONE).isoformat())
+    else:
+        logger.info("[Scheduler] Disabled (ENABLE_SCHEDULER=false)")
     try:
         yield
     finally:
-        _scheduler.shutdown(wait=False)
+        if settings.enable_scheduler:
+            _scheduler.shutdown(wait=False)
 
 
 class _MCPPathMiddleware:

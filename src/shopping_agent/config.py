@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
     migration_user_id: str = Field(default="", description="UUID of existing-data backfill user (MIGRATION_USER_ID)")
+    enable_scheduler: bool = Field(default=False, description="Enable scheduled price refresh (ENABLE_SCHEDULER)")
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
