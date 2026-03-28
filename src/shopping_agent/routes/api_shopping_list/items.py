@@ -175,15 +175,15 @@ async def copy_list(
 
     source_product_ids = [s.product_id for s in source_items]
 
-    # Bulk-load products already on the active list (to skip duplicates)
-    existing_product_ids: set[int] = set(
-        (await session.execute(
-            select(ShoppingListItem.product_id).where(
+    # Bulk-load existing active items on the active list (to update quantities instead of skip)
+    existing_items_by_product: dict[int, ShoppingListItem] = {
+        item.product_id: item for item in (await session.execute(
+            select(ShoppingListItem).where(
                 ShoppingListItem.shopping_list_id == active.id,
                 ShoppingListItem.is_removed == False,  # noqa: E712
             )
         )).scalars().all()
-    )
+    }
 
     # Bulk-load all source products
     products_by_id: dict[int, Product] = {
@@ -222,7 +222,9 @@ async def copy_list(
 
     # Process in memory — no per-item queries
     for src in source_items:
-        if src.product_id in existing_product_ids:
+        existing = existing_items_by_product.get(src.product_id)
+        if existing:
+            existing.quantity = src.quantity
             continue
         product = products_by_id.get(src.product_id)
         if not product:

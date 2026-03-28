@@ -104,7 +104,19 @@
     <!-- Filter existing items -->
     <input type="search" id="sl-search" placeholder="Filter items..."
            oninput="filterShoppingList(this.value)"
-           class="w-full sm:w-56 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400">
+           class="w-full sm:w-48 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400">
+
+    <!-- Sort dropdown -->
+    <select id="sl-sort" onchange="sortShoppingList(this.value)"
+            class="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+        <option value="">Sort…</option>
+        <option value="name-asc">A → Z</option>
+        <option value="name-desc">Z → A</option>
+        <option value="price-asc">Price ↑</option>
+        <option value="price-desc">Price ↓</option>
+        <option value="total-asc">Total ↑</option>
+        <option value="total-desc">Total ↓</option>
+    </select>
 
     <!-- Add new product -->
     <div class="relative flex-1 min-w-48">
@@ -150,7 +162,13 @@
         {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
 
         {% set ph_ids = ([coles_p.id] if coles_p else []) + ([ww_p.id] if ww_p else []) %}
-        <div class="sl-row px-4 sm:px-6 py-3" data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}">
+        {% set _prices = ([item.coles_price] if item.coles_price else []) + ([item.woolworths_price] if item.woolworths_price else []) %}
+        {% set _bp = _prices | min if _prices else 0 %}
+        <div class="sl-row px-4 sm:px-6 py-3"
+             data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}"
+             data-best-price="{{ _bp }}"
+             data-total="{{ _bp * item.quantity }}"
+             data-hist-id="sl-hist-{{ item.id }}">
 
             <!-- Products: side-by-side on mobile, grid cells on desktop -->
             <div class="sl-products flex gap-3 mb-3 md:mb-0">
@@ -225,7 +243,13 @@
                             hx-vals='{"quantity": {{ item.quantity - 1 }}}'
                             hx-target="#list-content" hx-swap="innerHTML"
                             class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-r border-gray-300 leading-none">−</button>
-                    <span class="px-3 py-1.5 text-gray-900 font-medium min-w-[2rem] text-center">{{ item.quantity }}</span>
+                    <input type="number" min="1" max="99"
+                           name="quantity" value="{{ item.quantity }}"
+                           hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
+                           hx-trigger="change"
+                           hx-target="#list-content" hx-swap="innerHTML"
+                           onclick="this.select()"
+                           class="w-12 py-1.5 text-gray-900 font-medium text-center border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded">
                     <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
                             hx-vals='{"quantity": {{ item.quantity + 1 }}}'
                             hx-target="#list-content" hx-swap="innerHTML"
@@ -269,6 +293,9 @@
 {% endif %}
 
 <script>
+if (typeof window._slFilter === 'undefined') window._slFilter = '';
+if (typeof window._slSort === 'undefined') window._slSort = '';
+
 function toggleSLItemHistory(btn, containerId, ids) {
     const body = document.getElementById(containerId);
     if (!body.classList.contains('hidden') && body.innerHTML.trim()) {
@@ -282,10 +309,14 @@ function toggleSLItemHistory(btn, containerId, ids) {
     btn.classList.add('bg-blue-100', 'text-blue-600');
     body.classList.remove('hidden');
     body.innerHTML = '<p class="text-xs text-gray-400 py-2">Loading...</p>';
-    fetch('/api/prices/product-history/batch?ids=' + ids)
-        .then(r => r.json())
+    const idList = ids.split(',').map(s => s.trim()).filter(Boolean);
+    const url = idList.length === 2
+        ? '/api/prices/product-pair?ids=' + ids
+        : '/api/prices/product-history/batch?ids=' + ids;
+    fetch(url)
+        .then(r => idList.length === 2 ? r.text() : r.json())
         .then(data => {
-            body.innerHTML = Object.values(data).join('');
+            body.innerHTML = idList.length === 2 ? data : Object.values(data).join('');
             body.querySelectorAll('script').forEach(s => {
                 const ns = document.createElement('script');
                 ns.textContent = s.textContent;
@@ -295,15 +326,67 @@ function toggleSLItemHistory(btn, containerId, ids) {
 }
 
 function filterShoppingList(query) {
+    window._slFilter = query;
     const q = query.toLowerCase().trim();
     document.querySelectorAll('[data-item-name]').forEach(row => {
-        row.style.display = (!q || row.dataset.itemName.includes(q)) ? '' : 'none';
+        const hide = !!(q && !row.dataset.itemName.includes(q));
+        row.style.display = hide ? 'none' : '';
+        if (row.dataset.histId) {
+            const h = document.getElementById(row.dataset.histId);
+            if (h) h.style.display = hide ? 'none' : '';
+        }
     });
 }
-document.body.addEventListener('htmx:afterSwap', () => {
-    const search = document.getElementById('sl-search');
-    if (search && search.value) filterShoppingList(search.value);
+
+function sortShoppingList(key) {
+    window._slSort = key;
+    _applySort();
+}
+
+function _applySort() {
+    const key = window._slSort || '';
+    if (!key) return;
+    const container = document.querySelector('.divide-y.divide-gray-200');
+    if (!container) return;
+    const children = [...container.children];
+    const pairs = [];
+    for (let i = 0; i < children.length; i++) {
+        const el = children[i];
+        if (el.hasAttribute('data-item-name')) {
+            const nxt = children[i + 1];
+            pairs.push([el, nxt?.id?.startsWith('sl-hist-') ? nxt : null]);
+        }
+    }
+    pairs.sort(([a], [b]) => {
+        if (key === 'name-asc') return a.dataset.itemName.localeCompare(b.dataset.itemName);
+        if (key === 'name-desc') return b.dataset.itemName.localeCompare(a.dataset.itemName);
+        if (key === 'price-asc') return parseFloat(a.dataset.bestPrice || 0) - parseFloat(b.dataset.bestPrice || 0);
+        if (key === 'price-desc') return parseFloat(b.dataset.bestPrice || 0) - parseFloat(a.dataset.bestPrice || 0);
+        if (key === 'total-asc') return parseFloat(a.dataset.total || 0) - parseFloat(b.dataset.total || 0);
+        if (key === 'total-desc') return parseFloat(b.dataset.total || 0) - parseFloat(a.dataset.total || 0);
+        return 0;
+    });
+    pairs.forEach(([row, hist]) => {
+        container.appendChild(row);
+        if (hist) container.appendChild(hist);
+    });
+}
+
+function _restoreUI() {
+    const si = document.getElementById('sl-search');
+    if (si) si.value = window._slFilter || '';
+    if (window._slFilter) filterShoppingList(window._slFilter);
+    const sd = document.getElementById('sl-sort');
+    if (sd && window._slSort) sd.value = window._slSort;
+    if (window._slSort) _applySort();
+}
+
+document.body.addEventListener('htmx:afterSwap', e => {
+    if (e.detail && e.detail.target && e.detail.target.id === 'list-content') {
+        _restoreUI();
+    }
 });
+
 document.addEventListener('click', e => {
     const results = document.getElementById('add-product-results');
     const input = document.getElementById('add-product-input');
