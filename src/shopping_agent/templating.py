@@ -49,6 +49,25 @@ def _localtime(dt: datetime) -> datetime:
     return dt.astimezone(APP_TIMEZONE)
 
 
+def _get_nav_user(request) -> "CurrentUser | None":
+    """Return the current user for nav rendering, or None if not authenticated.
+
+    Uses the same token cache as the auth layer so this is cheap on repeat calls.
+    Import is local to avoid a circular import at module load time.
+    """
+    from .auth import CurrentUser, _claims_to_user, _decode_token  # noqa: F401
+
+    token = request.cookies.get("sb-access-token")
+    if not token:
+        return None
+    try:
+        claims = _decode_token(token)
+        return _claims_to_user(claims)
+    except Exception:
+        return None
+
+
 templates.env.filters["product_image_url"] = _product_image_url
 templates.env.filters["product_url"] = _product_url
 templates.env.filters["localtime"] = _localtime
+templates.env.globals["get_nav_user"] = _get_nav_user
