@@ -116,9 +116,15 @@
             }
 
             // Supabase auto-approves for trusted clients (e.g. project owner).
-            // redirect_to is already set — skip the consent UI and redirect immediately.
-            if (details.redirect_to) {
-                window.location.href = details.redirect_to;
+            // When auto_approved, redirect_url is already in the GET response — skip
+            // the consent UI and redirect immediately. Do NOT call approveAuthorization()
+            // as that POST returns 400 when the request is already auto-approved.
+            if (details.auto_approved) {
+                if (details.redirect_url) {
+                    window.location.href = details.redirect_url;
+                } else {
+                    showError('Authorization was auto-approved but no redirect URL was received.');
+                }
                 return;
             }
 
@@ -164,9 +170,11 @@
                 document.getElementById('allow-btn').disabled = true;
                 document.getElementById('allow-btn').textContent = 'Authorizing…';
                 try {
+                    // SDK auto-redirects via window.location.assign() when response has redirect_url.
+                    // Fallback manual redirect in case skipBrowserRedirect is set.
                     const { data, error } = await sb.auth.oauth.approveAuthorization(AUTHORIZATION_ID);
                     if (error) throw error;
-                    window.location.href = data.redirect_to;
+                    if (data?.redirect_url) window.location.href = data.redirect_url;
                 } catch (err) {
                     showError(err.message || 'Failed to approve authorization.');
                 }
@@ -178,7 +186,7 @@
                 try {
                     const { data, error } = await sb.auth.oauth.denyAuthorization(AUTHORIZATION_ID);
                     if (error) throw error;
-                    window.location.href = data.redirect_to;
+                    if (data?.redirect_url) window.location.href = data.redirect_url;
                 } catch (err) {
                     showError(err.message || 'Failed to deny authorization.');
                 }
