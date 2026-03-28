@@ -1,7 +1,7 @@
 """Shopping list CRUD — list-level create, read, delete, and details."""
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +64,7 @@ async def delete_current_list(
 
 @router.post("/new")
 async def new_list(
+    target_date: date | None = Form(default=None),
     user: CurrentUser = Depends(get_current_user_from_cookie),
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
@@ -77,10 +78,9 @@ async def new_list(
     if existing:
         return HTMLResponse("")
 
-    today = date.today()
-    # "Week of Mon DD MMM YYYY"
-    name = f"Week of {today.strftime('%d %b %Y')}"
-    shopping_list = ShoppingList(name=name, target_date=today, status=ListStatus.DRAFT, user_id=user.user_id)
+    chosen_date = target_date or date.today()
+    name = f"Week of {chosen_date.strftime('%d %b %Y')}"
+    shopping_list = ShoppingList(name=name, target_date=chosen_date, status=ListStatus.DRAFT, user_id=user.user_id)
     session.add(shopping_list)
     await session.flush()  # assigns the id; context manager commits on exit
 

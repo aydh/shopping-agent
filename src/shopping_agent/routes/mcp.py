@@ -7,6 +7,7 @@ Mount: app.mount("/mcp", mcp.http_app()) in main.py
 """
 import logging
 import uuid
+from datetime import date
 from typing import cast
 
 from fastapi import HTTPException
@@ -303,7 +304,10 @@ async def get_price_comparison(product_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-async def create_shopping_list(from_predictions: bool = False) -> dict:
+async def create_shopping_list(
+    from_predictions: bool = False,
+    intended_date: date | None = None,
+) -> dict:
     """Create a new DRAFT shopping list.
 
     Fails if an active (non-ordered) list already exists — delete or close it first.
@@ -312,10 +316,13 @@ async def create_shopping_list(from_predictions: bool = False) -> dict:
         from_predictions: If True, pre-populate the list from consumption
             predictions (products predicted to run out within the lookahead window).
             If False, create an empty list.
+        intended_date: Target submission date for the list (ISO 8601, e.g. "2026-04-05").
+            Defaults to today if not provided.
 
     Returns:
-        {"list_id": int, "item_count": int, "status": str} or {"error": str}
+        {"list_id": int, "item_count": int, "status": str, "target_date": str} or {"error": str}
     """
+    target = intended_date or date.today()
     user_id = _get_mcp_user_id()
     async with async_session() as session:
         async with session.begin():
@@ -324,15 +331,17 @@ async def create_shopping_list(from_predictions: bool = False) -> dict:
             if existing:
                 return {"error": f"An active shopping list already exists (id={existing.id}, status={existing.status.value}). Close or delete it first."}
             if from_predictions:
-                shopping_list = await generate_shopping_list(session, user_id)
+                shopping_list = await generate_shopping_list(session, user_id, target_date=target)
             else:
-                shopping_list = ShoppingList(name="Shopping List", status=ListStatus.DRAFT, user_id=user_id)
+                name = f"Week of {target.strftime('%d %b %Y')}"
+                shopping_list = ShoppingList(name=name, target_date=target, status=ListStatus.DRAFT, user_id=user_id)
                 session.add(shopping_list)
                 await session.flush()
         list_id = shopping_list.id
         item_count = sum(1 for item in shopping_list.items if not getattr(item, "is_removed", False))
         status = shopping_list.status.value
-    return {"list_id": list_id, "item_count": item_count, "status": status}
+        target_date_str = shopping_list.target_date.isoformat() if shopping_list.target_date else None
+    return {"list_id": list_id, "item_count": item_count, "status": status, "target_date": target_date_str}
 
 
 @mcp.tool()

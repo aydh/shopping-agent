@@ -3,8 +3,13 @@
 <div id="list-header" hx-swap-oob="innerHTML">
     <h1 class="text-2xl font-bold text-gray-900">{{ title }}</h1>
     <div class="flex flex-wrap gap-2 items-center">
-        <button hx-post="/api/shopping-list/new" hx-target="#list-content" hx-swap="innerHTML"
-                {{ new_disabled }} class="px-4 py-2 text-sm rounded {{ new_cls }}">New List</button>
+        <form hx-post="/api/shopping-list/new" hx-target="#list-content" hx-swap="innerHTML"
+              class="flex items-center gap-2">
+            <input type="date" name="target_date"
+                   {{ new_disabled }}
+                   class="border border-gray-300 rounded px-2 py-1.5 text-sm {% if has_list %}bg-gray-100 text-gray-400 cursor-not-allowed{% endif %}">
+            <button type="submit" {{ new_disabled }} class="px-4 py-2 text-sm rounded {{ new_cls }}">New List</button>
+        </form>
         <button hx-post="/api/shopping-list/add-predictions" hx-target="#list-content" hx-swap="innerHTML"
                 hx-indicator="#pred-spinner" {{ pred_disabled }}
                 class="px-4 py-2 text-sm rounded {{ pred_cls }}">Add Predicted Items</button>
