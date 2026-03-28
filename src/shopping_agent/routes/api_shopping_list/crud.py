@@ -62,6 +62,15 @@ async def delete_current_list(
     return HTMLResponse(list_html + _list_header_oob(None))
 
 
+def _ordinal(n: int) -> str:
+    suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _list_name(d: date) -> str:
+    return f"Shopping - {d.strftime('%A')} {_ordinal(d.day)} {d.strftime('%B %Y')}"
+
+
 @router.post("/new")
 async def new_list(
     target_date: date | None = Form(default=None),
@@ -79,7 +88,7 @@ async def new_list(
         return HTMLResponse("")
 
     chosen_date = target_date or date.today()
-    name = f"Week of {chosen_date.strftime('%d %b %Y')}"
+    name = _list_name(chosen_date)
     shopping_list = ShoppingList(name=name, target_date=chosen_date, status=ListStatus.DRAFT, user_id=user.user_id)
     session.add(shopping_list)
     await session.flush()  # assigns the id; context manager commits on exit

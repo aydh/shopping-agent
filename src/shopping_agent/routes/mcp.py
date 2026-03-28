@@ -87,6 +87,11 @@ def _get_mcp_user_id() -> uuid.UUID:
     return uuid.UUID(uid)
 
 
+def _list_name(d: date) -> str:
+    sfx = "th" if 11 <= d.day % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(d.day % 10, "th")
+    return f"Shopping - {d.strftime('%A')} {d.day}{sfx} {d.strftime('%B %Y')}"
+
+
 def _scraper_for(store: str, user_id: uuid.UUID | None = None):
     """Return a scraper instance for the given store name."""
     s = store_from_string(store)
@@ -333,7 +338,7 @@ async def create_shopping_list(
             if from_predictions:
                 shopping_list = await generate_shopping_list(session, user_id, target_date=target)
             else:
-                name = f"Week of {target.strftime('%d %b %Y')}"
+                name = _list_name(target)
                 shopping_list = ShoppingList(name=name, target_date=target, status=ListStatus.DRAFT, user_id=user_id)
                 session.add(shopping_list)
                 await session.flush()
