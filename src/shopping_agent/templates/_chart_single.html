@@ -28,7 +28,7 @@
       options: {
         responsive: true,
         scales: {
-          x: { type: 'category', title: { display: false } },
+          x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', displayFormats: { day: 'dd MMM' } }, title: { display: false } },
           y: { title: { display: true, text: 'Price ($)' }, beginAtZero: false }
         },
         plugins: {

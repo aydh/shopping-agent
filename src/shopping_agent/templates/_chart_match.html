@@ -1,71 +1,40 @@
-{# Renders a price history chart for a matched product pair.
-   Context: canvas_id, coles_points, ww_points, equal_points, equal_labels,
-            all_combined, coles_colour, ww_colour, price_line_colour #}
+{# Two-line price history chart for a matched Coles + Woolworths product pair.
+   Context: canvas_id, coles_points, ww_points, coles_colour, ww_colour #}
 <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
   <div style="position:relative;max-width:100%">
     <canvas id="{{ canvas_id }}" height="100" role="img" aria-label="Price comparison chart between Coles and Woolworths">
-      Price comparison chart between Coles and Woolworths showing price history over time.
+      Price comparison chart between Coles and Woolworths.
     </canvas>
   </div>
   <script>
     (function() {
       const ctx = document.getElementById('{{ canvas_id }}').getContext('2d');
-      const allPoints = {{ all_combined | tojson }};
-      const equalDates = new Set({{ equal_labels | tojson }});
-
-      const splitCanvas = (() => {
-        const c = document.createElement('canvas');
-        c.width = 14; c.height = 14;
-        const cx = c.getContext('2d');
-        cx.beginPath(); cx.moveTo(7, 7);
-        cx.arc(7, 7, 6, Math.PI / 2, 3 * Math.PI / 2);
-        cx.closePath(); cx.fillStyle = '{{ coles_colour }}'; cx.fill();
-        cx.beginPath(); cx.moveTo(7, 7);
-        cx.arc(7, 7, 6, -Math.PI / 2, Math.PI / 2);
-        cx.closePath(); cx.fillStyle = '{{ ww_colour }}'; cx.fill();
-        return c;
-      })();
-
       new Chart(ctx, {
         type: 'line',
         data: {
           datasets: [
             {
-              label: 'Price',
-              data: allPoints,
-              borderColor: '{{ price_line_colour }}',
-              borderWidth: 1,
-              pointRadius: 0,
-              tension: 0.2,
-              parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-            },
-            {
               label: 'Coles',
               data: {{ coles_points | tojson }},
-              borderColor: 'transparent',
+              borderColor: '{{ coles_colour }}',
+              backgroundColor: '{{ coles_colour }}22',
+              borderWidth: 1.5,
               pointBackgroundColor: '{{ coles_colour }}',
-              pointBorderColor: '{{ coles_colour }}',
-              pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
-              showLine: false,
+              pointRadius: 2,
+              pointHoverRadius: 3,
+              tension: 0.2,
               parsing: { xAxisKey: 'x', yAxisKey: 'y' }
             },
             {
               label: 'Woolworths',
               data: {{ ww_points | tojson }},
-              borderColor: 'transparent',
+              borderColor: '{{ ww_colour }}',
+              backgroundColor: '{{ ww_colour }}22',
+              borderWidth: 1.5,
               pointBackgroundColor: '{{ ww_colour }}',
-              pointBorderColor: '{{ ww_colour }}',
-              pointRadius: (c) => equalDates.has(c.dataset.data[c.dataIndex]?.x) ? 0 : 2,
-              showLine: false,
-              parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-            },
-            {
-              label: 'Same Price',
-              data: {{ equal_points | tojson }},
-              borderColor: 'transparent',
-              pointStyle: splitCanvas,
               pointRadius: 2,
-              showLine: false,
+              pointHoverRadius: 3,
+              tension: 0.2,
               parsing: { xAxisKey: 'x', yAxisKey: 'y' }
             }
           ]
@@ -73,29 +42,14 @@
         options: {
           responsive: true,
           scales: {
-            x: { type: 'category', title: { display: false } },
+            x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', displayFormats: { day: 'dd MMM' } }, title: { display: false } },
             y: { title: { display: true, text: 'Price ($)' }, beginAtZero: false }
           },
           plugins: {
-            legend: {
-              position: 'top',
-              labels: {
-                usePointStyle: true,
-                font: { size: 9 },
-                boxWidth: 6,
-                boxHeight: 6,
-                padding: 4,
-                generateLabels: (chart) => [
-                  { text: 'Price', pointStyle: 'line', strokeStyle: '{{ price_line_colour }}', lineWidth: 1, datasetIndex: 0 },
-                  { text: 'Coles', pointStyle: 'circle', fillStyle: '{{ coles_colour }}', strokeStyle: '{{ coles_colour }}', datasetIndex: 1 },
-                  { text: 'Woolworths', pointStyle: 'circle', fillStyle: '{{ ww_colour }}', strokeStyle: '{{ ww_colour }}', datasetIndex: 2 },
-                  { text: 'Same Price', pointStyle: splitCanvas, datasetIndex: 3 },
-                ]
-              }
-            }
+            legend: { position: 'top', labels: { usePointStyle: true, font: { size: 9 }, boxWidth: 6, boxHeight: 6, padding: 4 } }
           }
         }
       });
     })();
-    </script>
+  </script>
 </div>
