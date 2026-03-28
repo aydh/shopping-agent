@@ -8,12 +8,17 @@
             {% if shopping_list %}{{ shopping_list.name }}{% else %}Shopping List{% endif %}
         </h1>
         <div class="flex flex-wrap gap-2 items-center">
-            <button hx-post="/api/shopping-list/new"
-                    hx-target="#list-content" hx-swap="innerHTML"
-                    {% if shopping_list %}disabled{% endif %}
-                    class="px-4 py-2 text-sm rounded {% if shopping_list %}bg-gray-200 text-gray-400 cursor-not-allowed{% else %}bg-blue-600 text-white hover:bg-blue-700{% endif %}">
-                New List
-            </button>
+            <form hx-post="/api/shopping-list/new" hx-target="#list-content" hx-swap="innerHTML"
+                  class="flex items-center gap-2">
+                <input type="date" name="target_date" value="{{ today }}"
+                       {% if shopping_list %}disabled{% endif %}
+                       class="border border-gray-300 rounded px-2 py-1.5 text-sm {% if shopping_list %}bg-gray-100 text-gray-400 cursor-not-allowed{% endif %}">
+                <button type="submit"
+                        {% if shopping_list %}disabled{% endif %}
+                        class="px-4 py-2 text-sm rounded {% if shopping_list %}bg-gray-200 text-gray-400 cursor-not-allowed{% else %}bg-blue-600 text-white hover:bg-blue-700{% endif %}">
+                    New List
+                </button>
+            </form>
             <button hx-post="/api/shopping-list/add-predictions"
                     hx-target="#list-content" hx-swap="innerHTML"
                     hx-indicator="#pred-spinner"

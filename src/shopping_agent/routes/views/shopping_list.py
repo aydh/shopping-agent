@@ -1,4 +1,6 @@
 """Shopping list and confirm page views."""
+from datetime import date
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
@@ -30,7 +32,7 @@ async def shopping_list_page(
     return templates.TemplateResponse(
         request,
         "shopping_list.html",
-        {"active_page": "shopping_list", "past_lists": past_lists, **ctx},
+        {"active_page": "shopping_list", "past_lists": past_lists, "today": date.today().isoformat(), **ctx},
     )
 
 
