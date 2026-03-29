@@ -240,7 +240,11 @@ function togglePanel(showId, hideId) {
 function submitColesLogin() {
     const email = document.getElementById('coles-login-email').value.trim();
     const password = document.getElementById('coles-login-password').value;
-    if (!email || !password) return;
+    if (!email || !password) {
+        document.getElementById('coles-login-status').innerHTML =
+            '<span class="text-red-600">Enter email and password first</span>';
+        return;
+    }
 
     const statusEl = document.getElementById('coles-login-status');
     statusEl.innerHTML = '<span class="text-gray-500">Logging in\u2026 this may take up to 30 seconds</span>';
@@ -250,7 +254,12 @@ function submitColesLogin() {
     fd.append('password', password);
 
     fetch('/api/auth/login-playwright/coles', { method: 'POST', body: fd })
-        .then(r => r.text())
+        .then(r => {
+            if (!r.ok && r.status !== 200) {
+                throw new Error('HTTP ' + r.status);
+            }
+            return r.text();
+        })
         .then(html => {
             statusEl.innerHTML = html;
             document.getElementById('coles-login-password').value = '';
@@ -259,6 +268,9 @@ function submitColesLogin() {
                 document.getElementById('coles-auth-status').innerHTML =
                     '<span class="text-green-600">Connected \u2014 session active</span>';
             }
+        })
+        .catch(err => {
+            statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
         });
 }
 
