@@ -281,11 +281,22 @@ class ColesScraper(BaseScraper):
             page = await context.new_page()
 
             logger.info("[Coles] Playwright: navigating to login page")
-            await page.goto("https://www.coles.com.au/customer/login", wait_until="domcontentloaded", timeout=30000)
+            await page.goto(
+                "https://www.coles.com.au/account/login",
+                wait_until="networkidle",
+                timeout=30000,
+            )
+            logger.info("[Coles] Playwright: landed on %s", page.url)
 
-            # Fill email
-            email_selector = 'input[name="identifier"], input[type="email"], input[name="email"]'
-            await page.wait_for_selector(email_selector, timeout=15000)
+            # Fill email — wait generously for the SPA to render the form
+            email_selector = (
+                'input[type="email"], '
+                'input[name="email"], '
+                'input[name="identifier"], '
+                'input[autocomplete="email"], '
+                'input[autocomplete="username"]'
+            )
+            await page.wait_for_selector(email_selector, timeout=20000)
             await page.fill(email_selector, email)
             logger.info("[Coles] Playwright: filled email")
 
@@ -331,7 +342,14 @@ class ColesScraper(BaseScraper):
             return f"failed:{error_msg or 'Login unsuccessful — check your credentials'}"
 
         except Exception as exc:
-            logger.exception("[Coles] Playwright login error")
+            try:
+                title = await page.title()
+                logger.error(
+                    "[Coles] Playwright login error — url=%s title=%r error=%s",
+                    page.url, title, exc,
+                )
+            except Exception:
+                logger.exception("[Coles] Playwright login error")
             try:
                 await pw.stop()
             except Exception:
