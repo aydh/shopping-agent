@@ -1,8 +1,10 @@
+import asyncio
 import html as html_module
+import json
 import logging
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from ..auth import (
     CurrentUser,
@@ -145,42 +147,40 @@ async def login_playwright(
     email: str = Form(...),
     password: str = Form(...),
     user: CurrentUser = Depends(get_current_user_from_cookie),
-) -> HTMLResponse:
-    """Start a Playwright-based login for the given store."""
+) -> StreamingResponse:
+    """Start a Playwright-based login and stream progress as SSE events.
+
+    Events:
+      progress  {"message": str}        – status update
+      done      {"result": str}         – "ok", "mfa_required", or "failed:…"
+    """
     store_enum = store_from_string(store)
     if store_enum != Store.COLES:
-        return HTMLResponse('<span class="text-red-600">Playwright login is only supported for Coles</span>')
+        async def _unsupported():
+            yield f'event: done\ndata: {json.dumps({"result": "failed:Playwright login is only supported for Coles"})}\n\n'
+        return StreamingResponse(_unsupported(), media_type="text/event-stream")
 
     scraper = get_scraper(user.user_id, store_enum)
-    result = await scraper.login_with_credentials(email, password)
+    queue: asyncio.Queue[str] = asyncio.Queue()
 
-    if result == "ok":
-        return HTMLResponse('<span class="text-green-600">Logged in — cookies stored successfully</span>')
+    async def _run() -> None:
+        result = await scraper.login_with_credentials(email, password, on_progress=queue.put_nowait)
+        await queue.put(f"\x00{result}")  # sentinel prefix distinguishes final result
 
-    if result == "mfa_required":
-        return HTMLResponse("""
-            <div class="space-y-2">
-                <p class="text-sm text-amber-700 font-medium">MFA code required</p>
-                <p class="text-xs text-gray-600">Enter the code from your authenticator app or SMS.</p>
-                <div class="flex items-center gap-2">
-                    <input type="text" id="coles-mfa-input"
-                           placeholder="000000" maxlength="8"
-                           inputmode="numeric" autocomplete="one-time-code"
-                           class="border border-gray-300 rounded px-3 py-1.5 text-sm w-28 tracking-widest text-center">
-                    <button onclick="submitColesMFA()"
-                            class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
-                        Verify
-                    </button>
-                    <button onclick="cancelColesLogin()"
-                            class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
-                        Cancel
-                    </button>
-                </div>
-            </div>
-        """)
+    asyncio.create_task(_run())
 
-    reason = html_module.escape(result.removeprefix("failed:"))
-    return HTMLResponse(f'<span class="text-red-600">Login failed: {reason}</span>')
+    async def generate():
+        try:
+            while True:
+                msg = await asyncio.wait_for(queue.get(), timeout=120.0)
+                if msg.startswith("\x00"):
+                    yield f'event: done\ndata: {json.dumps({"result": msg[1:]})}\n\n'
+                    break
+                yield f'event: progress\ndata: {json.dumps({"message": msg})}\n\n'
+        except asyncio.TimeoutError:
+            yield f'event: done\ndata: {json.dumps({"result": "failed:Timed out waiting for browser"})}\n\n'
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.post("/login-playwright/{store}/mfa")
@@ -188,17 +188,16 @@ async def login_playwright_mfa(
     store: str,
     code: str = Form(...),
     user: CurrentUser = Depends(get_current_user_from_cookie),
-) -> HTMLResponse:
-    """Submit the MFA code for a pending Playwright login."""
+) -> StreamingResponse:
+    """Submit the MFA code and stream the result as a single SSE done event."""
     store_enum = store_from_string(store)
     scraper = get_scraper(user.user_id, store_enum)
     result = await scraper.complete_mfa(code.strip())
 
-    if result == "ok":
-        return HTMLResponse('<span class="text-green-600">Logged in — cookies stored successfully</span>')
+    async def generate():
+        yield f'event: done\ndata: {json.dumps({"result": result})}\n\n'
 
-    reason = html_module.escape(result.removeprefix("failed:"))
-    return HTMLResponse(f'<span class="text-red-600">MFA failed: {reason}</span>')
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.post("/login-playwright/{store}/cancel")

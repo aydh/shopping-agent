@@ -241,7 +241,7 @@ function togglePanel(showId, hideId) {
     }
 }
 
-function submitColesLogin() {
+async function submitColesLogin() {
     const email = document.getElementById('coles-login-email').value.trim();
     const password = document.getElementById('coles-login-password').value;
     if (!email || !password) {
@@ -251,53 +251,100 @@ function submitColesLogin() {
     }
 
     const statusEl = document.getElementById('coles-login-status');
-    statusEl.innerHTML = '<span class="text-gray-500">Logging in\u2026 this may take up to 30 seconds</span>';
+    statusEl.innerHTML = '<span class="text-gray-400 text-sm">Starting\u2026</span>';
+    document.getElementById('coles-login-password').value = '';
 
     const fd = new FormData();
     fd.append('email', email);
     fd.append('password', password);
 
-    fetch('/api/auth/login-playwright/coles', { method: 'POST', body: fd })
-        .then(r => {
-            if (!r.ok && r.status !== 200) {
-                throw new Error('HTTP ' + r.status);
-            }
-            return r.text();
-        })
-        .then(html => {
-            statusEl.innerHTML = html;
-            document.getElementById('coles-login-password').value = '';
-            if (html.includes('text-green-600')) {
-                document.getElementById('coles-login-panel').classList.add('hidden');
-                document.getElementById('coles-auth-status').innerHTML =
-                    '<span class="text-green-600">Connected \u2014 session active</span>';
-            }
-        })
-        .catch(err => {
-            statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
-        });
+    try {
+        const response = await fetch('/api/auth/login-playwright/coles', { method: 'POST', body: fd });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readLoginStream(response, statusEl);
+    } catch (err) {
+        statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
+    }
 }
 
-function submitColesMFA() {
+async function submitColesMFA() {
     const code = document.getElementById('coles-mfa-input').value.trim();
     if (!code) return;
 
     const statusEl = document.getElementById('coles-login-status');
-    statusEl.querySelector('button')?.setAttribute('disabled', true);
+    statusEl.innerHTML = '<span class="text-gray-400 text-sm">Verifying\u2026</span>';
 
     const fd = new FormData();
     fd.append('code', code);
 
-    fetch('/api/auth/login-playwright/coles/mfa', { method: 'POST', body: fd })
-        .then(r => r.text())
-        .then(html => {
-            statusEl.innerHTML = html;
-            if (html.includes('text-green-600')) {
-                document.getElementById('coles-login-panel').classList.add('hidden');
-                document.getElementById('coles-auth-status').innerHTML =
-                    '<span class="text-green-600">Connected \u2014 session active</span>';
+    try {
+        const response = await fetch('/api/auth/login-playwright/coles/mfa', { method: 'POST', body: fd });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readLoginStream(response, statusEl);
+    } catch (err) {
+        statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
+    }
+}
+
+async function readLoginStream(response, statusEl) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop();
+
+        for (const block of blocks) {
+            let eventType = 'message', data = '';
+            for (const line of block.trim().split('\n')) {
+                if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                if (line.startsWith('data: '))  data  = line.slice(6).trim();
             }
-        });
+            if (!data) continue;
+
+            try {
+                const payload = JSON.parse(data);
+                if (eventType === 'progress') {
+                    statusEl.innerHTML = '<span class="text-gray-400 text-sm">' + payload.message + '\u2026</span>';
+                } else if (eventType === 'done') {
+                    handleLoginDone(payload.result, statusEl);
+                }
+            } catch (_) {}
+        }
+    }
+}
+
+function handleLoginDone(result, statusEl) {
+    if (result === 'ok') {
+        statusEl.innerHTML = '<span class="text-green-600">Logged in \u2014 cookies stored</span>';
+        document.getElementById('coles-login-panel').classList.add('hidden');
+        document.getElementById('coles-auth-status').innerHTML =
+            '<span class="text-green-600">Connected \u2014 session active</span>';
+    } else if (result === 'mfa_required') {
+        statusEl.innerHTML = `
+            <div class="space-y-2">
+                <p class="text-sm text-amber-700 font-medium">MFA code required</p>
+                <p class="text-xs text-gray-600">Enter the code from your authenticator app or SMS.</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="coles-mfa-input" placeholder="000000" maxlength="8"
+                           inputmode="numeric" autocomplete="one-time-code"
+                           class="border border-gray-300 rounded px-3 py-1.5 text-sm w-28 tracking-widest text-center">
+                    <button onclick="submitColesMFA()"
+                            class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Verify</button>
+                    <button onclick="cancelColesLogin()"
+                            class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">Cancel</button>
+                </div>
+            </div>`;
+        document.getElementById('coles-mfa-input').focus();
+    } else {
+        const reason = result.replace(/^failed:/, '');
+        statusEl.innerHTML = '<span class="text-red-600">Login failed: ' + reason + '</span>';
+    }
 }
 
 function cancelColesLogin() {

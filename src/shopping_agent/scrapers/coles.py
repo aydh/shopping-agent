@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -253,14 +253,27 @@ class ColesScraper(BaseScraper):
         """Not supported directly; use login_with_credentials() instead."""
         return False
 
-    async def login_with_credentials(self, email: str, password: str) -> str:
+    async def login_with_credentials(
+        self,
+        email: str,
+        password: str,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> str:
         """Use Playwright to log into Coles with the given credentials.
 
         Returns one of:
           "ok"           – login succeeded and cookies are stored.
           "mfa_required" – an MFA code is needed; call complete_mfa() next.
           "failed:<msg>" – login failed; the message describes the reason.
+
+        on_progress, if provided, is called with short human-readable status
+        strings as the login progresses.
         """
+        def _progress(msg: str) -> None:
+            logger.info("[Coles] Playwright: %s", msg)
+            if on_progress:
+                on_progress(msg)
+
         try:
             from playwright.async_api import async_playwright
         except ImportError:
@@ -270,6 +283,7 @@ class ColesScraper(BaseScraper):
 
         pw = await async_playwright().start()
         try:
+            _progress("Launching browser")
             browser = await pw.chromium.launch(
                 headless=True,
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
@@ -280,7 +294,7 @@ class ColesScraper(BaseScraper):
             )
             page = await context.new_page()
 
-            logger.info("[Coles] Playwright: navigating to login page")
+            _progress("Navigating to Coles login page")
             await page.goto(
                 "https://www.coles.com.au/account/login",
                 wait_until="networkidle",
@@ -296,21 +310,24 @@ class ColesScraper(BaseScraper):
                 'input[autocomplete="email"], '
                 'input[autocomplete="username"]'
             )
+            _progress("Waiting for login form")
             await page.wait_for_selector(email_selector, timeout=20000)
             await page.fill(email_selector, email)
-            logger.info("[Coles] Playwright: filled email")
+            _progress("Filled email")
 
             # Click Next / Continue
             await page.click('button[type="submit"], input[type="submit"]')
 
             # Fill password (may be on same page or next page after email step)
+            _progress("Waiting for password field")
             await page.wait_for_selector('input[type="password"]', timeout=15000)
             await page.fill('input[type="password"]', password)
-            logger.info("[Coles] Playwright: filled password")
+            _progress("Filled password — submitting")
 
             await page.click('button[type="submit"], input[type="submit"]')
 
             # Wait for navigation — success, MFA, or error
+            _progress("Waiting for redirect")
             try:
                 await page.wait_for_load_state("networkidle", timeout=20000)
             except Exception:
@@ -321,6 +338,7 @@ class ColesScraper(BaseScraper):
 
             # Detect success: back on main Coles site, not on a login/accounts page
             if self._is_coles_home(current_url):
+                _progress("Login successful — saving cookies")
                 cookies = await context.cookies()
                 await browser.close()
                 await pw.stop()
@@ -329,7 +347,7 @@ class ColesScraper(BaseScraper):
             # Detect MFA challenge
             page_text = (await page.inner_text("body")).lower()
             if self._looks_like_mfa(current_url, page_text):
-                logger.info("[Coles] Playwright: MFA required")
+                _progress("MFA code required")
                 self._pending_login = _PendingLogin(
                     playwright=pw, browser=browser, context=context, page=page
                 )
