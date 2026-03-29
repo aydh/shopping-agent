@@ -1,10 +1,13 @@
 import asyncio
+import html
 import json
 import logging
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -60,6 +63,16 @@ def _coles_is_available(data: dict) -> bool:
     return True
 
 
+@dataclass
+class _PendingLogin:
+    """Holds live Playwright objects while waiting for an MFA code."""
+    playwright: Any
+    browser: Any
+    context: Any
+    page: Any
+    created_at: float = field(default_factory=time.time)
+
+
 class ColesScraper(BaseScraper):
     store = Store.COLES
     _cookie_domain: str = ".coles.com.au"
@@ -70,6 +83,7 @@ class ColesScraper(BaseScraper):
         self._bare_client: httpx.AsyncClient | None = None
         self._next_build_id: str | None = None
         self._build_id_lock: asyncio.Lock = asyncio.Lock()
+        self._pending_login: _PendingLogin | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the httpx client with current cookies."""
@@ -236,12 +250,209 @@ class ColesScraper(BaseScraper):
         return {"ok": False, "detail": f"Unexpected response: HTTP {resp.status_code}"}
 
     async def login_interactive(self) -> bool:
-        """Not supported for httpx-based scraper. Use import_cookies instead."""
-        logger.info(
-            "Interactive login not available for Coles httpx scraper. "
-            "Use cookie import instead."
-        )
+        """Not supported directly; use login_with_credentials() instead."""
         return False
+
+    async def login_with_credentials(self, email: str, password: str) -> str:
+        """Use Playwright to log into Coles with the given credentials.
+
+        Returns one of:
+          "ok"           – login succeeded and cookies are stored.
+          "mfa_required" – an MFA code is needed; call complete_mfa() next.
+          "failed:<msg>" – login failed; the message describes the reason.
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return "failed:playwright not installed — run: pip install playwright && playwright install chromium"
+
+        await self.cancel_pending_login()
+
+        pw = await async_playwright().start()
+        try:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            )
+            context = await browser.new_context(
+                user_agent=DEFAULT_USER_AGENT,
+                viewport={"width": 1280, "height": 800},
+            )
+            page = await context.new_page()
+
+            logger.info("[Coles] Playwright: navigating to login page")
+            await page.goto("https://www.coles.com.au/customer/login", wait_until="domcontentloaded", timeout=30000)
+
+            # Fill email
+            email_selector = 'input[name="identifier"], input[type="email"], input[name="email"]'
+            await page.wait_for_selector(email_selector, timeout=15000)
+            await page.fill(email_selector, email)
+            logger.info("[Coles] Playwright: filled email")
+
+            # Click Next / Continue
+            await page.click('button[type="submit"], input[type="submit"]')
+
+            # Fill password (may be on same page or next page after email step)
+            await page.wait_for_selector('input[type="password"]', timeout=15000)
+            await page.fill('input[type="password"]', password)
+            logger.info("[Coles] Playwright: filled password")
+
+            await page.click('button[type="submit"], input[type="submit"]')
+
+            # Wait for navigation — success, MFA, or error
+            try:
+                await page.wait_for_load_state("networkidle", timeout=20000)
+            except Exception:
+                pass  # timeout is fine; we check state below
+
+            current_url = page.url
+            logger.info("[Coles] Playwright: post-submit URL: %s", current_url)
+
+            # Detect success: back on main Coles site, not on a login/accounts page
+            if self._is_coles_home(current_url):
+                cookies = await context.cookies()
+                await browser.close()
+                await pw.stop()
+                return await self._finish_playwright_login(cookies)
+
+            # Detect MFA challenge
+            page_text = (await page.inner_text("body")).lower()
+            if self._looks_like_mfa(current_url, page_text):
+                logger.info("[Coles] Playwright: MFA required")
+                self._pending_login = _PendingLogin(
+                    playwright=pw, browser=browser, context=context, page=page
+                )
+                return "mfa_required"
+
+            # Unknown state — try to grab any error message shown on page
+            error_msg = await self._extract_page_error(page)
+            await browser.close()
+            await pw.stop()
+            return f"failed:{error_msg or 'Login unsuccessful — check your credentials'}"
+
+        except Exception as exc:
+            logger.exception("[Coles] Playwright login error")
+            try:
+                await pw.stop()
+            except Exception:
+                pass
+            return f"failed:{exc}"
+
+    async def complete_mfa(self, code: str) -> str:
+        """Submit the MFA code for a pending Playwright login.
+
+        Returns "ok" or "failed:<msg>".
+        """
+        if not self._pending_login:
+            return "failed:No pending login — please start the login process again"
+
+        pending = self._pending_login
+        if time.time() - pending.created_at > 600:
+            await self.cancel_pending_login()
+            return "failed:Login session expired (10 min limit) — please start again"
+
+        try:
+            page = pending.page
+            mfa_selector = (
+                'input[name="credentials.passcode"], '
+                'input[type="tel"], '
+                'input[name="code"], '
+                'input[autocomplete="one-time-code"], '
+                'input[inputmode="numeric"]'
+            )
+            await page.wait_for_selector(mfa_selector, timeout=5000)
+            await page.fill(mfa_selector, code)
+            await page.click('button[type="submit"], input[type="submit"]')
+
+            try:
+                await page.wait_for_load_state("networkidle", timeout=20000)
+            except Exception:
+                pass
+
+            current_url = page.url
+            logger.info("[Coles] Playwright MFA: post-submit URL: %s", current_url)
+
+            if self._is_coles_home(current_url):
+                cookies = await pending.context.cookies()
+                await pending.browser.close()
+                await pending.playwright.stop()
+                self._pending_login = None
+                return await self._finish_playwright_login(cookies)
+
+            error_msg = await self._extract_page_error(page)
+            await self.cancel_pending_login()
+            return f"failed:{error_msg or 'MFA verification failed — check the code and try again'}"
+
+        except Exception as exc:
+            logger.exception("[Coles] Playwright MFA error")
+            await self.cancel_pending_login()
+            return f"failed:{exc}"
+
+    async def cancel_pending_login(self) -> None:
+        """Tear down any in-progress Playwright login session."""
+        if self._pending_login:
+            try:
+                await self._pending_login.browser.close()
+            except Exception:
+                pass
+            try:
+                await self._pending_login.playwright.stop()
+            except Exception:
+                pass
+            self._pending_login = None
+
+    # ── Playwright helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _is_coles_home(url: str) -> bool:
+        """Return True if the URL is back on the main Coles shopping site."""
+        return (
+            "www.coles.com.au" in url
+            and "login" not in url
+            and "accounts" not in url
+            and "okta" not in url
+        )
+
+    @staticmethod
+    def _looks_like_mfa(url: str, page_text: str) -> bool:
+        url_lower = url.lower()
+        mfa_url_hints = ("challenge", "/mfa", "verify", "step-up", "factor")
+        mfa_text_hints = (
+            "verify your identity", "authentication code", "enter code",
+            "one-time", "passcode", "authenticator", "sms code",
+        )
+        return (
+            any(h in url_lower for h in mfa_url_hints)
+            or any(h in page_text for h in mfa_text_hints)
+        )
+
+    @staticmethod
+    async def _extract_page_error(page: Any) -> str | None:
+        """Try to read a visible error message from the page."""
+        selectors = [
+            '[class*="error"]',
+            '[class*="alert"]',
+            '[role="alert"]',
+            '[data-testid*="error"]',
+        ]
+        for sel in selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=500):
+                    text = (await el.inner_text()).strip()
+                    if text:
+                        return text[:200]
+            except Exception:
+                pass
+        return None
+
+    async def _finish_playwright_login(self, cookies: list[dict]) -> str:
+        """Store cookies captured from a Playwright session."""
+        coles_cookies = [c for c in cookies if "coles" in c.get("domain", "").lower()]
+        if not coles_cookies:
+            return "failed:No Coles cookies found after login — the login may have not completed"
+        success = await self.import_cookies(json.dumps(coles_cookies))
+        return "ok" if success else "failed:Could not persist the captured cookies"
 
     async def logout(self) -> None:
         """Delete stored Coles cookies and close the HTTP client."""

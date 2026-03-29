@@ -1,6 +1,7 @@
+import html as html_module
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ..auth import (
@@ -136,3 +137,77 @@ async def logout_store(
     if store_enum in (Store.WOOLWORTHS, Store.COLES):
         await scraper.logout()
     return HTMLResponse('<span class="text-gray-500">Not connected</span>')
+
+
+@router.post("/login-playwright/{store}")
+async def login_playwright(
+    store: str,
+    email: str = Form(...),
+    password: str = Form(...),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    """Start a Playwright-based login for the given store."""
+    store_enum = store_from_string(store)
+    if store_enum != Store.COLES:
+        return HTMLResponse('<span class="text-red-600">Playwright login is only supported for Coles</span>')
+
+    scraper = get_scraper(user.user_id, store_enum)
+    result = await scraper.login_with_credentials(email, password)
+
+    if result == "ok":
+        return HTMLResponse('<span class="text-green-600">Logged in — cookies stored successfully</span>')
+
+    if result == "mfa_required":
+        return HTMLResponse("""
+            <div class="space-y-2">
+                <p class="text-sm text-amber-700 font-medium">MFA code required</p>
+                <p class="text-xs text-gray-600">Enter the code from your authenticator app or SMS.</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="coles-mfa-input"
+                           placeholder="000000" maxlength="8"
+                           inputmode="numeric" autocomplete="one-time-code"
+                           class="border border-gray-300 rounded px-3 py-1.5 text-sm w-28 tracking-widest text-center">
+                    <button onclick="submitColesMFA()"
+                            class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                        Verify
+                    </button>
+                    <button onclick="cancelColesLogin()"
+                            class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        """)
+
+    reason = html_module.escape(result.removeprefix("failed:"))
+    return HTMLResponse(f'<span class="text-red-600">Login failed: {reason}</span>')
+
+
+@router.post("/login-playwright/{store}/mfa")
+async def login_playwright_mfa(
+    store: str,
+    code: str = Form(...),
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    """Submit the MFA code for a pending Playwright login."""
+    store_enum = store_from_string(store)
+    scraper = get_scraper(user.user_id, store_enum)
+    result = await scraper.complete_mfa(code.strip())
+
+    if result == "ok":
+        return HTMLResponse('<span class="text-green-600">Logged in — cookies stored successfully</span>')
+
+    reason = html_module.escape(result.removeprefix("failed:"))
+    return HTMLResponse(f'<span class="text-red-600">MFA failed: {reason}</span>')
+
+
+@router.post("/login-playwright/{store}/cancel")
+async def login_playwright_cancel(
+    store: str,
+    user: CurrentUser = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    """Cancel a pending Playwright login session."""
+    store_enum = store_from_string(store)
+    scraper = get_scraper(user.user_id, store_enum)
+    await scraper.cancel_pending_login()
+    return HTMLResponse('<span class="text-gray-500 text-sm">Login cancelled</span>')
