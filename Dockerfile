@@ -38,7 +38,8 @@ RUN mkdir -p /app/data /app/logs
 RUN useradd -m -u 1000 app && chown -R app:app /app
 
 # Make the Playwright browser cache accessible to the app user
-RUN cp -r /root/.cache/ms-playwright /home/app/.cache/ && \
+RUN mkdir -p /home/app/.cache && \
+    cp -r /root/.cache/ms-playwright /home/app/.cache/ && \
     chown -R app:app /home/app/.cache/ms-playwright
 
 USER app
