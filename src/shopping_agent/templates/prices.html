@@ -163,20 +163,32 @@
                         <td class="px-3 sm:px-6 py-3 text-right">
                             <div class="flex flex-wrap justify-end gap-1">
                                 <button onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
+                                        title="Price history"
+                                        class="p-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+                                </button>
                                 <a href="/prices/search-match/{{ product.id }}"
-                                   class="px-3 py-1.5 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200 whitespace-nowrap">Find Match</a>
+                                   title="Find match"
+                                   class="p-1.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803 7.5 7.5 0 0016.803 15.803z" /></svg>
+                                </a>
                                 <span id="add-btn-{{ product.id }}">
                                     <button hx-post="/api/shopping-list/items/add-product"
                                             hx-vals='{"product_id": {{ product.id }}}'
                                             hx-target="#add-btn-{{ product.id }}"
                                             hx-swap="innerHTML"
-                                            class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">Add to List</button>
+                                            title="Add to shopping list"
+                                            class="p-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                    </button>
                                 </span>
                                 <button hx-post="/api/prices/product/{{ product.id }}/hide"
                                         hx-target="#urow-{{ product.id }}"
                                         hx-swap="outerHTML"
-                                        class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Make Inactive</button>
+                                        title="Make inactive"
+                                        class="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -257,8 +269,9 @@
                             <button hx-post="/api/prices/match/{{ match.id }}/undo"
                                     hx-target="#rejected-{{ match.id }}"
                                     hx-swap="outerHTML"
-                                    class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">
-                                Undo
+                                    title="Undo rejection"
+                                    class="p-1.5 bg-orange-100 text-orange-700 rounded hover:bg-orange-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
                             </button>
                         </td>
                     </tr>
@@ -316,18 +329,27 @@
                         <td class="px-3 sm:px-6 py-3 text-right">
                             <div class="flex flex-wrap justify-end gap-1">
                                 <button onclick="toggleProductHistory(this, '{{ product.id }}')"
-                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
+                                        title="Price history"
+                                        class="p-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+                                </button>
                                 <span id="add-btn-{{ product.id }}">
                                     <button hx-post="/api/shopping-list/items/add-product"
                                             hx-vals='{"product_id": {{ product.id }}}'
                                             hx-target="#add-btn-{{ product.id }}"
                                             hx-swap="innerHTML"
-                                            class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">Add to List</button>
+                                            title="Add to shopping list"
+                                            class="p-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                    </button>
                                 </span>
                                 <button hx-post="/api/prices/product/{{ product.id }}/restore"
                                         hx-target="#hidden-{{ product.id }}"
                                         hx-swap="outerHTML"
-                                        class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Restore</button>
+                                        title="Restore from inactive"
+                                        class="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                </button>
                             </div>
                         </td>
                     </tr>

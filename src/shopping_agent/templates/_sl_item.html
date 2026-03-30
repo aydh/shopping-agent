@@ -1,0 +1,129 @@
+{% set ph_ids = ([coles_p.id] if coles_p else []) + ([ww_p.id] if ww_p else []) %}
+{% set _prices = ([item.coles_price] if item.coles_price else []) + ([item.woolworths_price] if item.woolworths_price else []) %}
+{% set _bp = _prices | min if _prices else 0 %}
+{% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price < item.woolworths_price) %}
+{% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
+<div id="sl-item-{{ item.id }}">
+<div class="sl-row px-4 sm:px-6 py-3"
+     data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}"
+     data-best-price="{{ _bp }}"
+     data-total="{{ _bp * item.quantity }}"
+     data-hist-id="sl-hist-{{ item.id }}">
+
+    <!-- Products: side-by-side on mobile, grid cells on desktop -->
+    <div class="sl-products flex gap-3 mb-3 md:mb-0">
+
+        <!-- Coles cell -->
+        {% set coles_unavailable = not item.coles_price %}
+        <div class="flex-1 min-w-0 rounded-lg p-2 {% if coles_cheaper %}ring-2 ring-blue-400 bg-blue-50{% elif coles_unavailable %}ring-2 ring-yellow-400 bg-yellow-50{% endif %}">
+            {% if coles_p %}
+            {% set url = coles_p.product_url | product_url(coles_p.store_product_id, coles_p.store.value, coles_p.name) %}
+            <div class="flex items-start gap-2">
+                {% if coles_p.image_url %}
+                {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="flex-shrink-0"><img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover hover:opacity-80"></a>
+                {% else %}<img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">{% endif %}
+                {% else %}<div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>{% endif %}
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium text-red-600 md:hidden">Coles</p>
+                    {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline line-clamp-2 block">{{ coles_p.name }}</a>
+                    {% else %}<p class="text-sm font-medium text-gray-900 line-clamp-2">{{ coles_p.name }}</p>{% endif %}
+                    {% if coles_p.brand or coles_p.unit_size %}<p class="text-xs text-gray-400">{{ [coles_p.brand, coles_p.unit_size] | select | join(' · ') }}</p>{% endif %}
+                    {% if item.coles_price %}
+                    <p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(item.coles_price) }}</p>
+                    {% else %}
+                    <p class="text-xs font-medium text-yellow-600">Unavailable</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="text-xs text-gray-400 md:hidden font-medium">Coles</p>
+            <p class="text-xs font-medium text-yellow-600 mt-1">Unavailable</p>
+            <a href="/shopping-list/find-match/{{ item.product_id }}"
+               class="inline-block mt-1.5 text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">Find Match</a>
+            {% endif %}
+        </div>
+
+        <!-- Woolworths cell -->
+        {% set ww_unavailable = not item.woolworths_price %}
+        <div class="flex-1 min-w-0 rounded-lg p-2 {% if ww_cheaper %}ring-2 ring-blue-400 bg-blue-50{% elif ww_unavailable %}ring-2 ring-yellow-400 bg-yellow-50{% endif %}">
+            {% if ww_p %}
+            {% set url = ww_p.product_url | product_url(ww_p.store_product_id, ww_p.store.value, ww_p.name) %}
+            <div class="flex items-start gap-2">
+                {% if ww_p.image_url %}
+                {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="flex-shrink-0"><img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover hover:opacity-80"></a>
+                {% else %}<img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">{% endif %}
+                {% else %}<div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>{% endif %}
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium text-green-600 md:hidden">Woolworths</p>
+                    {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline line-clamp-2 block">{{ ww_p.name }}</a>
+                    {% else %}<p class="text-sm font-medium text-gray-900 line-clamp-2">{{ ww_p.name }}</p>{% endif %}
+                    {% if ww_p.brand or ww_p.unit_size %}<p class="text-xs text-gray-400">{{ [ww_p.brand, ww_p.unit_size] | select | join(' · ') }}</p>{% endif %}
+                    {% if item.woolworths_price %}
+                    <p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(item.woolworths_price) }}</p>
+                    {% else %}
+                    <p class="text-xs font-medium text-yellow-600">Unavailable</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="text-xs text-gray-400 md:hidden font-medium">Woolworths</p>
+            <p class="text-xs font-medium text-yellow-600 mt-1">Unavailable</p>
+            <a href="/shopping-list/find-match/{{ item.product_id }}"
+               class="inline-block mt-1.5 text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">Find Match</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Actions: inline on mobile, grid cells on desktop -->
+    <div class="sl-actions flex items-center gap-3 md:gap-0">
+
+        <!-- Quantity stepper -->
+        <div class="flex items-center justify-between w-full rounded-lg border border-gray-300 overflow-hidden text-sm">
+            <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
+                    hx-vals='{"quantity": {{ item.quantity - 1 }}}'
+                    hx-target="#sl-item-{{ item.id }}" hx-swap="outerHTML"
+                    class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-r border-gray-300 leading-none">−</button>
+            <input type="number" min="1" max="99"
+                   name="quantity" value="{{ item.quantity }}"
+                   hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
+                   hx-trigger="change"
+                   hx-target="#sl-item-{{ item.id }}" hx-swap="outerHTML"
+                   onclick="this.select()"
+                   class="w-12 py-1.5 text-gray-900 font-medium text-center border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded">
+            <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
+                    hx-vals='{"quantity": {{ item.quantity + 1 }}}'
+                    hx-target="#sl-item-{{ item.id }}" hx-swap="outerHTML"
+                    class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-l border-gray-300 leading-none">+</button>
+        </div>
+
+        <!-- Line total -->
+        <div class="text-sm font-semibold text-gray-800 text-right whitespace-nowrap">
+            {% if _bp %}<span>${{ "%.2f" | format(_bp * item.quantity) }}</span>{% else %}<span class="text-gray-400">—</span>{% endif %}
+        </div>
+
+        <!-- Icon actions -->
+        <div class="flex items-center gap-2 ml-auto md:ml-0">
+            {% if ph_ids %}
+            <button onclick="toggleSLItemHistory(this, 'sl-hist-{{ item.id }}', '{{ ph_ids | join(',') }}')"
+                    title="Price history"
+                    class="p-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+            </button>
+            {% endif %}
+            <button hx-delete="/api/shopping-list/items/{{ item.id }}"
+                    hx-target="#list-content" hx-swap="innerHTML"
+                    title="Remove item"
+                    class="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.021-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+</div>
+<!-- Price history panel (lazy-loaded) -->
+<div id="sl-hist-{{ item.id }}" class="hidden px-4 sm:px-6 pb-3 space-y-2"></div>
+</div>

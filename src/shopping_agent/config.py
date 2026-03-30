@@ -100,13 +100,13 @@ MIN_PREDICTION_CONFIDENCE: float = 0.4
 # PREDICTION_LOOKAHEAD_DAYS  How far ahead of today to look when generating
 #                            candidates. Items predicted to run out within this
 #                            window are included in the shopping list.
-PREDICTION_LOOKAHEAD_DAYS: int = 14
+PREDICTION_LOOKAHEAD_DAYS: int = 7
 
 # PREDICTION_LEAD_TIME_DAYS  Items predicted to run out within this many days
 #                            *before* today are also included (catches items
 #                            already overdue). Raise if you often run out before
 #                            the list is generated.
-PREDICTION_LEAD_TIME_DAYS: int = 14
+PREDICTION_LEAD_TIME_DAYS: int = 7
 
 # PREDICTION_PURCHASE_COUNT_MIN  Minimum number of past purchases required
 #                                before a prediction is generated for a product.

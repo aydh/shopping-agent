@@ -116,14 +116,14 @@
     {% if upcoming_runouts %}
     <style>
         @media (min-width: 768px) {
-            .rl-header, .rl-row { display: grid; grid-template-columns: 1fr 1fr 7rem 7rem 6rem; gap: 1rem; align-items: center; }
+            .rl-header, .rl-row { display: grid; grid-template-columns: 1fr 1fr 7rem 7rem 8rem; gap: 1rem; align-items: center; }
             .rl-products { display: contents; }
             .rl-meta { display: contents; }
         }
     </style>
     <div class="bg-white rounded-lg shadow overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 class="text-lg font-medium text-gray-900">Running Low (Next 7 Days)</h2>
+            <h2 class="text-lg font-medium text-gray-900">Running Low (Next {{ runout_days }} Days)</h2>
             <a href="/predictions" class="text-sm text-blue-500 hover:underline">All predictions →</a>
         </div>
         <!-- Column headers (desktop only) -->
@@ -138,6 +138,7 @@
             {% for pred in upcoming_runouts %}
             {% set coles_p = pred.product if pred.product.store.value == 'coles' else pred.matched_product %}
             {% set ww_p = pred.product if pred.product.store.value == 'woolworths' else pred.matched_product %}
+            <div data-pred-id="{{ pred.product_id }}">
             <div class="rl-row px-4 sm:px-6 py-3">
 
                 <!-- Products: side-by-side on mobile, grid cells on desktop -->
@@ -198,23 +199,69 @@
                         <p class="font-medium text-gray-900">{{ pred.last_purchased_date }}</p>
                         <p class="text-gray-500">{{ pred.last_purchase_store | title }} · {{ pred.last_purchase_quantity }}x</p>
                     </div>
-                    <!-- Add to list -->
-                    <div class="flex-shrink-0">
+                    <!-- Actions -->
+                    <div class="flex-shrink-0 flex flex-row gap-1 items-center">
+                        {% if pred.match_id %}
+                        <button onclick="toggleDashHistory(this, '{{ pred.match_id }}', null, {{ pred.product_id }})"
+                                title="Price history"
+                                class="p-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+                        </button>
+                        {% else %}
+                        <button onclick="toggleDashHistory(this, null, {{ pred.product_id }}, {{ pred.product_id }})"
+                                title="Price history"
+                                class="p-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+                        </button>
+                        {% endif %}
+                        <button hx-post="/api/prices/product/{{ pred.product_id }}/hide"
+                                hx-target="closest [data-pred-id]"
+                                hx-swap="outerHTML"
+                                title="Make inactive"
+                                class="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                        </button>
+                        <span id="add-btn-dash-{{ pred.product_id }}">
                         <button hx-post="/api/shopping-list/items/add-product"
                                 hx-vals='{"product_id": {{ pred.product_id }}}'
-                                hx-target="next .add-result"
+                                hx-target="#add-btn-dash-{{ pred.product_id }}"
                                 hx-swap="innerHTML"
-                                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">
-                            Add to List
+                                title="Add to shopping list"
+                                class="p-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                         </button>
-                        <span class="add-result text-xs block min-h-[1rem] mt-1"></span>
+                        </span>
                     </div>
                 </div>
 
+            </div>
+            <div id="dash-history-{{ pred.product_id }}" class="hidden px-4 sm:px-6 pb-3 border-t border-gray-100"></div>
             </div>
             {% endfor %}
         </div>
     </div>
     {% endif %}
 </div>
+<script>
+function execScripts(container) {
+    container.querySelectorAll('script').forEach(old => {
+        const s = document.createElement('script');
+        if (old.src) { s.src = old.src; } else { s.textContent = old.textContent; }
+        document.head.appendChild(s).parentNode.removeChild(s);
+    });
+}
+function toggleDashHistory(btn, matchId, productId, containerId) {
+    const body = document.getElementById('dash-history-' + containerId);
+    if (!body.classList.contains('hidden') && body.innerHTML.trim()) {
+        body.innerHTML = '';
+        body.classList.add('hidden');
+        btn.classList.remove('text-blue-600');
+    } else {
+        body.classList.remove('hidden');
+        btn.classList.add('text-blue-600');
+        const url = matchId ? '/api/prices/history/' + matchId : '/api/prices/product-history/' + productId;
+        fetch(url).then(r => r.text()).then(html => { body.innerHTML = html; execScripts(body); });
+    }
+}
+</script>
 {% endblock %}

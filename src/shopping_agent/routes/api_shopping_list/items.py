@@ -74,7 +74,6 @@ async def set_quantity(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await update_item_quantity(session, item_id, quantity)
-    # service commits internally; read context in a fresh session
     async with async_session() as fresh:
         async with fresh.begin():
             await set_rls_claims(fresh, user.user_id)

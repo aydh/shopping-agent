@@ -16,9 +16,9 @@
             {
               label: 'Coles',
               data: {{ coles_points | tojson }},
-              borderColor: '{{ coles_colour }}',
+              borderColor: '{{ coles_colour }}80',
               backgroundColor: '{{ coles_colour }}22',
-              borderWidth: 1.5,
+              borderWidth: 2.5,
               pointBackgroundColor: '{{ coles_colour }}',
               pointRadius: 2,
               pointHoverRadius: 3,
@@ -28,9 +28,9 @@
             {
               label: 'Woolworths',
               data: {{ ww_points | tojson }},
-              borderColor: '{{ ww_colour }}',
+              borderColor: '{{ ww_colour }}80',
               backgroundColor: '{{ ww_colour }}22',
-              borderWidth: 1.5,
+              borderWidth: 2.5,
               pointBackgroundColor: '{{ ww_colour }}',
               pointRadius: 2,
               pointHoverRadius: 3,
@@ -42,7 +42,7 @@
         options: {
           responsive: true,
           scales: {
-            x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', displayFormats: { day: 'dd MMM' } }, title: { display: false } },
+            x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', unit: 'month', displayFormats: { month: 'MMM yyyy' } }, title: { display: false } },
             y: { title: { display: true, text: 'Price ($)' }, beginAtZero: false }
           },
           plugins: {

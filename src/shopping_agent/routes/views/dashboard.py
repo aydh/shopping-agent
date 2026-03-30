@@ -33,7 +33,8 @@ async def dashboard(
 ) -> HTMLResponse:
     """Render the dashboard page."""
     today = date.today()
-    week_ahead = today + timedelta(days=7)
+    runout_days = 7
+    week_ahead = today + timedelta(days=runout_days)
 
     # Orders per store + last sync date — single grouped query
     order_stats = {
@@ -103,6 +104,7 @@ async def dashboard(
             "rejected_count": rejected_count,
             "pred_count": pred_count,
             "runout_count": len(upcoming_runouts),
+            "runout_days": runout_days,
             "upcoming_runouts": upcoming_runouts,
             "list_count": list_count,
             "coles_last_sync": coles_last_sync,

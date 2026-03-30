@@ -15,8 +15,8 @@
         datasets: [{
           label: '{{ label }}',
           data: {{ points | tojson }},
-          borderColor: '{{ colour }}',
-          borderWidth: 1,
+          borderColor: '{{ colour }}80',
+          borderWidth: 2.5,
           pointBackgroundColor: '{{ colour }}',
           pointBorderColor: '{{ colour }}',
           pointRadius: 2,
@@ -28,7 +28,7 @@
       options: {
         responsive: true,
         scales: {
-          x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', displayFormats: { day: 'dd MMM' } }, title: { display: false } },
+          x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', unit: 'month', displayFormats: { month: 'MMM yyyy' } }, title: { display: false } },
           y: { title: { display: true, text: 'Price ($)' }, beginAtZero: false }
         },
         plugins: {
