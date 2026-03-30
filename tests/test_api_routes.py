@@ -472,7 +472,7 @@ async def test_charts_match_history_routes_render(monkeypatch, fake_result, dumm
 
 
 @pytest.mark.asyncio
-async def test_shopping_list_crud_items_stores_and_candidates_routes(monkeypatch, fake_result, dummy_templates):
+async def test_shopping_list_crud_items_stores_and_candidates_routes(monkeypatch, fake_result, dummy_templates, async_cm):
     monkeypatch.setattr(crud, "templates", dummy_templates)
     monkeypatch.setattr(items, "templates", dummy_templates)
     monkeypatch.setattr(stores, "templates", dummy_templates)
@@ -485,30 +485,36 @@ async def test_shopping_list_crud_items_stores_and_candidates_routes(monkeypatch
     monkeypatch.setattr(items, "update_item_quantity", AsyncMock())
     monkeypatch.setattr(items, "update_item_store", AsyncMock())
     monkeypatch.setattr(items, "remove_item", AsyncMock())
+    monkeypatch.setattr(items, "set_rls_claims", AsyncMock())
     monkeypatch.setattr(items, "_add_item_to_list", AsyncMock(return_value=None))
+    monkeypatch.setattr(items, "_render_item_update_response", AsyncMock(return_value=items.HTMLResponse("rendered:_sl_item.htmlrendered:_sl_totals.htmlrendered:_sl_meta.html")))
+    monkeypatch.setattr(items, "_render_full_list_content", AsyncMock(return_value="rendered:_shopping_list_content.html"))
     monkeypatch.setattr(candidates, "generate_shopping_list", AsyncMock())
+    monkeypatch.setattr(items, "async_session", MagicMock(return_value=async_cm(AsyncMock())))
+    monkeypatch.setattr(candidates, "async_session", MagicMock(return_value=async_cm(AsyncMock())))
+    user = SimpleNamespace(user_id="user-1")
 
     new_session = AsyncMock()
     new_session.execute = AsyncMock(return_value=fake_result(scalars=[]))
     new_session.add = MagicMock()
-    new_response = await crud.new_list(new_session)
+    new_response = await crud.new_list(session=new_session, user=user)
     assert "rendered:_shopping_list_content.html" in new_response.body.decode()
 
-    quantity_response = await items.set_quantity(1, 2, AsyncMock())
-    assert quantity_response.body.decode() == "rendered:_shopping_list_content.html"
+    quantity_response = await items.set_quantity(1, 2, user=user, session=AsyncMock())
+    assert quantity_response.body.decode() == "rendered:_sl_item.htmlrendered:_sl_totals.htmlrendered:_sl_meta.html"
 
-    add_response = await items.add_product_to_list(1, AsyncMock())
+    add_response = await items.add_product_to_list(1, user=user, session=AsyncMock())
     assert "No active list" in add_response.body.decode()
 
-    redirect = await stores.submit_store("coles", AsyncMock(execute=AsyncMock(return_value=fake_result(scalars=[]))))
+    redirect = await stores.submit_store("coles", user=user, session=AsyncMock(execute=AsyncMock(return_value=fake_result(scalars=[]))))
     assert redirect.headers["location"] == "/shopping-list"
 
     add_preds_session = AsyncMock()
     add_preds_session.execute = AsyncMock(return_value=fake_result(scalars=[]))
-    add_predictions_response = await candidates.add_predictions(add_preds_session)
+    add_predictions_response = await candidates.add_predictions(user=user, session=add_preds_session)
     assert add_predictions_response.body.decode() == "rendered:_shopping_list_content.html"
 
-    generate_response = await candidates.generate(AsyncMock())
+    generate_response = await candidates.generate(user=user, session=AsyncMock())
     assert generate_response.body.decode() == "rendered:_shopping_list_content.html"
 
 
@@ -533,6 +539,7 @@ async def test_shopping_list_items_copy_and_search_and_store_routes(monkeypatch,
     monkeypatch.setattr(stores, "templates", dummy_templates)
     monkeypatch.setattr(items, "_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
     monkeypatch.setattr(stores, "_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
+    monkeypatch.setattr(items, "_render_full_list_content", AsyncMock(return_value="rendered:_shopping_list_content.html"))
     active = ShoppingList(id=1, name="Active", target_date=date.today(), status=ListStatus.DRAFT)
     source = ShoppingList(id=2, name="Past", target_date=date.today(), status=ListStatus.ORDERED)
     product = _product(1, Store.COLES, "Milk", 5.0)
@@ -552,8 +559,9 @@ async def test_shopping_list_items_copy_and_search_and_store_routes(monkeypatch,
         ]
     )
     session.add = MagicMock()
+    user = SimpleNamespace(user_id="user-1")
 
-    copy_response = await items.copy_list(2, session)
+    copy_response = await items.copy_list(2, user=user, session=session)
     assert copy_response.body.decode() == "rendered:_shopping_list_content.html"
 
     search_session = AsyncMock()
@@ -564,13 +572,13 @@ async def test_shopping_list_items_copy_and_search_and_store_routes(monkeypatch,
             fake_result(scalars=[partner]),
         ]
     )
-    search_response = await items.product_search("mi", search_session)
+    search_response = await items.product_search("mi", user=user, session=search_session)
     assert search_response.body.decode() == "rendered:_product_search_results.html"
 
     store_item = ShoppingListItem(id=9, shopping_list_id=1, product_id=1, quantity=1, chosen_store=Store.COLES)
     store_session = AsyncMock()
     store_session.execute = AsyncMock(side_effect=[fake_result(scalars=[active]), fake_result(scalars=[store_item])])
-    set_store_response = await stores.set_all_store("woolworths", store_session)
+    set_store_response = await stores.set_all_store("woolworths", user=user, session=store_session)
     assert store_item.chosen_store == Store.WOOLWORTHS
     assert set_store_response.body.decode() == "rendered:_shopping_list_content.html"
 
@@ -598,7 +606,8 @@ async def test_shopping_list_candidates_add_predictions_success(monkeypatch, fak
     session.get = AsyncMock(return_value=product)
     session.add = MagicMock()
     monkeypatch.setattr(candidates, "generate_candidates", lambda predictions, target_date, lookahead_days: [SimpleNamespace(product_id=1, quantity=2, reason="Predicted")])
+    user = SimpleNamespace(user_id="user-1")
 
-    response = await candidates.add_predictions(session)
+    response = await candidates.add_predictions(user=user, session=session)
 
     assert response.body.decode() == "rendered:_shopping_list_content.html"

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import async_session, get_user_session_from_cookie, set_rls_claims
@@ -12,13 +13,78 @@ from ...services.shopping_list import (
     add_item_to_list as _add_item_to_list,
     choose_best_store,
     get_shopping_list_context as _shopping_list_context,
+    get_shopping_list_summary_context,
     remove_item,
+    resolve_display_names,
     update_item_quantity,
     update_item_store,
 )
 from ...templating import templates
 
 router = APIRouter()
+
+
+async def _render_full_list_content(session: AsyncSession, user_id) -> str:
+    """Render the full shopping-list body."""
+    ctx = await _shopping_list_context(session, user_id)
+    return templates.get_template("_shopping_list_content.html").render(**ctx)
+
+
+async def _render_item_update_response(session: AsyncSession, user_id, item_id: int) -> HTMLResponse:
+    """Render a single item row plus OOB summary updates after a small mutation."""
+    summary = await get_shopping_list_summary_context(session, user_id)
+    summary_ctx = {
+        **summary,
+        "coles_metrics": summary["store_metrics"]["coles"],
+        "woolworths_metrics": summary["store_metrics"]["woolworths"],
+    }
+    parts = [
+        templates.get_template("_sl_totals.html").render(**summary_ctx, oob=True),
+        templates.get_template("_sl_meta.html").render(**summary, oob=True),
+    ]
+
+    item_result = await session.execute(
+        select(ShoppingListItem)
+        .options(selectinload(ShoppingListItem.product))
+        .where(ShoppingListItem.id == item_id)
+    )
+    item = item_result.scalar_one_or_none()
+    if item and not item.is_removed:
+        _, _, store_products = await resolve_display_names(session, [item])
+        sp = store_products.get(item.id, {})
+        parts.insert(0, templates.get_template("_sl_item.html").render(
+            item=item,
+            coles_p=sp.get("coles"),
+            ww_p=sp.get("woolworths"),
+            oob=True,
+        ))
+        return HTMLResponse("".join(parts))
+
+    list_html = await _render_full_list_content(session, user_id)
+    parts.append(f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>')
+
+    return HTMLResponse("".join(parts))
+
+
+async def _render_item_delete_response(session: AsyncSession, user_id, item_id: int) -> HTMLResponse:
+    """Render OOB updates after removing an item without rerendering the full table."""
+    summary = await get_shopping_list_summary_context(session, user_id)
+    summary_ctx = {
+        **summary,
+        "coles_metrics": summary["store_metrics"]["coles"],
+        "woolworths_metrics": summary["store_metrics"]["woolworths"],
+    }
+    parts = [
+        templates.get_template("_sl_totals.html").render(**summary_ctx, oob=True),
+        templates.get_template("_sl_meta.html").render(**summary, oob=True),
+    ]
+    if summary["active_item_count"] == 0:
+        list_html = await _render_full_list_content(session, user_id)
+        parts.append(f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>')
+        return HTMLResponse("".join(parts))
+
+    parts.append(f'<div id="sl-item-{item_id}" hx-swap-oob="delete"></div>')
+    return HTMLResponse("".join(parts))
 
 
 @router.get("/product-search")
@@ -69,7 +135,7 @@ async def product_search(
 @router.post("/items/{item_id}/quantity")
 async def set_quantity(
     item_id: int,
-    quantity: int = Form(..., ge=1, le=99),
+    quantity: int = Form(..., ge=0, le=99),
     user: CurrentUser = Depends(get_current_user_from_cookie),
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
@@ -77,9 +143,7 @@ async def set_quantity(
     async with async_session() as fresh:
         async with fresh.begin():
             await set_rls_claims(fresh, user.user_id)
-            ctx = await _shopping_list_context(fresh, user.user_id)
-    html = templates.get_template("_shopping_list_content.html").render(**ctx)
-    return HTMLResponse(html)
+            return await _render_item_update_response(fresh, user.user_id, item_id)
 
 
 @router.post("/items/{item_id}/store")
@@ -94,9 +158,7 @@ async def set_store(
     async with async_session() as fresh:
         async with fresh.begin():
             await set_rls_claims(fresh, user.user_id)
-            ctx = await _shopping_list_context(fresh, user.user_id)
-    html = templates.get_template("_shopping_list_content.html").render(**ctx)
-    return HTMLResponse(html)
+            return await _render_item_update_response(fresh, user.user_id, item_id)
 
 
 @router.post("/items/add-product")
@@ -114,8 +176,7 @@ async def add_product_to_list(
     async with async_session() as fresh:
         async with fresh.begin():
             await set_rls_claims(fresh, user.user_id)
-            ctx = await _shopping_list_context(fresh, user.user_id)
-    list_html = templates.get_template("_shopping_list_content.html").render(**ctx)
+            list_html = await _render_full_list_content(fresh, user.user_id)
     return HTMLResponse(
         f'<span class="text-green-600 text-xs">{status}</span>'
         f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>'
@@ -129,13 +190,10 @@ async def delete_item(
     session: AsyncSession = Depends(get_user_session_from_cookie),
 ) -> HTMLResponse:
     await remove_item(session, item_id)
-    # service commits internally; read context in a fresh session
     async with async_session() as fresh:
         async with fresh.begin():
             await set_rls_claims(fresh, user.user_id)
-            ctx = await _shopping_list_context(fresh, user.user_id)
-    html = templates.get_template("_shopping_list_content.html").render(**ctx)
-    return HTMLResponse(html)
+            return await _render_item_delete_response(fresh, user.user_id, item_id)
 
 
 @router.post("/copy/{source_list_id}")
@@ -169,8 +227,7 @@ async def copy_list(
     )).scalars().all()
 
     if not source_items:
-        ctx = await _shopping_list_context(session, user.user_id)
-        return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))
+        return HTMLResponse(await _render_full_list_content(session, user.user_id))
 
     source_product_ids = [s.product_id for s in source_items]
 
@@ -254,5 +311,4 @@ async def copy_list(
         ))
 
     # session.begin() context manager commits on exit; autoflush covers pending adds.
-    ctx = await _shopping_list_context(session, user.user_id)
-    return HTMLResponse(templates.get_template("_shopping_list_content.html").render(**ctx))
+    return HTMLResponse(await _render_full_list_content(session, user.user_id))

@@ -33,6 +33,22 @@ class ShoppingListContext(TypedDict):
     woolworths_total: float
     best_total: float
     recommendation: str
+    active_item_count: int
+    total_quantity: int
+
+
+class ShoppingListSummaryContext(TypedDict):
+    """Summary-only context used for totals and small list metadata fragments."""
+
+    shopping_list: ShoppingList | None
+    store_metrics: dict[str, "StoreMetrics"]
+    single_store: Store | None
+    coles_total: float
+    woolworths_total: float
+    best_total: float
+    recommendation: str
+    active_item_count: int
+    total_quantity: int
 
 
 class StoreMetrics(TypedDict):
@@ -58,6 +74,28 @@ class ListHistoryRow(TypedDict):
     total: float
 
 logger = logging.getLogger(__name__)
+
+
+def _empty_store_metrics() -> dict[str, StoreMetrics]:
+    """Return an empty per-store metrics structure."""
+    return {
+        "coles": {
+            "available_count": 0,
+            "available_total": 0.0,
+            "unavailable_count": 0,
+            "unmatched_count": 0,
+            "matched_available_count": 0,
+            "matched_available_total": 0.0,
+        },
+        "woolworths": {
+            "available_count": 0,
+            "available_total": 0.0,
+            "unavailable_count": 0,
+            "unmatched_count": 0,
+            "matched_available_count": 0,
+            "matched_available_total": 0.0,
+        },
+    }
 
 
 def choose_best_store(
@@ -522,52 +560,26 @@ async def resolve_display_names(
     return display_names, store_names, store_products
 
 
-async def get_shopping_list_context(session: AsyncSession, user_id: uuid.UUID) -> ShoppingListContext:
-    """Build the full shopping list context dict for template rendering.
-
-    Returns a dict with keys: shopping_list, display_names, store_names,
-    store_products, store_metrics, single_store, coles_total,
-    woolworths_total, best_total, recommendation.
-    """
-    query = (
-        select(ShoppingList)
-        .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
-        .where(ShoppingList.status != ListStatus.ORDERED, ShoppingList.user_id == user_id)
-        .order_by(ShoppingList.created_at.desc())
-    )
-    result = await session.execute(query)
-    shopping_list = result.scalars().first()
-
+def _build_shopping_list_summary(
+    shopping_list: ShoppingList | None,
+    store_products: dict[int, dict],
+) -> ShoppingListSummaryContext:
+    """Build totals and availability metrics for an active shopping list."""
     coles_total = 0.0
     woolworths_total = 0.0
     best_total = 0.0
-    display_names: dict[int, str] = {}
-    store_names: dict[int, dict] = {}
-    store_products: dict[int, dict] = {}
-    store_metrics: dict[str, StoreMetrics] = {
-        "coles": {
-            "available_count": 0,
-            "available_total": 0.0,
-            "unavailable_count": 0,
-            "unmatched_count": 0,
-            "matched_available_count": 0,
-            "matched_available_total": 0.0,
-        },
-        "woolworths": {
-            "available_count": 0,
-            "available_total": 0.0,
-            "unavailable_count": 0,
-            "unmatched_count": 0,
-            "matched_available_count": 0,
-            "matched_available_total": 0.0,
-        },
-    }
+    store_metrics = _empty_store_metrics()
     single_store: Store | None = None
+    active_item_count = 0
+    total_quantity = 0
+
     if shopping_list:
-        display_names, store_names, store_products = await resolve_display_names(session, shopping_list.items)
         active_items = [i for i in shopping_list.items if not i.is_removed]
+        active_item_count = len(active_items)
+        total_quantity = sum(item.quantity for item in active_items)
         stores_used = {i.chosen_store for i in active_items if i.chosen_store}
         single_store = stores_used.pop() if len(stores_used) == 1 else None
+
         for item in active_items:
             store_product_map = store_products.get(item.id, {})
             has_match = (
@@ -601,8 +613,6 @@ async def get_shopping_list_context(session: AsyncSession, user_id: uuid.UUID) -
 
             cp = item.coles_price * item.quantity if item.coles_price is not None else None
             wp = item.woolworths_price * item.quantity if item.woolworths_price is not None else None
-            # Each store total uses that store's price where available, falls back to
-            # the other store so all three totals always represent the full basket.
             coles_total += cp if cp is not None else (wp or 0)
             woolworths_total += wp if wp is not None else (cp or 0)
             best_total += min(cp, wp) if cp is not None and wp is not None else (cp or wp or 0)
@@ -618,15 +628,87 @@ async def get_shopping_list_context(session: AsyncSession, user_id: uuid.UUID) -
 
     return {
         "shopping_list": shopping_list,
-        "display_names": display_names,
-        "store_names": store_names,
-        "store_products": store_products,
         "store_metrics": store_metrics,
         "single_store": single_store,
         "coles_total": coles_total,
         "woolworths_total": woolworths_total,
         "best_total": best_total,
         "recommendation": recommendation,
+        "active_item_count": active_item_count,
+        "total_quantity": total_quantity,
+    }
+
+
+async def get_shopping_list_summary_context(
+    session: AsyncSession, user_id: uuid.UUID
+) -> ShoppingListSummaryContext:
+    """Build summary-only shopping list context for totals and counters."""
+    shopping_list = await get_active_list(session, user_id)
+    store_products: dict[int, dict] = {}
+    if shopping_list:
+        active_items = [i for i in shopping_list.items if not i.is_removed]
+        if active_items:
+            canonical_ids = [item.product.id for item in active_items]
+            matched_ids: set[int] = set()
+            matches_result = await session.execute(
+                select(ProductMatch.product_a_id, ProductMatch.product_b_id).where(
+                    or_(
+                        ProductMatch.product_a_id.in_(canonical_ids),
+                        ProductMatch.product_b_id.in_(canonical_ids),
+                    ),
+                    ProductMatch.is_rejected == False,  # noqa: E712
+                )
+            )
+            for product_a_id, product_b_id in matches_result.all():
+                if product_a_id in canonical_ids:
+                    matched_ids.add(product_a_id)
+                if product_b_id in canonical_ids:
+                    matched_ids.add(product_b_id)
+
+            for item in active_items:
+                canonical = item.product
+                has_partner = canonical.id in matched_ids
+                if canonical.store == Store.COLES:
+                    store_products[item.id] = {
+                        "coles": canonical,
+                        "woolworths": canonical if has_partner else None,
+                    }
+                else:
+                    store_products[item.id] = {
+                        "coles": canonical if has_partner else None,
+                        "woolworths": canonical,
+                    }
+    return _build_shopping_list_summary(shopping_list, store_products)
+
+
+async def get_shopping_list_context(session: AsyncSession, user_id: uuid.UUID) -> ShoppingListContext:
+    """Build the full shopping list context dict for template rendering.
+
+    Returns a dict with keys: shopping_list, display_names, store_names,
+    store_products, store_metrics, single_store, coles_total,
+    woolworths_total, best_total, recommendation.
+    """
+    query = (
+        select(ShoppingList)
+        .options(selectinload(ShoppingList.items).selectinload(ShoppingListItem.product))
+        .where(ShoppingList.status != ListStatus.ORDERED, ShoppingList.user_id == user_id)
+        .order_by(ShoppingList.created_at.desc())
+    )
+    result = await session.execute(query)
+    shopping_list = result.scalars().first()
+    display_names: dict[int, str] = {}
+    store_names: dict[int, dict] = {}
+    store_products: dict[int, dict] = {}
+    if shopping_list:
+        display_names, store_names, store_products = await resolve_display_names(session, shopping_list.items)
+    summary = _build_shopping_list_summary(shopping_list, store_products)
+
+    return {
+        "shopping_list": shopping_list,
+        "display_names": display_names,
+        "store_names": store_names,
+        "store_products": store_products,
+        **summary,
     }
 
 

@@ -3,7 +3,7 @@
 {% set _bp = _prices | min if _prices else 0 %}
 {% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price < item.woolworths_price) %}
 {% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
-<div id="sl-item-{{ item.id }}">
+<div id="sl-item-{{ item.id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
 <div class="sl-row px-4 sm:px-6 py-3"
      data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}"
      data-best-price="{{ _bp }}"
@@ -81,18 +81,18 @@
         <div class="flex items-center justify-between w-full rounded-lg border border-gray-300 overflow-hidden text-sm">
             <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
                     hx-vals='{"quantity": {{ item.quantity - 1 }}}'
-                    hx-target="#sl-item-{{ item.id }}" hx-swap="outerHTML"
+                    hx-swap="none"
                     class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-r border-gray-300 leading-none">−</button>
             <input type="number" min="1" max="99"
                    name="quantity" value="{{ item.quantity }}"
                    hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
                    hx-trigger="change"
-                   hx-target="#sl-item-{{ item.id }}" hx-swap="outerHTML"
+                   hx-swap="none"
                    onclick="this.select()"
                    class="w-12 py-1.5 text-gray-900 font-medium text-center border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded">
             <button hx-post="/api/shopping-list/items/{{ item.id }}/quantity"
                     hx-vals='{"quantity": {{ item.quantity + 1 }}}'
-                    hx-target="#sl-item-{{ item.id }}" hx-swap="outerHTML"
+                    hx-swap="none"
                     class="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium border-l border-gray-300 leading-none">+</button>
         </div>
 
@@ -113,7 +113,7 @@
             </button>
             {% endif %}
             <button hx-delete="/api/shopping-list/items/{{ item.id }}"
-                    hx-target="#list-content" hx-swap="innerHTML"
+                    hx-swap="none"
                     title="Remove item"
                     class="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">

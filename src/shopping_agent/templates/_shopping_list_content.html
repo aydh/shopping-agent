@@ -2,7 +2,6 @@
 {% set active_items_list = shopping_list.items | selectattr('is_removed', 'equalto', false) | list %}
 {% set coles_metrics = store_metrics["coles"] %}
 {% set woolworths_metrics = store_metrics["woolworths"] %}
-{% set total_quantity = active_items_list | sum(attribute='quantity') %}
 
 <!-- Price Summary -->
 {% include "_sl_totals.html" %}
@@ -40,7 +39,7 @@
         <span id="add-product-status" class="text-xs text-green-600 mt-1 block min-h-[1rem]"></span>
     </div>
 
-    <span class="text-sm text-gray-400 self-center">{{ active_items_list | length }} lines &middot; {{ total_quantity }} items</span>
+    {% include "_sl_meta.html" %}
 </div>
 
 <!-- Items Table -->
@@ -82,6 +81,7 @@
 <script>
 if (typeof window._slFilter === 'undefined') window._slFilter = '';
 if (typeof window._slSort === 'undefined') window._slSort = '';
+if (typeof window._slRestoreScrollY === 'undefined') window._slRestoreScrollY = null;
 
 function toggleSLItemHistory(btn, containerId, ids) {
     const body = document.getElementById(containerId);
@@ -160,6 +160,25 @@ function _restoreUI() {
 document.body.addEventListener('htmx:afterSwap', e => {
     if (e.detail && e.detail.target && e.detail.target.id === 'list-content') {
         _restoreUI();
+        if (window._slRestoreScrollY !== null) {
+            const y = window._slRestoreScrollY;
+            window._slRestoreScrollY = null;
+            requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'auto' }));
+        }
+        return;
+    }
+    if (e.detail && e.detail.target && e.detail.target.id && e.detail.target.id.startsWith('sl-item-')) {
+        if (window._slFilter) filterShoppingList(window._slFilter);
+    }
+});
+
+document.body.addEventListener('htmx:beforeRequest', e => {
+    const elt = e.detail && e.detail.elt;
+    if (!elt) return;
+    const path = elt.getAttribute('hx-delete') || elt.getAttribute('hx-post') || '';
+    const target = elt.getAttribute('hx-target') || '';
+    if (path.startsWith('/api/shopping-list/items/') && target === '#list-content') {
+        window._slRestoreScrollY = window.scrollY;
     }
 });
 
