@@ -1,6 +1,6 @@
 # DATAMODEL.md
 
-Data model for the shopping agent. All tables use SQLite via SQLAlchemy async ORM. Most tables include `created_at` and `updated_at` timestamps via `TimestampMixin`.
+Data model for the shopping agent. All tables use PostgreSQL (Supabase) via SQLAlchemy async ORM. Most tables include `created_at` and `updated_at` timestamps via `TimestampMixin`. Multi-user tables include a `user_id` UUID column for Supabase Row-Level Security isolation.
 
 ---
 
@@ -49,6 +49,7 @@ erDiagram
 
     Order {
         int id PK
+        uuid user_id
         string store "coles | woolworths"
         string store_order_id
         date order_date
@@ -73,7 +74,8 @@ erDiagram
 
     ConsumptionPrediction {
         int id PK
-        int product_id FK "unique"
+        uuid user_id
+        int product_id FK "unique per user_id"
         float avg_purchase_interval_days
         float avg_quantity_per_purchase
         float estimated_daily_consumption
@@ -90,6 +92,7 @@ erDiagram
 
     ShoppingList {
         int id PK
+        uuid user_id
         string name
         date target_date
         string status "draft | confirmed | ordered"
@@ -117,6 +120,7 @@ erDiagram
 
     StoreCookies {
         int id PK
+        uuid user_id
         string store "coles | woolworths"
         text cookies_json
         datetime created_at
@@ -124,7 +128,7 @@ erDiagram
     }
 
     Product ||--o{ OrderItem : "purchased as"
-    Product ||--o| ConsumptionPrediction : "predicted by"
+    Product ||--o{ ConsumptionPrediction : "predicted by"
     Product ||--o{ PriceHistory : "tracked in"
     Product ||--o{ ShoppingListItem : "listed as"
     Product ||--o{ ProductMatch : "matched as product_a"
@@ -201,11 +205,12 @@ Append-only log of prices recorded during price refresh jobs. No timestamps mixi
 
 ### `orders`
 
-One row per order placed at a store, synced from the store's order history API.
+One row per order placed at a store, synced from the store's order history API. Scoped to a user via `user_id`.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | integer PK | |
+| `user_id` | uuid | nullable; Supabase auth user ID for RLS isolation |
 | `store` | enum | `coles` or `woolworths` |
 | `store_order_id` | string(64) | unique order ID from the store; used for upsert deduplication |
 | `order_date` | date | |
@@ -214,7 +219,7 @@ One row per order placed at a store, synced from the store's order history API.
 | `store_name` | string(256) | nullable; branch/fulfilment centre name |
 | `store_id` | string(64) | nullable; branch ID |
 
-**Constraints:** `UNIQUE(store_order_id)`
+**Constraints:** `UNIQUE(user_id, store_order_id)`
 
 ---
 
@@ -235,12 +240,13 @@ Line items within an order. Each row links one product to one order with quantit
 
 ### `consumption_predictions`
 
-One row per product (unique). Derived from order history — recalculated on demand.
+One row per (user, product) pair. Derived from order history — recalculated on demand.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | integer PK | |
-| `product_id` | integer FK → products | unique; one prediction per product |
+| `user_id` | uuid | nullable; Supabase auth user ID for RLS isolation |
+| `product_id` | integer FK → products | unique together with `user_id` |
 | `avg_purchase_interval_days` | float | average days between purchases |
 | `avg_quantity_per_purchase` | float | average units per order |
 | `estimated_daily_consumption` | float | quantity ÷ interval |
@@ -252,22 +258,25 @@ One row per product (unique). Derived from order history — recalculated on dem
 | `last_purchase_quantity` | integer | quantity from the most recent order |
 | `last_purchase_store` | string | store used for the most recent purchase |
 
+**Constraints:** `UNIQUE(user_id, product_id)`
+
 ---
 
 ### `shopping_lists`
 
-A shopping list moves through three states: `DRAFT` (editable) → `CONFIRMED` (ready to add to cart) → `ORDERED` (done).
+A shopping list moves through three states: `DRAFT` (editable) → `CONFIRMED` (ready to add to cart) → `ORDERED` (done). Scoped to a user via `user_id`.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | integer PK | |
+| `user_id` | uuid | nullable; Supabase auth user ID for RLS isolation |
 | `name` | string(128) | |
 | `target_date` | date | intended shopping date |
 | `status` | enum | `draft`, `confirmed`, `ordered` |
 | `preferred_store` | enum | nullable; `coles` or `woolworths` if all items go to one store |
 | `estimated_total` | float | nullable; sum of chosen store prices |
 
-Only one list should be in `DRAFT` status at a time — this is the "active" list shown in the UI.
+Only one list should be in `DRAFT` status at a time per user — this is the "active" list shown in the UI.
 
 ---
 
@@ -295,13 +304,16 @@ One row per product on a shopping list. Stores both store prices so the UI can d
 
 ### `store_cookies`
 
-One row per store. Stores the JSON cookie array used by the httpx scraper for authenticated requests.
+One row per (user, store) pair. Stores the JSON cookie array used by the httpx scraper for authenticated requests.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | integer PK | |
-| `store` | enum | `coles` or `woolworths`; unique |
+| `user_id` | uuid | nullable; Supabase auth user ID for per-user cookie isolation |
+| `store` | enum | `coles` or `woolworths` |
 | `cookies_json` | text | JSON array of cookie dicts (from browser DevTools / Cookie-Editor) |
+
+**Constraints:** `UNIQUE(user_id, store)`
 
 ---
 
@@ -311,8 +323,10 @@ One row per store. Stores the JSON cookie array used by the httpx scraper for au
 
 **Price history is append-only.** `current_price` on `Product` is the latest known price. `PriceHistory` keeps the full time series for charting.
 
-**Predictions are one-per-product.** `ConsumptionPrediction` has a unique constraint on `product_id` — refreshing predictions overwrites the existing row rather than appending.
+**Predictions are one-per-(user, product).** `ConsumptionPrediction` has a unique constraint on `(user_id, product_id)` — refreshing predictions overwrites the existing row rather than appending.
 
 **Shopping list items use soft-delete.** `is_removed = true` hides an item from the UI without deleting the row, so the unique constraint `(shopping_list_id, product_id) WHERE is_removed = false` allows the same product to be re-added after removal.
 
-**Cookies stored in DB, not files.** `StoreCookies` keeps session cookies in SQLite so they survive container restarts without a mounted volume.
+**Cookies stored in DB, not files.** `StoreCookies` keeps session cookies in PostgreSQL so they survive container restarts without a mounted volume. Scoped per user via `user_id`.
+
+**Multi-user with RLS.** `orders`, `consumption_predictions`, `shopping_lists`, and `store_cookies` all carry a `user_id` UUID column. Supabase Row-Level Security policies enforce data isolation — each user only sees their own rows. `set_rls_claims()` in `database.py` injects the authenticated user's JWT claims as PostgreSQL GUC variables before each request.

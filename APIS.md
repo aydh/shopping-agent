@@ -9,7 +9,8 @@ API reference for the shopping agent. All routes are registered on the FastAPI a
 - **HTML-first responses**: Most endpoints return HTML fragments for HTMX consumption, not JSON. Exceptions are batch chart endpoints and a few redirects.
 - **SSE streaming**: Order sync and cart-add are Server-Sent Events streams — connect and consume events until the stream closes.
 - **Two stores**: Every store-scoped endpoint accepts `store` as either `"coles"` or `"woolworths"`.
-- **View routes**: `GET /`, `/orders`, `/predictions`, `/prices`, `/shopping-list`, `/product-lookup`, `/settings`, `/confirm` render full HTML pages.
+- **View routes**: `GET /`, `/orders`, `/predictions`, `/prices`, `/shopping-list`, `/product-lookup`, `/settings`, `/confirm` render full HTML pages. Auth pages: `/login`, `/register`, `/auth/callback`, `/oauth-consent`. Utility: `/health`.
+- **Authentication**: HTML pages use cookie-based auth (redirect to `/login` on failure). API routes use Bearer tokens. MCP server uses OAuth 2.0 with Supabase as the provider.
 
 ---
 
@@ -200,6 +201,22 @@ Search both stores simultaneously without needing to own the product.
 |--------|------|-------------|
 | `GET` | `/settings` | Settings page with connection status per store and data management controls |
 | `GET` | `/api/settings/counts` | HTML fragment with row counts for all tables (HTMX polling target) |
+
+---
+
+## MCP Server
+
+> LLM agent interface. Mounted at `/mcp` using FastMCP. All tools require a valid Supabase Bearer token when `SUPABASE_URL` is configured.
+
+The MCP server exposes 19 tools covering predictions, shopping lists, cart, order sync, price refresh, and product matching. See `routes/mcp.py` for the full tool definitions.
+
+**OAuth discovery endpoints** (registered at app root for MCP clients):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/.well-known/oauth-protected-resource` | RFC 9728 resource server metadata |
+| `GET` | `/.well-known/oauth-authorization-server` | RFC 8414 authorization server metadata (proxied from Supabase) |
+| `GET` | `/authorize` | Fallback redirect to Supabase `/auth/v1/authorize` (for MCP clients that skip AS discovery) |
 
 ---
 
