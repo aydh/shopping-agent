@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     mcp_oauth_client_id: str = Field(default="", description="OAuth client ID registered with Supabase for MCP")
     mcp_oauth_client_secret: str = Field(default="", description="OAuth client secret for MCP")
     mcp_jwt_algorithm: str = Field(default="ES256", description="JWT algorithm Supabase uses (ES256/RS256 use JWKS; HS256 uses SUPABASE_JWT_SECRET)")
-    mcp_default_user_id: str = Field(default="", description="Fallback user UUID for MCP tools (used until OAuth is configured)")
     enable_scheduler: bool = Field(default=False, description="Enable scheduled price refresh (ENABLE_SCHEDULER)")
     playwright_profile_dir: str | None = Field(default=None, description="Persistent Chrome profile dir for Playwright login (PLAYWRIGHT_PROFILE_DIR)")
     playwright_headless: bool = Field(default=True, description="Run Playwright browser in headless mode (PLAYWRIGHT_HEADLESS)")

@@ -72,19 +72,11 @@ def _get_mcp_user_id() -> uuid.UUID:
     """Return the authenticated user UUID for the current MCP request.
 
     Reads from fastmcp's access token (set by SupabaseProvider middleware).
-    Falls back to MCP_DEFAULT_USER_ID as a dev convenience when no auth
-    provider is configured (e.g. local development without Supabase).
     """
     token = get_access_token()
     if token is not None:
         return uuid.UUID(token.claims["sub"])
-    uid = settings.mcp_default_user_id
-    if not uid:
-        raise ValueError(
-            "No authenticated MCP user. Provide a Bearer token or set "
-            "MCP_DEFAULT_USER_ID for local development."
-        )
-    return uuid.UUID(uid)
+    raise ValueError("No authenticated MCP user. Provide a Bearer token.")
 
 
 def _list_name(d: date) -> str:

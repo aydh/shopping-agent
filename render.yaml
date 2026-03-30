@@ -25,11 +25,17 @@ services:
         sync: false
       - key: MCP_OAUTH_CLIENT_SECRET
         sync: false
-      - key: MCP_DEFAULT_USER_ID
-        sync: false
       - key: BASE_URL
         sync: false
       - key: DEBUG
         value: "false"
+      - key: ENABLE_SCHEDULER
+        value: "true"
       - key: PORT
         value: "10000"
+      - key: PLAYWRIGHT_PROFILE_DIR
+        value: "/opt/render/project/.playwright-profile"
+      - key: PLAYWRIGHT_HEADLESS
+        value: "true"
+      - key: PLAYWRIGHT_CHANNEL
+        value: ""

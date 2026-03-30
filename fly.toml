@@ -6,6 +6,9 @@ primary_region = "syd"
   DEBUG = "false"
   PORT = "8000"
   ENABLE_SCHEDULER = "true"
+  PLAYWRIGHT_PROFILE_DIR = "/data/playwright-profile"
+  PLAYWRIGHT_HEADLESS = "true"
+  PLAYWRIGHT_CHANNEL = ""
 
 # Secrets — set once via CLI (never stored in this file):
 #   fly secrets set DATABASE_URL="postgresql+asyncpg://..."
@@ -16,7 +19,6 @@ primary_region = "syd"
 #   fly secrets set WOOLWORTHS_API_KEY="..."
 #   fly secrets set MCP_OAUTH_CLIENT_ID="..."
 #   fly secrets set MCP_OAUTH_CLIENT_SECRET="..."
-#   fly secrets set MCP_DEFAULT_USER_ID="..."
 #   fly secrets set BASE_URL="https://shopping-agent-jbd7ga.fly.dev"
 
 [http_service]

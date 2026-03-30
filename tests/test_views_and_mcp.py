@@ -393,20 +393,14 @@ async def test_create_mcp_auth_returns_none_without_supabase_url(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_mcp_user_id_falls_back_to_default(monkeypatch):
-    """_get_mcp_user_id returns MCP_DEFAULT_USER_ID when no access token is present."""
-    import uuid
+async def test_get_mcp_user_id_requires_access_token(monkeypatch):
+    """_get_mcp_user_id raises when no access token is present."""
     from shopping_agent.routes import mcp as mcp_module
 
-    uid = uuid.UUID("00000000-0000-0000-0000-000000000042")
-    original_settings = mcp_module.settings
-    try:
-        mcp_module.settings = SimpleNamespace(mcp_default_user_id=str(uid))
-        monkeypatch.setattr(mcp_module, "get_access_token", lambda: None)
-        result = mcp_module._get_mcp_user_id()
-        assert result == uid
-    finally:
-        mcp_module.settings = original_settings
+    monkeypatch.setattr(mcp_module, "get_access_token", lambda: None)
+
+    with pytest.raises(ValueError, match="No authenticated MCP user"):
+        mcp_module._get_mcp_user_id()
 
 
 @pytest.mark.asyncio
@@ -524,5 +518,4 @@ async def test_oauth_consent_page_handles_missing_authorization_id(monkeypatch, 
     name, ctx = dummy_templates.template_calls[0]
     assert name == "oauth_consent.html"
     assert ctx["authorization_id"] == ""
-
 
