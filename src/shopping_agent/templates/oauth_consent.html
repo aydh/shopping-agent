@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorize Access — Shopping Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center">
+    <div class="max-w-md w-full mx-4">
+        <div class="bg-white shadow-md rounded-lg p-8">
+
+            <!-- Loading state -->
+            <div id="loading" class="text-center text-gray-500 text-sm py-4">Loading…</div>
+
+            <!-- Error state -->
+            <div id="error" class="hidden text-center">
+                <p class="text-red-600 text-sm mb-4" id="error-msg">Something went wrong.</p>
+                <a href="/login" class="text-blue-600 text-sm hover:underline">Return to login</a>
+            </div>
+
+            <!-- Consent form -->
+            <div id="consent" class="hidden">
+                <div class="flex items-center justify-center mb-6">
+                    <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <h1 class="text-xl font-bold text-gray-900 mb-1 text-center">Authorize Access</h1>
+                <p class="text-sm text-gray-500 text-center mb-6">
+                    <span id="client-name" class="font-medium text-gray-700"></span>
+                    wants access to your Shopping Agent account
+                </p>
+
+                <!-- Redirect URI -->
+                <div class="mb-4 p-3 bg-gray-50 rounded-md">
+                    <p class="text-xs text-gray-500 mb-1">Redirect to</p>
+                    <p class="text-sm text-gray-700 font-mono break-all" id="redirect-host"></p>
+                </div>
+
+                <!-- Scopes -->
+                <div id="scopes-section" class="hidden mb-6">
+                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">This will allow</p>
+                    <ul id="scopes-list" class="space-y-1"></ul>
+                </div>
+
+                <div class="flex gap-3">
+                    <button id="deny-btn"
+                            class="flex-1 border border-gray-300 text-gray-700 font-medium py-2 px-4 rounded-md text-sm hover:bg-gray-50 transition-colors">
+                        Deny
+                    </button>
+                    <button id="allow-btn"
+                            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md text-sm transition-colors">
+                        Allow
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "{{ supabase_url }}";
+        const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+        const AUTHORIZATION_ID = "{{ authorization_id }}";
+
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        const loadingEl = document.getElementById('loading');
+        const errorEl = document.getElementById('error');
+        const errorMsg = document.getElementById('error-msg');
+        const consentEl = document.getElementById('consent');
+
+        function showError(msg) {
+            loadingEl.classList.add('hidden');
+            errorMsg.textContent = msg;
+            errorEl.classList.remove('hidden');
+        }
+
+        (async () => {
+            if (!AUTHORIZATION_ID) {
+                showError('Missing authorization ID.');
+                return;
+            }
+
+            // Check for an active Supabase session (set by Supabase's hosted login in localStorage).
+            // We must NOT redirect to /login here — doing so forces a second login which creates a
+            // new session that can't approve the authorization_id from the original session.
+            const { data: sessionData, error: sessionError } = await sb.auth.getSession();
+            if (sessionError || !sessionData.session) {
+                const nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
+                window.location.href = '/login?next=' + nextUrl;
+                return;
+            }
+
+            // Set the httpOnly cookie so other app routes recognise the user (best-effort).
+            await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ access_token: sessionData.session.access_token }),
+            });
+
+            let details;
+            try {
+                const { data, error } = await sb.auth.oauth.getAuthorizationDetails(AUTHORIZATION_ID);
+                if (error) throw error;
+                details = data;
+            } catch (err) {
+                showError(err.message || 'Failed to load authorization details.');
+                return;
+            }
+
+            // Supabase auto-approves for trusted clients (e.g. project owner).
+            // When auto_approved, redirect_url is already in the GET response — skip
+            // the consent UI and redirect immediately. Do NOT call approveAuthorization()
+            // as that POST returns 400 when the request is already auto-approved.
+            if (details.auto_approved) {
+                if (details.redirect_url) {
+                    window.location.href = details.redirect_url;
+                } else {
+                    showError('Authorization was auto-approved but no redirect URL was received.');
+                }
+                return;
+            }
+
+            // Populate UI
+            document.getElementById('client-name').textContent = details.client_name || details.client_id || 'An application';
+
+            try {
+                const url = new URL(details.redirect_uri);
+                document.getElementById('redirect-host').textContent = url.origin;
+            } catch {
+                document.getElementById('redirect-host').textContent = details.redirect_uri || '';
+            }
+
+            const scopes = details.scopes || [];
+            if (scopes.length > 0) {
+                const list = document.getElementById('scopes-list');
+                scopes.forEach(scope => {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-center gap-2 text-sm text-gray-700';
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('class', 'w-4 h-4 text-green-500 flex-shrink-0');
+                    svg.setAttribute('fill', 'none');
+                    svg.setAttribute('viewBox', '0 0 24 24');
+                    svg.setAttribute('stroke', 'currentColor');
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('stroke-linecap', 'round');
+                    path.setAttribute('stroke-linejoin', 'round');
+                    path.setAttribute('stroke-width', '2');
+                    path.setAttribute('d', 'M5 13l4 4L19 7');
+                    svg.appendChild(path);
+                    const text = document.createTextNode(scope);
+                    li.appendChild(svg);
+                    li.appendChild(text);
+                    list.appendChild(li);
+                });
+                document.getElementById('scopes-section').classList.remove('hidden');
+            }
+
+            loadingEl.classList.add('hidden');
+            consentEl.classList.remove('hidden');
+
+            document.getElementById('allow-btn').addEventListener('click', async () => {
+                document.getElementById('allow-btn').disabled = true;
+                document.getElementById('allow-btn').textContent = 'Authorizing…';
+                try {
+                    // SDK auto-redirects via window.location.assign() when response has redirect_url.
+                    // Fallback manual redirect in case skipBrowserRedirect is set.
+                    const { data, error } = await sb.auth.oauth.approveAuthorization(AUTHORIZATION_ID);
+                    if (error) throw error;
+                    if (data?.redirect_url) window.location.href = data.redirect_url;
+                } catch (err) {
+                    showError(err.message || 'Failed to approve authorization.');
+                }
+            });
+
+            document.getElementById('deny-btn').addEventListener('click', async () => {
+                document.getElementById('deny-btn').disabled = true;
+                document.getElementById('deny-btn').textContent = 'Denying…';
+                try {
+                    const { data, error } = await sb.auth.oauth.denyAuthorization(AUTHORIZATION_ID);
+                    if (error) throw error;
+                    if (data?.redirect_url) window.location.href = data.redirect_url;
+                } catch (err) {
+                    showError(err.message || 'Failed to deny authorization.');
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,1391 @@
+import asyncio
+import json
+import logging
+import time
+import uuid
+from pathlib import Path
+from collections.abc import AsyncGenerator, Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+import httpx
+from sqlalchemy import select
+
+from ..config import (
+    COLES_PRICE_FETCH_DELAY_S,
+    PLAYWRIGHT_DELAY_AFTER_EMAIL_MS,
+    PLAYWRIGHT_DELAY_AFTER_HOMEPAGE_MS,
+    PLAYWRIGHT_DELAY_AFTER_MFA_MS,
+    PLAYWRIGHT_DELAY_AFTER_PASSWORD_MS,
+    settings,
+)
+from ..database import async_session
+from ..models.product import Store
+from ..models.store_cookies import StoreCookies
+from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
+from .coles_queries import GQL_CROSS_CATEGORY
+
+logger = logging.getLogger(__name__)
+
+COLES_BASE = "https://www.coles.com.au"
+COLES_GRAPHQL_URL = f"{COLES_BASE}/api/graphql"
+COLES_STORE_ID = "COL:7674"
+
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+DEFAULT_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-AU,en;q=0.9",
+    "Origin": COLES_BASE,
+    "Referer": f"{COLES_BASE}/",
+    "Ocp-Apim-Subscription-Key": settings.coles_api_key or "",
+    "dsch-channel": "coles.online.1site.desktop",
+    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+
+_COLES_UNAVAILABLE_STATES = {"UNAVAILABLE", "IN_STORE_ONLY", "NOT_AVAILABLE", "OUT_OF_STOCK"}
+
+
+def _coles_is_available(data: dict) -> bool:
+    """Return False if the Coles BFF product data indicates it's unavailable online."""
+    availability = data.get("availability")
+    if isinstance(availability, str) and availability.upper() in _COLES_UNAVAILABLE_STATES:
+        return False
+    if isinstance(availability, bool):
+        return availability
+    # Some responses use an onlineHeadline or restriction field
+    if data.get("restriction") == "NOT_FOR_SALE":
+        return False
+    return True
+
+
+@dataclass
+class _PendingLogin:
+    """Holds live Playwright objects while waiting for an MFA code."""
+    playwright: Any
+    context: Any  # BrowserContext (from launch_persistent_context — no separate browser object)
+    page: Any
+    created_at: float = field(default_factory=time.time)
+
+
+class ColesScraper(BaseScraper):
+    store = Store.COLES
+    _cookie_domain: str = ".coles.com.au"
+
+    def __init__(self, user_id: uuid.UUID | None = None) -> None:
+        self.user_id = user_id
+        self._client: httpx.AsyncClient | None = None
+        self._bare_client: httpx.AsyncClient | None = None
+        self._next_build_id: str | None = None
+        self._build_id_lock: asyncio.Lock = asyncio.Lock()
+        self._pending_login: _PendingLogin | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the httpx client with current cookies."""
+        if self._client is None or self._client.is_closed:
+            cookies = await self._load_cookies()
+            self._client = httpx.AsyncClient(
+                base_url=COLES_BASE,
+                cookies=cookies,
+                headers={
+                    "User-Agent": DEFAULT_USER_AGENT,
+                    **DEFAULT_HEADERS,
+                },
+                follow_redirects=True,
+                timeout=30.0,
+            )
+        return self._client
+
+    async def _request(
+        self, method: str, path: str, **kwargs
+    ) -> httpx.Response | None:
+        """Make a request to coles.com.au, handling auth failures gracefully."""
+        client = await self._get_client()
+        params = kwargs.get("params", {})
+        params_str = f" {params}" if params else ""
+        logger.info("[Coles] → %s %s%s", method, path, params_str)
+        t0 = time.perf_counter()
+        try:
+            resp = await client.request(method, path, **kwargs)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.info(
+                "[Coles] ← %d %s %s (%.0f ms)",
+                resp.status_code, method, path, elapsed_ms,
+            )
+            if resp.status_code in (401, 403):
+                try:
+                    body = resp.text[:500]
+                except Exception:
+                    body = "<unreadable>"
+                logger.warning(
+                    "[Coles] Auth failure (%d) on %s %s — body: %s",
+                    resp.status_code,
+                    method,
+                    path,
+                    body,
+                )
+                return None
+            return resp
+        except httpx.HTTPError:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.exception(
+                "[Coles] HTTP error on %s %s (%.0f ms)", method, path, elapsed_ms
+            )
+            return None
+
+    async def _graphql(
+        self, query: str, variables: dict, operation_name: str
+    ) -> dict | None:
+        """Execute a GraphQL operation against the Coles API."""
+        client = await self._get_client()
+        payload = {"query": query, "variables": variables, "operationName": operation_name}
+        logger.info("[Coles] GraphQL → %s %s", operation_name, variables)
+        t0 = time.perf_counter()
+        try:
+            resp = await client.post(
+                COLES_GRAPHQL_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.info(
+                "[Coles] GraphQL ← %d %s (%.0f ms)", resp.status_code, operation_name, elapsed_ms
+            )
+            if resp.status_code in (401, 403):
+                logger.warning(
+                    "[Coles] GraphQL auth failure (%d) on %s", resp.status_code, operation_name
+                )
+                return None
+            data = resp.json()
+            if "errors" in data:
+                logger.warning("[Coles] GraphQL errors for %s: %s", operation_name, data["errors"])
+                return None
+            result = data.get("data")
+            logger.debug("[Coles] GraphQL %s response keys: %s", operation_name, list(result.keys()) if result else "None")
+            return result
+        except httpx.HTTPError:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.exception("[Coles] GraphQL HTTP error on %s (%.0f ms)", operation_name, elapsed_ms)
+            return None
+
+    # ── Auth ─────────────────────────────────────────────────────────
+
+    async def is_authenticated(self) -> bool:
+        """Return True if Coles cookies are stored in the database."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(
+                    StoreCookies.store == Store.COLES,
+                    StoreCookies.user_id == self.user_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            try:
+                return len(json.loads(row.cookies_json)) > 0
+            except Exception:
+                logger.warning("Failed to parse stored Coles cookies JSON", exc_info=True)
+                return False
+
+    async def import_cookies(self, cookie_json: str) -> bool:
+        """Import cookies from a JSON string (e.g. from Cookie-Editor extension)."""
+        try:
+            raw_cookies = json.loads(cookie_json)
+            if not isinstance(raw_cookies, list) or not raw_cookies:
+                return False
+
+            # Normalise to Playwright-compatible format
+            normalised = []
+            for c in raw_cookies:
+                normalised.append(
+                    {
+                        "name": c["name"],
+                        "value": c["value"],
+                        "domain": c.get("domain", ".coles.com.au"),
+                        "path": c.get("path", "/"),
+                        "secure": c.get("secure", False),
+                        "httpOnly": c.get("httpOnly", False),
+                    }
+                )
+
+            cookies_json = json.dumps(normalised, indent=2)
+            async with async_session() as session:
+                result = await session.execute(
+                    select(StoreCookies).where(
+                        StoreCookies.store == Store.COLES,
+                        StoreCookies.user_id == self.user_id,
+                    )
+                )
+                row = result.scalar_one_or_none()
+                if row:
+                    row.cookies_json = cookies_json
+                else:
+                    session.add(StoreCookies(store=Store.COLES, user_id=self.user_id, cookies_json=cookies_json))
+                await session.commit()
+            logger.info("Imported %d cookies for coles", len(normalised))
+
+            # Reset client so it picks up new cookies
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+                self._client = None
+
+            return True
+        except Exception:
+            logger.exception("Failed to import Coles cookies")
+            return False
+
+    async def validate_cookies(self) -> dict:
+        """Make a real API call to verify the stored cookies actually work.
+        Returns {"ok": bool, "detail": str}.
+        """
+        if not await self.is_authenticated():
+            return {"ok": False, "detail": "No cookies stored"}
+        resp = await self._request(
+            "GET", "/api/bff/orders", params={"status": "past", "pageNumber": 1, "pageSize": 1}
+        )
+        if resp is None:
+            return {"ok": False, "detail": "API returned 401/403 — cookies expired or invalid"}
+        if resp.status_code == 200:
+            return {"ok": True, "detail": f"API reachable (HTTP {resp.status_code})"}
+        return {"ok": False, "detail": f"Unexpected response: HTTP {resp.status_code}"}
+
+    async def login_interactive(self) -> bool:
+        """Not supported directly; use login_with_credentials() instead."""
+        return False
+
+    async def login_with_credentials(
+        self,
+        email: str,
+        password: str,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> str:
+        """Use Playwright to log into Coles with the given credentials.
+
+        Returns one of:
+          "ok"           – login succeeded and cookies are stored.
+          "mfa_required" – an MFA code is needed; call complete_mfa() next.
+          "failed:<msg>" – login failed; the message describes the reason.
+
+        on_progress, if provided, is called with short human-readable status
+        strings as the login progresses.
+        """
+        def _progress(msg: str) -> None:
+            logger.info("[Coles] Playwright: %s", msg)
+            if on_progress:
+                on_progress(msg)
+
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return "failed:playwright not installed — run: pip install playwright && playwright install chromium"
+
+        await self.cancel_pending_login()
+
+        pw = await async_playwright().start()
+        page = None
+        try:
+            _progress("Launching browser")
+            import tempfile
+            user_data_dir = settings.playwright_profile_dir or tempfile.mkdtemp(prefix="coles-playwright-")
+            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+            launch_kwargs: dict = {}
+            if settings.playwright_channel:
+                launch_kwargs["channel"] = settings.playwright_channel
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=settings.playwright_headless,
+                **launch_kwargs,
+                args=[
+                    "--disable-blink-features=AutomationControlled"
+                ],
+                user_agent=DEFAULT_USER_AGENT,
+                viewport={"width": 1280, "height": 800},
+            )
+            # Clear auth/session cookies so the site always presents the login
+            # form, but preserve bot-detection cookies (reese84 = Kasada trust
+            # token; incap_* = Incapsula session) so they are not regenerated
+            # from scratch — a fresh Kasada token is flagged as automated and
+            # causes silent MFA rejection.
+            all_cookies = await context.cookies()
+            keep = [
+                c for c in all_cookies
+                if c["name"] == "reese84" or c["name"].startswith("incap_")
+            ]
+            await context.clear_cookies()
+            if keep:
+                await context.add_cookies(keep)
+            # Apply stealth patches to hide all Playwright/CDP automation
+            # indicators (navigator.webdriver, window.cdc_*, chrome runtime
+            # properties, plugin lists, etc.) that Auth0 and similar services
+            # use to detect and block automated browsers.
+            try:
+                from playwright_stealth import Stealth
+                await Stealth().apply_stealth_async(context)
+            except ImportError:
+                logger.warning("[Coles] playwright-stealth not installed; browser may be detected as automated")
+                await context.add_init_script(
+                    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+                )
+            page = await context.new_page()
+
+            # Visit the homepage first to pass the Incapsula/WAF challenge and
+            # establish a session cookie before hitting the login page.
+            # Use networkidle so Incapsula's JS challenge fully completes.
+            _progress("Navigating to Coles home page")
+            try:
+                await page.goto("https://www.coles.com.au/", wait_until="load", timeout=15000)
+            except Exception:
+                pass  # tracking scripts may prevent true networkidle — that's fine
+            await self._wait_for_kasada(page)
+            logger.info("[Coles] Playwright: Loaded homepage at %s", page.url)
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_HOMEPAGE_MS)
+
+            _progress("Navigating to Coles login page")
+            await page.goto(
+                "https://www.coles.com.au/account/login",
+                wait_until="load",
+                timeout=15000,
+            )
+            await self._wait_for_kasada(page)
+            await page.wait_for_selector('input[name="email"]', timeout=15000)
+            logger.info("[Coles] Playwright: landed on %s", page.url)
+            await page.fill('input[name="email"]', email)
+            _progress("Filled email")
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_EMAIL_MS)
+
+            await page.wait_for_selector('input[name="password"]', timeout=10000)
+            await page.fill('input[name="password"]', password)
+            _progress("Filled password — about to submit")
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_PASSWORD_MS)
+
+            # Click the "Log in" button specifically (there is also a "Create account"
+            # submit button on the same page — target by id to avoid ambiguity).
+            await page.click('#login-button-id')
+
+            # Wait for navigation — either MFA prompt (stays on auth domain)
+            # or success (redirects to www.coles.com.au).  Use a predicate so
+            # we return immediately on either outcome rather than waiting for
+            # the full timeout when MFA is required.
+            _progress("Waiting for redirect")
+            try:
+                await page.wait_for_url(
+                    lambda url: "www.coles.com.au" in url or self._looks_like_mfa(url, ""),
+                    timeout=15000,
+                )
+            except Exception:
+                pass  # may have landed on MFA page; check state below
+
+            current_url = page.url
+            logger.info("[Coles] Playwright: post-submit URL: %s", current_url)
+
+            # Detect success: back on main Coles site, not on a login/accounts page
+            if self._is_coles_home(current_url):
+                _progress("Login successful — saving cookies")
+                cookies = await context.cookies()
+                await context.close()
+                await pw.stop()
+                return await self._finish_playwright_login(cookies)
+
+            # Detect MFA challenge
+            page_text = (await page.inner_text("body")).lower()
+            if self._looks_like_mfa(current_url, page_text):
+                _progress("MFA code required")
+                self._pending_login = _PendingLogin(
+                    playwright=pw, context=context, page=page
+                )
+                return "mfa_required"
+
+            # Unknown state — try to grab any error message shown on page
+            error_msg = await self._extract_page_error(page)
+            await context.close()
+            await pw.stop()
+            return f"failed:{error_msg or 'Login unsuccessful — check your credentials'}"
+
+        except Exception as exc:
+            try:
+                if page is not None:
+                    title = await page.title()
+                    logger.error(
+                        "[Coles] Playwright login error — url=%s title=%r error=%s",
+                        page.url, title, exc,
+                    )
+                else:
+                    logger.error("[Coles] Playwright login error (before page created): %s", exc)
+            except Exception:
+                logger.exception("[Coles] Playwright login error")
+            try:
+                await pw.stop()
+            except Exception:
+                pass
+            return f"failed:{exc}"
+
+    async def complete_mfa(self, code: str) -> str:
+        """Submit the MFA code for a pending Playwright login.
+
+        Returns "ok" or "failed:<msg>".
+        """
+        if not self._pending_login:
+            return "failed:No pending login — please start the login process again"
+
+        pending = self._pending_login
+        if time.time() - pending.created_at > 600:
+            await self.cancel_pending_login()
+            return "failed:Login session expired (10 min limit) — please start again"
+
+        try:
+            page = pending.page
+            mfa_selector = (
+                'input[name="credentials.passcode"], '
+                'input[type="tel"], '
+                'input[name="code"], '
+                'input[autocomplete="one-time-code"], '
+                'input[inputmode="numeric"]'
+            )
+            await page.wait_for_selector(mfa_selector, timeout=5000)
+            await page.click(mfa_selector)
+            await page.locator(mfa_selector).press_sequentially(code, delay=50)
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_MFA_MS)
+            # The MFA page has a hidden button[type="submit"]; click the visible
+            # "Continue" button by role+name instead.
+            await page.get_by_role("button", name="Continue").click()
+
+            # Wait for the OAuth redirect chain to return to the main Coles domain:
+            # auth.colesgroupprofile.com.au → www.coles.com.au/auth/callback →
+            # www.coles.com.au/account/login or www.coles.com.au/
+            try:
+                await page.wait_for_url("**/www.coles.com.au/**", timeout=30000)
+            except Exception:
+                pass  # fall through and check wherever we landed
+
+            # The /auth/callback page may show a Kasada "Just a few moments…"
+            # challenge before the final redirect fires.  Wait for it to clear.
+            await self._wait_for_kasada(page)
+
+            # After Kasada clears the page may redirect further — wait for the
+            # final destination to settle.
+            try:
+                await page.wait_for_url(
+                    lambda url: "www.coles.com.au" in url and "/auth/" not in url,
+                    timeout=15000,
+                )
+            except Exception:
+                pass
+
+            current_url = page.url
+            logger.info("[Coles] Playwright MFA: post-submit URL: %s", current_url)
+
+            # Success: we're on the main Coles domain and past the auth callback.
+            # /account/login on www.coles.com.au is a valid landing point after
+            # auth (shows "page not found" to already-logged-in users but the
+            # session cookies are fully set at this point).
+            if "www.coles.com.au" in current_url and "/auth/" not in current_url:
+                cookies = await pending.context.cookies()
+                await pending.context.close()
+                await pending.playwright.stop()
+                self._pending_login = None
+                return await self._finish_playwright_login(cookies)
+
+            # Still on the auth domain — MFA code was wrong, expired, or not submitted.
+            # Look for an error paragraph on the MFA page specifically; avoid picking
+            # up the page heading ("Check your mobile for a code") as the error.
+            mfa_error: str | None = None
+            try:
+                for sel in ['[role="alert"]', 'p[class*="error"]', 'p[class*="Error"]']:
+                    el = page.locator(sel).first
+                    if await el.is_visible(timeout=500):
+                        mfa_error = (await el.inner_text()).strip()[:200]
+                        break
+            except Exception:
+                pass
+            # Leave browser open so the failure state is visible for debugging.
+            logger.error("[Coles] Playwright MFA: failed at URL %s — %s", current_url, mfa_error)
+            return f"failed:{mfa_error or 'Invalid or expired MFA code — please try again'}"
+
+        except Exception as exc:
+            logger.exception("[Coles] Playwright MFA error")
+            return f"failed:{exc}"
+
+    async def cancel_pending_login(self) -> None:
+        """Tear down any in-progress Playwright login session."""
+        if self._pending_login:
+            try:
+                await self._pending_login.context.close()
+            except Exception:
+                pass
+            try:
+                await self._pending_login.playwright.stop()
+            except Exception:
+                pass
+            self._pending_login = None
+
+    # ── Playwright helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    async def _wait_for_kasada(page: Any, timeout_ms: int = 20000) -> None:
+        """Wait for Kasada 'Just a few moments…' bot-check page to clear.
+
+        In headless mode Kasada sometimes shows a JS challenge page before
+        allowing the real page to load.  Poll until the challenge text is
+        gone or the timeout expires.
+        """
+        start = asyncio.get_event_loop().time()
+        while True:
+            try:
+                body = (await page.inner_text("body")).lower()
+            except Exception:
+                return
+            if "just a few moments" not in body:
+                return
+            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            if elapsed > timeout_ms:
+                logger.warning("[Coles] Kasada challenge did not clear after %dms", timeout_ms)
+                return
+            logger.debug("[Coles] Waiting for Kasada challenge to clear…")
+            await page.wait_for_timeout(500)
+
+    @staticmethod
+    def _is_coles_home(url: str) -> bool:
+        """Return True if the URL is back on the main Coles shopping site."""
+        return (
+            "www.coles.com.au" in url
+            and "login" not in url
+            and "accounts" not in url
+            and "okta" not in url
+            and "/auth/" not in url  # exclude OAuth callback (session not yet set)
+        )
+
+    @staticmethod
+    def _looks_like_mfa(url: str, page_text: str) -> bool:
+        url_lower = url.lower()
+        mfa_url_hints = ("challenge", "/mfa", "verify", "step-up", "factor", "custom-prompt")
+        mfa_text_hints = (
+            "verify your identity", "authentication code", "enter code",
+            "one-time", "passcode", "authenticator", "sms code",
+            "check your mobile", "mobile for a code",
+        )
+        return (
+            any(h in url_lower for h in mfa_url_hints)
+            or any(h in page_text for h in mfa_text_hints)
+        )
+
+    @staticmethod
+    async def _extract_page_error(page: Any) -> str | None:
+        """Try to read a visible error message from the page."""
+        # The Coles auth page shows errors as an h1 heading (e.g. "We can't log you in")
+        # rather than using error/alert CSS classes or roles.
+        try:
+            h1 = page.locator("h1").first
+            if await h1.is_visible(timeout=500):
+                text = (await h1.inner_text()).strip()
+                if text and "log in or create" not in text.lower():
+                    return text[:200]
+        except Exception:
+            pass
+
+        selectors = [
+            '[role="alert"]',
+            '[data-testid*="error"]',
+            '[class*="error"]',
+            '[class*="alert"]',
+        ]
+        for sel in selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=500):
+                    text = (await el.inner_text()).strip()
+                    if text:
+                        return text[:200]
+            except Exception:
+                pass
+        return None
+
+    async def _finish_playwright_login(self, cookies: list[dict]) -> str:
+        """Store cookies captured from a Playwright session."""
+        coles_cookies = [c for c in cookies if "coles" in c.get("domain", "").lower()]
+        if not coles_cookies:
+            return "failed:No Coles cookies found after login — the login may have not completed"
+        success = await self.import_cookies(json.dumps(coles_cookies))
+        return "ok" if success else "failed:Could not persist the captured cookies"
+
+    async def logout(self) -> None:
+        """Delete stored Coles cookies and close the HTTP client."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(StoreCookies).where(
+                    StoreCookies.store == Store.COLES,
+                    StoreCookies.user_id == self.user_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                await session.delete(row)
+                await session.commit()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    # ── Order History ────────────────────────────────────────────────
+
+    async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
+        """Fetch up to `limit` past online and in-store orders from Coles.
+
+        Retrieves both "past"/"active" online orders and in-store orders
+        from the Coles BFF API, fetching item details for each order.
+
+        Args:
+            limit: Maximum number of online orders and in-store orders to fetch each.
+
+        Returns:
+            List of ScrapedOrder objects with items populated.
+        """
+        PAGE_SIZE = 20
+        orders: list[ScrapedOrder] = []
+        online_count = 0
+        instore_count = 0
+        try:
+            for status in ("past", "active"):
+                page = 1
+                while online_count < limit:
+                    resp = await self._request(
+                        "GET",
+                        "/api/bff/orders",
+                        params={"status": status, "pageNumber": page, "pageSize": PAGE_SIZE},
+                    )
+                    if not resp or resp.status_code != 200:
+                        logger.warning(
+                            "Failed to fetch Coles %s orders page %d (status %s)",
+                            status, page,
+                            resp.status_code if resp else "no response",
+                        )
+                        break
+
+                    data = resp.json()
+                    logger.info(
+                        "[Coles] Orders response top-level keys (%s, page %d): %s",
+                        status, page,
+                        list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                    )
+                    logger.debug(
+                        "[Coles] Orders raw response (%s, page %d):\n%s",
+                        status, page,
+                        json.dumps(data, indent=2, default=str)[:4000],
+                    )
+
+                    order_list = (
+                        data.get("orders")
+                        or data.get("data", {}).get("orders")
+                        or (data if isinstance(data, list) else [])
+                    )
+                    logger.info("Found %d Coles %s orders on page %d", len(order_list), status, page)
+
+                    if not order_list:
+                        break
+
+                    if page == 1 and order_list:
+                        logger.info(
+                            "[Coles] First order keys: %s",
+                            list(order_list[0].keys()) if isinstance(order_list[0], dict) else order_list[0],
+                        )
+
+                    for order_data in order_list:
+                        if online_count >= limit:
+                            break
+
+                        order_id = str(
+                            order_data.get("id")
+                            or order_data.get("orderId")
+                            or order_data.get("orderNumber")
+                            or ""
+                        )
+                        if not order_id:
+                            logger.warning("[Coles] Order has no id, keys: %s", list(order_data.keys()))
+                            continue
+
+                        # Fetch items for this order using the confirmed endpoint
+                        items_resp = await self._request(
+                            "GET", f"/api/bff/orders/{order_id}/items"
+                        )
+                        items: list[ScrapedOrderItem] = []
+                        raw_items: list = []
+                        if items_resp and items_resp.status_code == 200:
+                            items_data = items_resp.json()
+                            logger.info(
+                                "[Coles] Items response keys for order %s: %s",
+                                order_id,
+                                list(items_data.keys()) if isinstance(items_data, dict) else type(items_data).__name__,
+                            )
+                            raw_items = (
+                                items_data.get("items")
+                                or items_data.get("orderItems")
+                                or items_data.get("lineItems")
+                                or (items_data if isinstance(items_data, list) else [])
+                            )
+                            logger.info(
+                                "[Coles] Order %s: %d raw items found", order_id, len(raw_items)
+                            )
+                            for item_data in raw_items:
+                                item = self._parse_order_item(item_data)
+                                if item:
+                                    items.append(item)
+                                else:
+                                    logger.warning(
+                                        "[Coles] Failed to parse item: %s",
+                                        json.dumps(item_data, default=str)[:200],
+                                    )
+                        else:
+                            logger.warning(
+                                "[Coles] No items response for order %s (status %s)",
+                                order_id,
+                                items_resp.status_code if items_resp else "no response",
+                            )
+
+                        logger.info(
+                            "[Coles] Order %s: parsed %d/%d items",
+                            order_id, len(items), len(raw_items) if items_resp and items_resp.status_code == 200 else 0,
+                        )
+                        order = self._parse_bff_order(order_data, items)
+                        if order:
+                            orders.append(order)
+                            online_count += 1
+                        else:
+                            logger.warning(
+                                "[Coles] _parse_bff_order returned None for order_id=%s, keys=%s",
+                                order_id, list(order_data.keys()),
+                            )
+
+                    # If page returned fewer than PAGE_SIZE orders, we've hit the last page
+                    if len(order_list) < PAGE_SIZE:
+                        break
+
+                    page += 1
+
+            # ── In-store purchases ────────────────────────────────────
+            page = 1
+            while instore_count < limit:
+                resp = await self._request(
+                    "GET",
+                    "/api/bff/orders",
+                    params={"status": "in-store", "pageNumber": page, "pageSize": PAGE_SIZE},
+                )
+                if not resp or resp.status_code != 200:
+                    logger.warning("Failed to fetch Coles in-store orders page %d (status %s)",
+                                   page, resp.status_code if resp else "no response")
+                    break
+
+                data = resp.json()
+                order_list = (
+                    data.get("orders")
+                    or data.get("data", {}).get("orders")
+                    or (data if isinstance(data, list) else [])
+                )
+                logger.info("Found %d Coles in-store orders on page %d", len(order_list), page)
+
+                if not order_list:
+                    break
+
+                for order_data in order_list:
+                    if instore_count >= limit:
+                        break
+
+                    order_id = str(order_data.get("orderId") or order_data.get("id") or "")
+                    txn_id = str(order_data.get("transactionId") or order_data.get("transactionBarcode") or "")
+                    if not order_id or not txn_id:
+                        continue
+
+                    # Fetch order detail (includes items) using the v2 endpoint
+                    detail_resp = await self._request(
+                        "GET", f"/api/bff/orders/{order_id}",
+                        headers={"x-api-version": "2", "x-transaction-id": txn_id},
+                    )
+                    items: list[ScrapedOrderItem] = []
+                    if detail_resp and detail_resp.status_code == 200:
+                        detail = detail_resp.json()
+                        for item_data in detail.get("items", []):
+                            item = self._parse_instore_item(item_data)
+                            if item:
+                                items.append(item)
+                    else:
+                        logger.warning("[Coles] Could not fetch in-store order detail for %s", order_id)
+
+                    # Use transactionId as the unique order key to avoid collisions with online IDs
+                    instore_data = dict(order_data)
+                    instore_data["orderId"] = f"instore-{txn_id}"
+                    order = self._parse_bff_order(instore_data, items)
+                    if order:
+                        orders.append(order)
+                        instore_count += 1
+
+                if len(order_list) < PAGE_SIZE:
+                    break
+                page += 1
+
+            await self._save_cookies_from_client()
+        except Exception:
+            logger.exception("Failed to fetch Coles order history")
+
+        return orders
+
+    async def stream_order_history(self, limit: int = 10) -> AsyncGenerator[ScrapedOrder, None]:
+        """Yield ScrapedOrder one at a time as each order's items are fetched."""
+        PAGE_SIZE = 20
+        online_count = 0
+        instore_count = 0
+        try:
+            for status in ("past", "active"):
+                page = 1
+                while online_count < limit:
+                    resp = await self._request(
+                        "GET", "/api/bff/orders",
+                        params={"status": status, "pageNumber": page, "pageSize": PAGE_SIZE},
+                    )
+                    if not resp or resp.status_code != 200:
+                        break
+                    data = resp.json()
+                    order_list = (
+                        data.get("orders")
+                        or data.get("data", {}).get("orders")
+                        or (data if isinstance(data, list) else [])
+                    )
+                    if not order_list:
+                        break
+                    for order_data in order_list:
+                        if online_count >= limit:
+                            break
+                        order_id = str(
+                            order_data.get("id") or order_data.get("orderId")
+                            or order_data.get("orderNumber") or ""
+                        )
+                        if not order_id:
+                            continue
+                        items_resp = await self._request("GET", f"/api/bff/orders/{order_id}/items")
+                        items = []
+                        if items_resp and items_resp.status_code == 200:
+                            items_data = items_resp.json()
+                            raw_items = (
+                                items_data.get("items") or items_data.get("orderItems")
+                                or items_data.get("lineItems")
+                                or (items_data if isinstance(items_data, list) else [])
+                            )
+                            for item_data in raw_items:
+                                item = self._parse_order_item(item_data)
+                                if item:
+                                    items.append(item)
+                        order = self._parse_bff_order(order_data, items)
+                        if order:
+                            yield order
+                            online_count += 1
+                    if len(order_list) < PAGE_SIZE:
+                        break
+                    page += 1
+
+            page = 1
+            while instore_count < limit:
+                resp = await self._request(
+                    "GET", "/api/bff/orders",
+                    params={"status": "in-store", "pageNumber": page, "pageSize": PAGE_SIZE},
+                )
+                if not resp or resp.status_code != 200:
+                    break
+                data = resp.json()
+                order_list = (
+                    data.get("orders") or data.get("data", {}).get("orders")
+                    or (data if isinstance(data, list) else [])
+                )
+                if not order_list:
+                    break
+                for order_data in order_list:
+                    if instore_count >= limit:
+                        break
+                    order_id = str(order_data.get("orderId") or order_data.get("id") or "")
+                    txn_id = str(order_data.get("transactionId") or order_data.get("transactionBarcode") or "")
+                    if not order_id or not txn_id:
+                        continue
+                    detail_resp = await self._request(
+                        "GET", f"/api/bff/orders/{order_id}",
+                        headers={"x-api-version": "2", "x-transaction-id": txn_id},
+                    )
+                    items = []
+                    if detail_resp and detail_resp.status_code == 200:
+                        detail = detail_resp.json()
+                        for item_data in detail.get("items", []):
+                            item = self._parse_instore_item(item_data)
+                            if item:
+                                items.append(item)
+                    instore_data = dict(order_data)
+                    instore_data["orderId"] = f"instore-{txn_id}"
+                    order = self._parse_bff_order(instore_data, items)
+                    if order:
+                        yield order
+                        instore_count += 1
+                if len(order_list) < PAGE_SIZE:
+                    break
+                page += 1
+
+            await self._save_cookies_from_client()
+        except Exception:
+            logger.exception("Failed to stream Coles order history")
+
+    # ── Product Search ───────────────────────────────────────────────
+
+    async def search_product(self, query: str) -> list[ScrapedProduct]:
+        """Search Coles for products matching the query via the BFF search endpoint.
+
+        Args:
+            query: Free-text search query.
+
+        Returns:
+            List of ScrapedProduct results from the Coles BFF search API.
+        """
+        products: list[ScrapedProduct] = []
+        try:
+            # Use the bare client BFF search — same approach as get_product_price
+            # which is proven to work without triggering bot-detection.
+            if self._bare_client is None or self._bare_client.is_closed:
+                self._bare_client = httpx.AsyncClient(
+                    base_url=COLES_BASE,
+                    headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
+                    follow_redirects=True,
+                    timeout=15.0,
+                )
+            resp = await self._bare_client.get(
+                "/api/bff/products/search",
+                params={
+                    "searchTerm": query,
+                    "subscription-key": settings.coles_api_key or "",
+                    "storeId": COLES_STORE_ID.split(":")[-1],
+                    "start": 0,
+                    "pageSize": 24,
+                },
+            )
+            if resp and resp.status_code == 200:
+                for item in resp.json().get("results") or []:
+                    p = self._parse_graphql_product(item)
+                    if p:
+                        products.append(p)
+                logger.info("[Coles] BFF search returned %d products for %r", len(products), query)
+        except Exception:
+            logger.exception("Coles search failed for: %s", query)
+
+        return products
+
+    # ── Product Price ────────────────────────────────────────────────
+
+    async def _get_next_build_id(self) -> str | None:
+        """Fetch the current Next.js build ID from the Coles homepage."""
+        if self._next_build_id:
+            return self._next_build_id
+        async with self._build_id_lock:
+            # Double-check after acquiring lock — another coroutine may have fetched it
+            if self._next_build_id:
+                return self._next_build_id
+            try:
+                import re
+                # Use a cookie-free client — the authenticated client gets an Incapsula
+                # bot challenge page when the reese84 session cookie expires.
+                if self._bare_client is None or self._bare_client.is_closed:
+                    self._bare_client = httpx.AsyncClient(
+                        base_url=COLES_BASE,
+                        headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html,*/*"},
+                        follow_redirects=True,
+                        timeout=15.0,
+                    )
+                resp = await self._bare_client.get("/")
+                if resp and resp.status_code == 200:
+                    m = re.search(r'"buildId"\s*:\s*"([^"]+)"', resp.text)
+                    if m:
+                        self._next_build_id = m.group(1)
+                        logger.info("[Coles] Next.js build ID: %s", self._next_build_id)
+                        return self._next_build_id
+                    logger.warning("[Coles] buildId not found in homepage (%d bytes)", len(resp.text))
+            except Exception:
+                logger.debug("[Coles] Failed to get Next.js build ID", exc_info=True)
+        return None
+
+    async def get_product_price(self, store_product_id: str, product_name: str | None = None, timeout: float | None = None) -> ScrapedProduct | None:
+        """Fetch the current price for a specific Coles product via direct ID lookup.
+
+        Args:
+            store_product_id: Coles product ID to look up.
+            product_name: Unused; kept for interface compatibility.
+
+        Returns:
+            ScrapedProduct with current price, or None if the request fails.
+        """
+        try:
+            if COLES_PRICE_FETCH_DELAY_S:
+                await asyncio.sleep(COLES_PRICE_FETCH_DELAY_S)
+            if self._bare_client is None or self._bare_client.is_closed:
+                self._bare_client = httpx.AsyncClient(
+                    base_url=COLES_BASE,
+                    headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
+                    follow_redirects=True,
+                    timeout=15.0,
+                )
+            kwargs: dict = {"params": {
+                "subscription-key": settings.coles_api_key or "",
+                "storeId": COLES_STORE_ID.split(":")[-1],
+            }}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            resp = await self._bare_client.get(f"/api/bff/products/{store_product_id}", **kwargs)
+            if resp and resp.status_code == 200 and resp.content:
+                item = resp.json()
+                logger.debug(
+                    "[Coles price] %s raw fields: availability=%s pricing=%s",
+                    store_product_id,
+                    item.get("availability"),
+                    item.get("pricing"),
+                )
+                return self._parse_graphql_product(item)
+            if resp and resp.status_code == 404:
+                return ScrapedProduct(
+                    store_product_id=store_product_id,
+                    name=product_name or store_product_id,
+                    current_price=0,
+                    is_available=False,
+                )
+        except Exception:
+            logger.exception("Coles price fetch failed for: %s", store_product_id)
+        return None
+
+    async def get_products_by_category(
+        self, category_ids: list[str], memory_token: str | None = None
+    ) -> tuple[list[ScrapedProduct], str | None]:
+        """Fetch products for given category IDs via GetCrossCategory GraphQL.
+
+        Returns (products, next_memory_token). Pass the returned memory_token
+        back on subsequent calls to page through results.
+        """
+        products: list[ScrapedProduct] = []
+        next_token: str | None = None
+        try:
+            variables: dict = {"categoryIds": category_ids, "storeId": COLES_STORE_ID}
+            if memory_token:
+                variables["memoryToken"] = memory_token
+            gql_data = await self._graphql(GQL_CROSS_CATEGORY, variables, "GetCrossCategory")
+            if gql_data:
+                cross = gql_data.get("crossCategory") or {}
+                next_token = cross.get("memoryToken")
+                for item in cross.get("products") or []:
+                    p = self._parse_graphql_product(item)
+                    if p:
+                        products.append(p)
+                logger.info(
+                    "[Coles] GetCrossCategory returned %d products (next_token=%s)",
+                    len(products),
+                    bool(next_token),
+                )
+        except Exception:
+            logger.exception("Coles get_products_by_category failed for: %s", category_ids)
+        return products, next_token
+
+    # ── Add to Cart ──────────────────────────────────────────────────
+
+    async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
+        """Add items to the Coles cart via the BFF trolley API.
+
+        Args:
+            items: List of (store_product_id, quantity) tuples to add.
+
+        Returns:
+            Dict mapping store_product_id to True if added successfully, False otherwise.
+        """
+        store_num = COLES_STORE_ID.split(":")[-1]
+        endpoint = f"/api/bff/trolley/store/{store_num}/items"
+        results: dict[str, bool] = {}
+        try:
+            for product_id, quantity in items:
+                try:
+                    resp = await self._request(
+                        "POST",
+                        endpoint,
+                        json={"items": [{"productId": int(product_id), "quantity": quantity}]},
+                    )
+                    if resp and resp.status_code in (200, 201):
+                        body = resp.text
+                        logger.info(
+                            "Coles add-to-cart product=%s status=%d body=%s",
+                            product_id,
+                            resp.status_code,
+                            body[:800],
+                        )
+                        # Verify the item was actually added by checking the response body.
+                        # The BFF may return 200 but silently reject items (e.g. unavailable,
+                        # in-store only). Check for unavailableItems or missing from trolleyItems.
+                        success = True
+                        try:
+                            data = resp.json()
+                            unavailable = data.get("unavailableItems") or data.get("unavailable") or []
+                            if unavailable:
+                                unavailable_ids = {
+                                    str(u.get("productId") or u.get("stockcode") or u.get("id") or "")
+                                    for u in unavailable
+                                }
+                                if str(product_id) in unavailable_ids:
+                                    logger.warning(
+                                        "Coles product %s returned 200 but is in unavailableItems",
+                                        product_id,
+                                    )
+                                    success = False
+                            # If response has trolleyItems/items, check our product is present
+                            if success:
+                                trolley_items = (
+                                    data.get("trolleyItems")
+                                    or data.get("items")
+                                    or data.get("trolley", {}).get("items")
+                                    or []
+                                )
+                                if trolley_items:
+                                    added_ids = {
+                                        str(t.get("productId") or t.get("stockcode") or t.get("id") or "")
+                                        for t in trolley_items
+                                    }
+                                    if str(product_id) not in added_ids:
+                                        logger.warning(
+                                            "Coles product %s returned 200 but not found in trolleyItems (ids: %s)",
+                                            product_id,
+                                            list(added_ids)[:10],
+                                        )
+                                        success = False
+                        except Exception:
+                            logger.debug("Could not parse Coles add-to-cart response body for product %s", product_id)
+                        results[str(product_id)] = success
+                    else:
+                        logger.warning(
+                            "Failed to add Coles product %s to cart (status=%s body=%s)",
+                            product_id,
+                            resp.status_code if resp else None,
+                            resp.text[:300] if resp else None,
+                        )
+                        results[str(product_id)] = False
+                except Exception:
+                    logger.exception("Coles add to cart failed for product %s", product_id)
+                    results[str(product_id)] = False
+            await self._save_cookies_from_client()
+        except Exception:
+            logger.exception("Coles add to cart failed")
+            for product_id, _ in items:
+                if str(product_id) not in results:
+                    results[str(product_id)] = False
+        return results
+
+    async def get_cart_url(self) -> str:
+        """Return the Coles homepage URL for the user to review/submit their cart."""
+        return COLES_BASE
+
+    # ── Parsing helpers ──────────────────────────────────────────────
+
+    def _parse_bff_order(
+        self, data: dict, items: list[ScrapedOrderItem]
+    ) -> ScrapedOrder | None:
+        """Parse an order from the Coles BFF orders response."""
+        try:
+            order_id = str(
+                data.get("orderId")
+                or data.get("id")
+                or data.get("orderNumber")
+                or ""
+            )
+            if not order_id:
+                return None
+
+            date_str = (
+                data.get("orderPlacementTime")
+                or data.get("orderDate")
+                or data.get("deliveryDate")
+                or data.get("createdDate")
+                or data.get("date")
+                or ""
+            )
+            try:
+                order_date = datetime.fromisoformat(
+                    date_str.replace("Z", "+00:00")
+                ).date()
+            except (ValueError, AttributeError):
+                order_date = datetime.now().date()
+
+            attrs = data.get("orderAttributes") or {}
+            total = float(
+                attrs.get("orderTotalPrice")
+                or data.get("totalAmount")
+                or data.get("total")
+                or data.get("orderTotal")
+                or 0
+            )
+
+            store_obj = data.get("store") or {}
+            store_name = data.get("storeName") or store_obj.get("suburb") or None
+            store_id = store_obj.get("storeId") or None
+
+            return ScrapedOrder(
+                store_order_id=order_id,
+                order_date=order_date,
+                total_amount=total,
+                status=data.get("orderStatus") or data.get("status"),
+                items=items,
+                store_name=store_name,
+                store_id=store_id,
+            )
+        except Exception:
+            logger.debug("Failed to parse Coles BFF order", exc_info=True)
+            return None
+
+    def _parse_order_item(self, data: dict) -> ScrapedOrderItem | None:
+        """Parse a single order item from the BFF items response."""
+        try:
+            product_id = str(
+                data.get("productId")
+                or data.get("sku")
+                or data.get("id")
+                or data.get("stockcode")
+                or ""
+            )
+            if not product_id:
+                return None
+
+            product = data.get("product") or {}
+            image_uri = (product.get("imageUris") or [{}])[0].get("uri") or ""
+            image_url = (
+                f"https://cdn.productimages.coles.com.au/productimages{image_uri}"
+                if image_uri else None
+            )
+
+            quantity = int(data.get("quantity") or data.get("qty") or 1)
+            # Prefer unit price fields; fall back to dividing the line total by quantity
+            item_total = float(data.get("itemTotalPrice") or data.get("totalPrice") or 0)
+            unit_price = float(
+                data.get("salePrice")
+                or data.get("unitPrice")
+                or data.get("price")
+                or (item_total / quantity if item_total and quantity else 0)
+            )
+            return ScrapedOrderItem(
+                store_product_id=product_id,
+                name=(
+                    product.get("name")
+                    or data.get("name")
+                    or data.get("productName")
+                    or data.get("displayName")
+                    or "Unknown"
+                ),
+                quantity=quantity,
+                price_paid=unit_price,
+                brand=product.get("brand") or data.get("brand"),
+                unit_size=(
+                    product.get("size")
+                    or data.get("size")
+                    or data.get("packageSize")
+                    or data.get("unitSize")
+                ),
+                image_url=image_url or data.get("imageUrl") or data.get("image"),
+            )
+        except Exception:
+            logger.debug("Failed to parse Coles order item", exc_info=True)
+            return None
+
+    def _parse_instore_item(self, data: dict) -> ScrapedOrderItem | None:
+        """Parse a single in-store order item from the getOrderV2 detail response.
+
+        In-store items nest quantity/price inside an 'orderItem' sub-object.
+        """
+        try:
+            product_id = str(data.get("id") or data.get("productId") or "")
+            if not product_id:
+                return None
+
+            order_item = data.get("orderItem") or {}
+            quantity = int(order_item.get("quantity") or 1)
+            unit_price = float(
+                order_item.get("unitPrice")
+                or order_item.get("salePrice")
+                or (order_item.get("itemTotalPrice", 0) / quantity if quantity else 0)
+            )
+
+            image_uris = data.get("imageUris") or []
+            image_uri = image_uris[0].get("uri") if image_uris else None
+            image_url = (
+                f"https://cdn.productimages.coles.com.au/productimages{image_uri}"
+                if image_uri else None
+            )
+
+            return ScrapedOrderItem(
+                store_product_id=product_id,
+                name=data.get("name") or "Unknown",
+                quantity=quantity,
+                price_paid=unit_price,
+                brand=data.get("brand") or None,
+                unit_size=data.get("size") or None,
+                image_url=image_url,
+            )
+        except Exception:
+            logger.debug("Failed to parse Coles in-store item", exc_info=True)
+            return None
+
+    def _parse_graphql_product(self, data: dict) -> ScrapedProduct | None:
+        """Parse a product from a GraphQL response (pricing.now / pricing.unit.price)."""
+        try:
+            pricing = data.get("pricing") or {}
+            unit = pricing.get("unit") or {}
+            image_uris = data.get("imageUris") or []
+            image_uri = image_uris[0].get("uri") if image_uris else None
+            image_url = (
+                f"https://cdn.productimages.coles.com.au/productimages{image_uri}"
+                if image_uri else None
+            )
+            product_id = str(data.get("id") or "")
+            name = data.get("name") or ""
+            if not product_id or not name:
+                return None
+            return ScrapedProduct(
+                store_product_id=product_id,
+                name=name,
+                current_price=float(pricing.get("now") or 0),
+                brand=data.get("brand"),
+                category=None,
+                unit_size=data.get("size"),
+                unit_price=float(unit.get("price") or 0) or None,
+                unit_price_measure=None,
+                image_url=image_url,
+                product_url=f"{COLES_BASE}/product/{name.lower().replace(' ', '-')}-{product_id}",
+                is_available=_coles_is_available(data),
+            )
+        except Exception:
+            logger.debug("Failed to parse Coles GraphQL product", exc_info=True)
+            return None
+
+    def _parse_search_result(self, data: dict) -> ScrapedProduct | None:
+        """Parse a product from a generic search result dict."""
+        try:
+            return ScrapedProduct(
+                store_product_id=str(data.get("id") or data.get("sku") or ""),
+                name=data.get("name") or data.get("title") or "",
+                current_price=float(data.get("price") or data.get("salePrice") or 0),
+                brand=data.get("brand"),
+                category=data.get("category"),
+                unit_size=data.get("size") or data.get("packageSize"),
+                unit_price=float(data.get("unitPrice") or 0) or None,
+                unit_price_measure=data.get("unitPriceMeasure"),
+                image_url=data.get("imageUrl") or data.get("image"),
+                product_url=data.get("url"),
+                is_available=data.get("availability", True),
+            )
+        except Exception:
+            logger.debug("Failed to parse Coles search result", exc_info=True)
+            return None
+
+
+# The singleton instance lives in scrapers.registry to avoid circular imports.
+# Legacy code that imports `coles_scraper` from this module will break; update
+# those call-sites to use `from ..scrapers.registry import coles_scraper`.

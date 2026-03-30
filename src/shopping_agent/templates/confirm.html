@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Confirm Order - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h1 class="text-2xl font-bold text-gray-900">Confirm & Create Order</h1>
+
+    {% if not shopping_list or not shopping_list.items %}
+    <div class="text-center py-12 text-gray-500">
+        No shopping list to confirm. <a href="/shopping-list" class="text-blue-600 hover:underline">Create one first</a>.
+    </div>
+    {% else %}
+
+    <!-- Coles Items -->
+    {% if coles_items %}
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="px-6 py-4 bg-red-50 border-b border-red-200 flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-medium text-red-800">Coles</h2>
+                <p class="text-sm text-red-600">{{ coles_items | length }} lines &middot; {{ coles_items | sum(attribute='quantity') }} items &middot; ${{ "%.2f" | format(coles_total) }}</p>
+            </div>
+            <button onclick="addToCartStream('coles', 'coles-cart-status', this)"
+                    class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                Add to Coles Cart
+            </button>
+        </div>
+        <div id="coles-cart-status"></div>
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qty</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subtotal</th>
+                    <th class="px-6 py-3 w-8"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+                {% for item in coles_items %}
+                <tr id="item-row-{{ item.id }}">
+                    <td class="px-6 py-3 text-sm text-gray-900">{{ display_names[item.id] }}</td>
+                    <td class="px-6 py-3 text-sm text-gray-500">{{ item.quantity }}</td>
+                    <td class="px-6 py-3 text-sm text-gray-500">${{ "%.2f" | format(item.coles_price or 0) }}</td>
+                    <td class="px-6 py-3 text-sm text-gray-900">${{ "%.2f" | format((item.coles_price or 0) * item.quantity) }}</td>
+                    <td class="px-6 py-3 text-center" id="cart-status-{{ item.id }}"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Woolworths Items -->
+    {% if woolworths_items %}
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="px-6 py-4 bg-green-50 border-b border-green-200 flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-medium text-green-800">Woolworths</h2>
+                <p class="text-sm text-green-600">{{ woolworths_items | length }} lines &middot; {{ woolworths_items | sum(attribute='quantity') }} items &middot; ${{ "%.2f" | format(woolworths_total) }}</p>
+            </div>
+            <button onclick="addToCartStream('woolworths', 'woolworths-cart-status', this)"
+                    class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                Add to Woolworths Cart
+            </button>
+        </div>
+        <div id="woolworths-cart-status"></div>
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qty</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subtotal</th>
+                    <th class="px-6 py-3 w-8"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+                {% for item in woolworths_items %}
+                <tr id="item-row-{{ item.id }}">
+                    <td class="px-6 py-3 text-sm text-gray-900">{{ display_names[item.id] }}</td>
+                    <td class="px-6 py-3 text-sm text-gray-500">{{ item.quantity }}</td>
+                    <td class="px-6 py-3 text-sm text-gray-500">${{ "%.2f" | format(item.woolworths_price or 0) }}</td>
+                    <td class="px-6 py-3 text-sm text-gray-900">${{ "%.2f" | format((item.woolworths_price or 0) * item.quantity) }}</td>
+                    <td class="px-6 py-3 text-center" id="cart-status-{{ item.id }}"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <p class="text-sm text-yellow-800">
+            After items are added to your cart, you'll need to visit each store's website to review and submit the order yourself.
+        </p>
+    </div>
+
+    <div class="flex justify-between items-center">
+        <a href="/shopping-list" class="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm">&larr; Back to Shopping List</a>
+        <form method="post" action="/api/shopping-list/close/{{ shopping_list.id }}">
+            <button type="submit" class="px-4 py-2 bg-gray-800 text-white text-sm rounded hover:bg-gray-900">
+                Close List
+            </button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+{% block scripts %}
+<script>
+function addToCartStream(store, statusDivId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+    const statusDiv = document.getElementById(statusDivId);
+    statusDiv.innerHTML = '';
+
+    const es = new EventSource(`/api/cart/stream/${store}`);
+
+    es.addEventListener('item', (e) => {
+        const {item_id, success} = JSON.parse(e.data);
+        const cell = document.getElementById(`cart-status-${item_id}`);
+        const row = document.getElementById(`item-row-${item_id}`);
+        if (cell) cell.innerHTML = success
+            ? '<span class="text-green-600 font-bold text-base">✓</span>'
+            : '<span class="text-red-500 font-bold text-base">✗</span>';
+        if (row) {
+            row.classList.remove('bg-green-50', 'bg-red-50');
+            row.classList.add(success ? 'bg-green-50' : 'bg-red-50');
+        }
+    });
+
+    es.addEventListener('done', (e) => {
+        es.close();
+        btn.disabled = false;
+        btn.textContent = store === 'coles' ? 'Add to Coles Cart' : 'Add to Woolworths Cart';
+        const {succeeded, total, cart_url, failed_ids, error} = JSON.parse(e.data);
+        if (error) {
+            statusDiv.innerHTML = `<div class="p-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded mt-2">${error}</div>`;
+            return;
+        }
+        const storeLabel = store.charAt(0).toUpperCase() + store.slice(1);
+        if (failed_ids && failed_ids.length > 0) {
+            statusDiv.innerHTML = `<div class="p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded mt-2">${succeeded}/${total} items added. <a href="${cart_url}" target="_blank" class="underline font-medium">Go to ${storeLabel} &rarr;</a></div>`;
+        } else {
+            statusDiv.innerHTML = `<div class="p-3 bg-green-50 border border-green-200 text-green-800 text-sm rounded mt-2">All ${total} items added. <a href="${cart_url}" target="_blank" class="underline font-medium">Go to ${storeLabel} &rarr;</a></div>`;
+        }
+    });
+
+    es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        btn.textContent = store === 'coles' ? 'Add to Coles Cart' : 'Add to Woolworths Cart';
+        if (!statusDiv.innerHTML) {
+            statusDiv.innerHTML = '<div class="p-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded mt-2">Connection error.</div>';
+        }
+    };
+}
+</script>
+{% endblock %}
+{% endblock %}

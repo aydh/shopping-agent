@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Order History - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
+        <div class="flex flex-wrap gap-2 items-center">
+            <button id="sync-btn-coles" onclick="syncOrders('coles')"
+                    class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Sync Coles</button>
+            <button id="sync-btn-woolworths" onclick="syncOrders('woolworths')"
+                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Sync Woolworths</button>
+        </div>
+    </div>
+    <div class="flex gap-6 text-sm">
+        <span id="sync-progress-coles"></span>
+        <span id="sync-progress-woolworths"></span>
+    </div>
+
+    <!-- Store Filter Tabs -->
+    <div class="border-b border-gray-200">
+        <nav class="flex space-x-8">
+            <a href="/orders" class="py-2 px-1 border-b-2 text-sm font-medium {% if store_filter == 'all' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">All</a>
+            <a href="/orders?store=coles" class="py-2 px-1 border-b-2 text-sm font-medium {% if store_filter == 'coles' %}border-red-500 text-red-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Coles</a>
+            <a href="/orders?store=woolworths" class="py-2 px-1 border-b-2 text-sm font-medium {% if store_filter == 'woolworths' %}border-green-500 text-green-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Woolworths</a>
+        </nav>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="bg-white rounded-lg shadow overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
+                    <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Order ID</th>
+                    <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Items</th>
+                    <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                    <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Status</th>
+                    <th class="px-3 sm:px-6 py-3"></th>
+                </tr>
+            </thead>
+            <tbody id="orders-table" class="divide-y divide-gray-200">
+                {% for order in orders %}
+                {% include "partials/order_row.html" %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+                        No orders yet. Connect to Coles or Woolworths in Settings, then sync your orders.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+function toggleOrderDetail(orderId, btn) {
+    const row = document.getElementById('order-detail-row-' + orderId);
+    const detail = document.getElementById('order-detail-' + orderId);
+    if (!row.classList.contains('hidden')) {
+        row.classList.add('hidden');
+        detail.innerHTML = '';
+        return;
+    }
+    row.classList.remove('hidden');
+    htmx.ajax('GET', '/api/orders/' + orderId + '/items', {target: detail, swap: 'innerHTML'});
+}
+
+function syncOrders(store) {
+    const btn = document.getElementById('sync-btn-' + store);
+    const progress = document.getElementById('sync-progress-' + store);
+    btn.disabled = true;
+    progress.innerHTML = '<span class="text-blue-600">Connecting…</span>';
+
+    const es = new EventSource(`/api/orders/sync-stream/${store}`);
+    const tbody = document.getElementById('orders-table');
+    let seenIds = new Set();
+
+    // Track existing order IDs to avoid duplicates
+    tbody.querySelectorAll('tr[data-order-id]').forEach(tr => seenIds.add(tr.dataset.orderId));
+
+    es.addEventListener('fetching', () => {
+        progress.innerHTML = '<span class="text-blue-600">Fetching orders…</span>';
+    });
+
+    es.addEventListener('progress', (e) => {
+        const {fetched} = JSON.parse(e.data);
+        progress.innerHTML = `<span class="text-blue-600">${fetched} orders fetched…</span>`;
+    });
+
+    es.addEventListener('order', (e) => {
+        const {html, is_new} = JSON.parse(e.data);
+        if (!is_new) return;
+        // Remove empty-state row if present
+        const empty = tbody.querySelector('td[colspan]');
+        if (empty) empty.closest('tr').remove();
+        // Insert in date-descending order
+        const tmp = document.createElement('tbody');
+        tmp.innerHTML = html;
+        const newRow = tmp.firstElementChild;
+        const newDate = newRow.dataset.orderDate || '';
+        const rows = [...tbody.querySelectorAll('tr[data-order-date]')];
+        const after = rows.find(r => (r.dataset.orderDate || '') < newDate);
+        if (after) {
+            tbody.insertBefore(newRow, after);
+            // also insert the detail row (next sibling from tmp)
+            const detailRow = tmp.firstElementChild;
+            if (detailRow) tbody.insertBefore(detailRow, after);
+        } else {
+            tbody.appendChild(newRow);
+            const detailRow = tmp.firstElementChild;
+            if (detailRow) tbody.appendChild(detailRow);
+        }
+    });
+
+    es.addEventListener('done', (e) => {
+        es.close();
+        btn.disabled = false;
+        const {new_count} = JSON.parse(e.data);
+        progress.innerHTML = `<span class="text-green-600">Done — ${new_count} new orders</span>`;
+    });
+
+    es.addEventListener('error', (e) => {
+        es.close();
+        btn.disabled = false;
+        try {
+            const {message} = JSON.parse(e.data);
+            progress.innerHTML = `<span class="text-red-600">${message}</span>`;
+        } catch {
+            progress.innerHTML = '<span class="text-red-600">Sync failed</span>';
+        }
+    });
+
+    es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        if (!progress.innerHTML.includes('Done') && !progress.innerHTML.includes('failed')) {
+            progress.innerHTML = '<span class="text-red-600">Connection lost</span>';
+        }
+    };
+}
+</script>
+{% endblock %}
+{% endblock %}

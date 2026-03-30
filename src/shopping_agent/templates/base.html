@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Shopping Agent{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    {% block extra_head %}{% endblock %}
+    <style>
+        [hx-indicator] .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-request.htmx-indicator { display: inline-block; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center space-x-8">
+                    <a href="/" class="text-xl font-bold text-gray-900">Shopping Agent</a>
+                    <div class="hidden md:flex space-x-4">
+                        <a href="/" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'dashboard' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Dashboard</a>
+                        <a href="/orders" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'orders' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Orders</a>
+                        <a href="/predictions" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'predictions' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Predictions</a>
+                        <a href="/shopping-list" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'shopping_list' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Shopping List</a>
+                        <a href="/prices" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'prices' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Products/Prices</a>
+                        <a href="/product-lookup" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'product_lookup' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Lookup</a>
+                        <a href="/settings" class="px-3 py-2 rounded-md text-sm font-medium {% if active_page == 'settings' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700{% endif %}">Settings</a>
+                    </div>
+                </div>
+                <!-- User menu (desktop) + Hamburger (mobile) -->
+                <div class="flex items-center gap-2">
+                    {% set nav_user = get_nav_user(request) %}
+                    {% if nav_user %}
+                    <div class="relative hidden md:block" id="user-menu-wrapper">
+                        <button onclick="toggleUserMenu()" aria-haspopup="true" aria-expanded="false" id="user-menu-btn"
+                                class="flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 text-sm">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M5.121 17.804A9 9 0 1118.88 6.196M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                        </button>
+                        <div id="user-dropdown"
+                             class="hidden absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1">
+                            <div class="px-4 py-2 border-b border-gray-100">
+                                <p class="text-xs text-gray-400">Signed in as</p>
+                                <p class="text-sm font-medium text-gray-800 truncate">{{ nav_user.email or "Unknown" }}</p>
+                            </div>
+                            <button onclick="logout()"
+                                    class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="flex items-center md:hidden">
+                        <button aria-label="Open navigation menu" aria-expanded="false" onclick="toggleMobileMenu(this)"
+                                class="p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Mobile menu -->
+        <div id="mobile-menu" class="hidden md:hidden border-t border-gray-200">
+            <div class="px-2 pt-2 pb-3 space-y-1">
+                <a href="/" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'dashboard' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Dashboard</a>
+                <a href="/orders" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'orders' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Orders</a>
+                <a href="/predictions" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'predictions' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Predictions</a>
+                <a href="/shopping-list" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'shopping_list' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Shopping List</a>
+                <a href="/prices" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'prices' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Products/Prices</a>
+                <a href="/product-lookup" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'product_lookup' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Lookup</a>
+                <a href="/settings" onclick="closeMobileMenu()"
+                   class="block px-3 py-2 rounded-md text-base font-medium {% if active_page == 'settings' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-50{% endif %}">Settings</a>
+                {% if nav_user %}
+                <div class="border-t border-gray-200 pt-2 mt-2">
+                    <p class="px-3 py-1 text-xs text-gray-400">{{ nav_user.email or "Unknown" }}</p>
+                    <button onclick="logout(); closeMobileMenu();"
+                            class="w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50">
+                        Logout
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+    <script>
+        function toggleUserMenu() {
+            const dropdown = document.getElementById('user-dropdown');
+            const btn = document.getElementById('user-menu-btn');
+            const isHidden = dropdown.classList.toggle('hidden');
+            btn.setAttribute('aria-expanded', String(!isHidden));
+        }
+
+        document.addEventListener('click', function(e) {
+            const wrapper = document.getElementById('user-menu-wrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+                document.getElementById('user-dropdown')?.classList.add('hidden');
+                document.getElementById('user-menu-btn')?.setAttribute('aria-expanded', 'false');
+            }
+        });
+
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/login';
+        }
+
+        function toggleMobileMenu(btn) {
+            const menu = document.getElementById('mobile-menu');
+            const isHidden = menu.classList.toggle('hidden');
+            btn.setAttribute('aria-expanded', String(!isHidden));
+            btn.setAttribute('aria-label', isHidden ? 'Open navigation menu' : 'Close navigation menu');
+        }
+
+        function closeMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            const btn = document.querySelector('[aria-expanded]');
+            menu.classList.add('hidden');
+            if (btn) {
+                btn.setAttribute('aria-expanded', 'false');
+                btn.setAttribute('aria-label', 'Open navigation menu');
+            }
+        }
+    </script>
+</body>
+</html>

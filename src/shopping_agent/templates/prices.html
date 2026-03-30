@@ -1,0 +1,715 @@
+{% extends "base.html" %}
+{% block title %}Price Comparison - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 class="text-2xl font-bold text-gray-900">Price Comparison</h1>
+        <div class="flex flex-wrap gap-2 items-center">
+            <button hx-post="/api/prices/match-products" hx-target="#match-result" hx-indicator="#match-spinner"
+                    class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                Match Products
+            </button>
+            <span id="match-spinner" class="htmx-indicator text-gray-400 text-sm">matching...</span>
+            <span id="match-result"></span>
+            <button id="refresh-btn-coles" onclick="refreshPrices('coles')"
+                    class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                Refresh Coles Prices
+            </button>
+            <span id="coles-refresh-result"></span>
+            <button id="refresh-btn-woolworths" onclick="refreshPrices('woolworths')"
+                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                Refresh Woolworths Prices
+            </button>
+            <span id="ww-refresh-result"></span>
+        </div>
+    </div>
+
+    <!-- Search Field -->
+    <div class="bg-white rounded-lg shadow p-4">
+        <input type="text" id="search-field" placeholder="Search products by name or store..."
+               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+    </div>
+
+    <!-- Tabs -->
+    <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto">
+            <button id="tab-matched" onclick="switchTab('matched')"
+                    class="tab-btn border-b-2 border-blue-500 text-blue-600 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Matched (<span id="count-matched">{{ comparisons | length }}</span>)
+            </button>
+            <button id="tab-unmatched" onclick="switchTab('unmatched')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Unmatched (<span id="count-unmatched">{{ (unmatched_coles | length) + (unmatched_woolworths | length) }}</span>)
+            </button>
+            <button id="tab-unavailable" onclick="switchTab('unavailable')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Unavailable (<span id="count-unavailable">{{ unavailable_products | length }}</span>)
+            </button>
+            <button id="tab-removed" onclick="switchTab('removed')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Inactive (<span id="count-removed">{{ hidden_products | length }}</span>)
+            </button>
+            <button id="tab-rejected" onclick="switchTab('rejected')"
+                    class="tab-btn border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Rejected Matches (<span id="count-rejected">{{ rejected_matches | length }}</span>)
+            </button>
+        </nav>
+    </div>
+
+    <!-- Matched Tab -->
+    <div id="panel-matched">
+        {% if comparisons %}
+        <div class="flex flex-wrap gap-2 mb-3 items-center">
+            <button onclick="setMatchFilter('all')" id="filter-all"
+                    class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white">
+                All
+            </button>
+            <button onclick="setMatchFilter('unconfirmed')" id="filter-unconfirmed"
+                    class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Needs Confirming
+            </button>
+            <button onclick="setMatchFilter('manual')" id="filter-manual"
+                    class="match-filter-btn px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Manual
+            </button>
+            <div class="sm:ml-auto">
+                <button onclick="toggleAllHistory(this)"
+                        data-expanded="false"
+                        class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                    Show All Price Histories
+                </button>
+            </div>
+        </div>
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <style>
+                @media (min-width: 768px) {
+                    .match-header, .match-card { display: grid; grid-template-columns: 1fr 1fr 9rem 6rem 8rem auto; align-items: start; }
+                    .match-products { display: contents; }
+                }
+            </style>
+            <div class="match-header hidden md:grid bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <div class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></div>
+                <div class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></div>
+                <div class="px-4 py-2">Cheaper</div>
+                <div class="px-4 py-2">Match</div>
+                <div class="px-4 py-2">Last Ordered</div>
+                <div></div>
+            </div>
+            <div id="prices-table-body">
+                {% for comp in comparisons %}
+                {% include '_match_row.html' %}
+                <div id="history-body-{{ comp.match_id }}"></div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No matched products yet. Sync orders to auto-match, or use the Unmatched tab to create manual matches.</p>
+        {% endif %}
+    </div>
+
+    <!-- Unmatched Tab -->
+    <div id="panel-unmatched" class="hidden">
+        <!-- Unmatched Products Table -->
+        {% set unmatched_all = unmatched_coles + unmatched_woolworths %}
+        {% if unmatched_all %}
+        <div class="flex justify-end mb-3">
+            <button onclick="toggleAllProductHistory(this)"
+                    data-expanded="false"
+                    class="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">
+                Show All Price Histories
+            </button>
+        </div>
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table id="all-products-table" class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Store</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Last Ordered</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for product in unmatched_coles + unmatched_woolworths %}
+                    {% set is_coles = product.store.value == 'coles' %}
+                    <tr id="urow-{{ product.id }}">
+                        <td class="px-3 sm:px-6 py-3">
+                            <div class="flex items-start">
+                                {% if product.image_url %}
+                                <img src="{{ product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5 mr-2">
+                                {% else %}
+                                <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5 mr-2"></div>
+                                {% endif %}
+                                <div class="min-w-0">
+                                    <a href="{% if is_coles %}https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}{% else %}https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}{% endif %}"
+                                       target="_blank"
+                                       class="text-sm font-medium text-gray-900 hover:{% if is_coles %}text-red-600{% else %}text-green-600{% endif %} hover:underline">{{ product.name }}</a>
+                                    {% if product.brand %}<p class="text-xs text-gray-500">{{ product.brand }}</p>{% endif %}
+                                    {% if product.unit_size %}<p class="text-xs text-gray-400">{{ product.unit_size }}</p>{% endif %}
+                                    {% if product.current_price is not none %}<p class="text-sm font-semibold text-gray-700 mt-1">${{ "%.2f" | format(product.current_price) }}</p>{% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 hidden sm:table-cell">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if is_coles %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                {{ product.store.value | title }}
+                            </span>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden md:table-cell">
+                            {% set lo = last_ordered.get(product.id) %}
+                            {% if lo %}{{ lo.strftime('%d %b %Y') }}{% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-right">
+                            <div class="flex flex-wrap justify-end gap-1">
+                                <button onclick="toggleProductHistory(this, '{{ product.id }}')"
+                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
+                                <a href="/prices/search-match/{{ product.id }}"
+                                   class="px-3 py-1.5 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200 whitespace-nowrap">Find Match</a>
+                                <span id="add-btn-{{ product.id }}">
+                                    <button hx-post="/api/shopping-list/items/add-product"
+                                            hx-vals='{"product_id": {{ product.id }}}'
+                                            hx-target="#add-btn-{{ product.id }}"
+                                            hx-swap="innerHTML"
+                                            class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">Add to List</button>
+                                </span>
+                                <button hx-post="/api/prices/product/{{ product.id }}/hide"
+                                        hx-target="#urow-{{ product.id }}"
+                                        hx-swap="outerHTML"
+                                        class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Make Inactive</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr><td colspan="4" id="phistory-body-{{ product.id }}"></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">All products are matched.</p>
+        {% endif %}
+    </div>
+
+    <!-- Rejected Matches Tab -->
+    <div id="panel-rejected" class="hidden">
+        {% if rejected_matches %}
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Confidence</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for match in rejected_matches %}
+                    {% set pa = match.product_a %}
+                    {% set pb = match.product_b %}
+                    {% set coles_p = pa if pa.store.value == 'coles' else pb %}
+                    {% set ww_p = pa if pa.store.value == 'woolworths' else pb %}
+                    <tr id="rejected-{{ match.id }}">
+                        <td class="px-3 sm:px-6 py-3">
+                            <div class="flex items-start">
+                                {% if coles_p.image_url %}
+                                <img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5 mr-2">
+                                {% else %}
+                                <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5 mr-2"></div>
+                                {% endif %}
+                                <div class="min-w-0">
+                                    <a href="https://www.coles.com.au/product/{{ coles_p.name | lower | replace(' ', '-') }}-{{ coles_p.store_product_id }}"
+                                       target="_blank"
+                                       class="text-sm font-medium text-gray-900 hover:text-red-600 hover:underline">{{ coles_p.name }}</a>
+                                    {% if coles_p.brand %}<p class="text-xs text-gray-500">{{ coles_p.brand }}</p>{% endif %}
+                                    {% if coles_p.unit_size %}<p class="text-xs text-gray-400">{{ coles_p.unit_size }}</p>{% endif %}
+                                    {% if coles_p.current_price is not none %}<p class="text-sm font-semibold text-gray-700 mt-1">${{ "%.2f" | format(coles_p.current_price) }}</p>{% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3">
+                            <div class="flex items-start">
+                                {% if ww_p.image_url %}
+                                <img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5 mr-2">
+                                {% else %}
+                                <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5 mr-2"></div>
+                                {% endif %}
+                                <div class="min-w-0">
+                                    <a href="https://www.woolworths.com.au/shop/productdetails/{{ ww_p.store_product_id }}"
+                                       target="_blank"
+                                       class="text-sm font-medium text-gray-900 hover:text-green-600 hover:underline">{{ ww_p.name }}</a>
+                                    {% if ww_p.brand %}<p class="text-xs text-gray-500">{{ ww_p.brand }}</p>{% endif %}
+                                    {% if ww_p.unit_size %}<p class="text-xs text-gray-400">{{ ww_p.unit_size }}</p>{% endif %}
+                                    {% if ww_p.current_price is not none %}<p class="text-sm font-semibold text-gray-700 mt-1">${{ "%.2f" | format(ww_p.current_price) }}</p>{% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 hidden md:table-cell">
+                            <div class="flex items-center space-x-1">
+                                <div class="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full {% if match.confidence >= 0.8 %}bg-green-500{% elif match.confidence >= 0.6 %}bg-yellow-500{% else %}bg-red-400{% endif %}"
+                                         style="width: {{ (match.confidence * 100) | int }}%"></div>
+                                </div>
+                                <span class="text-xs text-gray-500">{{ "%.0f" | format(match.confidence * 100) }}%</span>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-right">
+                            <button hx-post="/api/prices/match/{{ match.id }}/undo"
+                                    hx-target="#rejected-{{ match.id }}"
+                                    hx-swap="outerHTML"
+                                    class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200">
+                                Undo
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No rejected matches.</p>
+        {% endif %}
+    </div>
+
+    <!-- Inactive Products Tab -->
+    <div id="panel-removed" class="hidden">
+        {% if hidden_products %}
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Store</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Last Ordered</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for product in hidden_products %}
+                    {% set is_coles = product.store.value == 'coles' %}
+                    <tr id="hidden-{{ product.id }}">
+                        <td class="px-3 sm:px-6 py-3">
+                            <div class="flex items-start">
+                                {% if product.image_url %}
+                                <img src="{{ product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5 mr-2">
+                                {% else %}
+                                <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5 mr-2"></div>
+                                {% endif %}
+                                <div class="min-w-0">
+                                    <a href="{% if is_coles %}https://www.coles.com.au/product/{{ product.name | lower | replace(' ', '-') }}-{{ product.store_product_id }}{% else %}https://www.woolworths.com.au/shop/productdetails/{{ product.store_product_id }}{% endif %}"
+                                       target="_blank"
+                                       class="text-sm font-medium text-gray-900 hover:{% if is_coles %}text-red-600{% else %}text-green-600{% endif %} hover:underline">{{ product.name }}</a>
+                                    {% if product.brand %}<p class="text-xs text-gray-500">{{ product.brand }}</p>{% endif %}
+                                    {% if product.unit_size %}<p class="text-xs text-gray-400">{{ product.unit_size }}</p>{% endif %}
+                                    {% if product.current_price %}<p class="text-sm font-semibold text-gray-700 mt-1">${{ "%.2f" | format(product.current_price) }}</p>{% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 hidden sm:table-cell">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if is_coles %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                {{ product.store.value | title }}
+                            </span>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-xs text-gray-400 hidden md:table-cell">
+                            {% if product.last_ordered_date %}{{ product.last_ordered_date.strftime('%d %b %Y') }}{% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-right">
+                            <div class="flex flex-wrap justify-end gap-1">
+                                <button onclick="toggleProductHistory(this, '{{ product.id }}')"
+                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Price History</button>
+                                <span id="add-btn-{{ product.id }}">
+                                    <button hx-post="/api/shopping-list/items/add-product"
+                                            hx-vals='{"product_id": {{ product.id }}}'
+                                            hx-target="#add-btn-{{ product.id }}"
+                                            hx-swap="innerHTML"
+                                            class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">Add to List</button>
+                                </span>
+                                <button hx-post="/api/prices/product/{{ product.id }}/restore"
+                                        hx-target="#hidden-{{ product.id }}"
+                                        hx-swap="outerHTML"
+                                        class="px-3 py-1.5 bg-orange-100 text-orange-700 text-xs rounded hover:bg-orange-200 whitespace-nowrap">Restore</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr><td colspan="4" id="phistory-body-{{ product.id }}"></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No inactive products.</p>
+        {% endif %}
+    </div>
+
+    <!-- Unavailable Products Tab -->
+    <div id="panel-unavailable" class="hidden">
+        {% if unavailable_products %}
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Store</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for product in unavailable_products %}
+                    {% set is_coles = product.store.value == 'coles' %}
+                    {% set url = product.product_url | product_url(product.store_product_id, product.store.value, product.name) %}
+                    <tr id="unavailable-{{ product.id }}">
+                        <td class="px-3 sm:px-6 py-3">
+                            <div class="flex items-start gap-2">
+                                {% if product.image_url %}
+                                <img src="{{ product.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5">
+                                {% else %}
+                                <div class="w-10 h-10 rounded bg-gray-100 flex-shrink-0 mt-0.5"></div>
+                                {% endif %}
+                                <div class="min-w-0">
+                                    {% if url %}
+                                    <a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline">{{ product.name }}</a>
+                                    {% else %}
+                                    <p class="text-sm font-medium text-gray-900">{{ product.name }}</p>
+                                    {% endif %}
+                                    {% if product.brand %}<p class="text-xs text-gray-500">{{ product.brand }}</p>{% endif %}
+                                    {% if product.unit_size %}<p class="text-xs text-gray-400">{{ product.unit_size }}</p>{% endif %}
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 mt-1">Unavailable</span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 hidden sm:table-cell">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if is_coles %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                {{ product.store.value | title }}
+                            </span>
+                        </td>
+                        <td class="px-3 sm:px-6 py-3 text-right">
+                            <div class="flex flex-wrap justify-end gap-1">
+                                <button hx-post="/api/prices/product/{{ product.id }}/hide"
+                                        hx-target="#unavailable-{{ product.id }}"
+                                        hx-swap="outerHTML"
+                                        class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 whitespace-nowrap">Make Inactive</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500">No unavailable products.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function reapplyFilters() {
+    const field = document.getElementById('search-field');
+    if (field) field.dispatchEvent(new Event('keyup'));
+}
+
+function switchTab(tab) {
+    ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'].forEach(t => {
+        document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById('tab-' + t);
+        if (t === tab) {
+            btn.classList.add('border-blue-500', 'text-blue-600');
+            btn.classList.remove('border-transparent', 'text-gray-500');
+        } else {
+            btn.classList.remove('border-blue-500', 'text-blue-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        }
+    });
+    location.hash = tab;
+    reapplyFilters();
+}
+
+function execScripts(container) {
+    container.querySelectorAll('script').forEach(s => {
+        const ns = document.createElement('script');
+        ns.textContent = s.textContent;
+        s.replaceWith(ns);
+    });
+}
+
+function toggleHistory(btn, matchId) {
+    const body = document.getElementById('history-body-' + matchId);
+    if (body.innerHTML.trim()) {
+        body.innerHTML = '';
+        btn.classList.remove('text-blue-600');
+    } else {
+        btn.classList.add('text-blue-600');
+        fetch('/api/prices/history/' + matchId)
+            .then(r => r.text())
+            .then(html => { body.innerHTML = html; execScripts(body); });
+    }
+}
+
+function toggleProductHistory(btn, productId) {
+    const body = document.getElementById('phistory-body-' + productId);
+    if (body.innerHTML.trim()) {
+        body.innerHTML = '';
+        btn.classList.remove('text-blue-600');
+    } else {
+        btn.classList.add('text-blue-600');
+        fetch('/api/prices/product-history/' + productId)
+            .then(r => r.text())
+            .then(html => { body.innerHTML = html; execScripts(body); });
+    }
+}
+
+let activeMatchFilter = 'all';
+
+function setMatchFilter(filter) {
+    activeMatchFilter = filter;
+    document.querySelectorAll('.match-filter-btn').forEach(btn => {
+        btn.classList.remove('bg-blue-600', 'text-white');
+        btn.classList.add('bg-gray-100', 'text-gray-700');
+    });
+    const active = document.getElementById('filter-' + filter);
+    if (active) {
+        active.classList.add('bg-blue-600', 'text-white');
+        active.classList.remove('bg-gray-100', 'text-gray-700');
+    }
+    applyMatchFilters();
+    location.hash = filter === 'all' ? 'matched' : 'matched-' + filter;
+}
+
+function toggleAllProductHistory(btn) {
+    const expanding = btn.dataset.expanded === 'false';
+    btn.dataset.expanded = expanding ? 'true' : 'false';
+    btn.textContent = expanding ? 'Hide All Price Histories' : 'Show All Price Histories';
+
+    const unloaded = [];
+    document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]').forEach(row => {
+        if (row.style.display === 'none') return;
+        const productId = row.id.replace('urow-', '');
+        const body = document.getElementById('phistory-body-' + productId);
+        const histBtn = row.querySelector('button[onclick^="toggleProductHistory"]');
+        if (!body) return;
+        if (expanding && !body.innerHTML.trim()) {
+            unloaded.push({ productId, body, histBtn });
+        } else if (!expanding && body.innerHTML.trim()) {
+            body.innerHTML = '';
+            if (histBtn) histBtn.classList.remove('text-blue-600');
+        }
+    });
+
+    if (expanding && unloaded.length) {
+        const ids = unloaded.map(u => u.productId).join(',');
+        fetch('/api/prices/product-history/batch?ids=' + ids)
+            .then(r => r.json())
+            .then(data => {
+                unloaded.forEach(({ productId, body, histBtn }) => {
+                    const html = data[productId];
+                    if (html !== undefined) {
+                        body.innerHTML = html;
+                        execScripts(body);
+                        if (histBtn) histBtn.classList.add('text-blue-600');
+                    }
+                });
+            });
+    }
+}
+
+function toggleAllHistory(btn) {
+    const expanding = btn.dataset.expanded === 'false';
+    btn.dataset.expanded = expanding ? 'true' : 'false';
+    btn.textContent = expanding ? 'Hide All Price Histories' : 'Show All Price Histories';
+
+    const tbody = document.getElementById('prices-table-body');
+    if (!tbody) return;
+
+    const unloaded = [];
+    const rows = Array.from(tbody.children);
+    let i = 0;
+    while (i < rows.length) {
+        const dataRow = rows[i];
+        i += 2;
+        if (!dataRow || dataRow.style.display === 'none') continue;
+        const matchId = dataRow.id?.replace('match-row-', '');
+        if (!matchId) continue;
+        const body = document.getElementById('history-body-' + matchId);
+        const histBtn = dataRow.querySelector('button[onclick^="toggleHistory"]');
+        if (!body) continue;
+        if (expanding && !body.innerHTML.trim()) {
+            unloaded.push({ matchId, body, histBtn });
+        } else if (!expanding && body.innerHTML.trim()) {
+            body.innerHTML = '';
+            if (histBtn) histBtn.classList.remove('text-blue-600');
+        }
+    }
+
+    if (expanding && unloaded.length) {
+        const ids = unloaded.map(u => u.matchId).join(',');
+        fetch('/api/prices/history/batch?ids=' + ids)
+            .then(r => r.json())
+            .then(data => {
+                unloaded.forEach(({ matchId, body, histBtn }) => {
+                    const html = data[matchId];
+                    if (html !== undefined) {
+                        body.innerHTML = html;
+                        execScripts(body);
+                        if (histBtn) histBtn.classList.add('text-blue-600');
+                    }
+                });
+            });
+    }
+}
+
+function applyMatchFilters() {
+    const searchTerm = document.getElementById('search-field').value.toLowerCase();
+    const tbody = document.getElementById('prices-table-body');
+    if (!tbody) return;
+
+    // Process rows in pairs: data row + history row
+    const rows = Array.from(tbody.children);
+    let i = 0;
+    while (i < rows.length) {
+        const dataRow = rows[i];
+        const historyRow = rows[i + 1];
+        i += 2;
+
+        if (!dataRow) continue;
+        const matchType = dataRow.dataset.matchType;
+        if (!matchType) continue; // skip non-data rows
+
+        const filterMatch = activeMatchFilter === 'all' || matchType === activeMatchFilter;
+        const searchMatch = !searchTerm || dataRow.textContent.toLowerCase().includes(searchTerm);
+        const visible = filterMatch && searchMatch;
+
+        dataRow.style.display = visible ? '' : 'none';
+        if (historyRow) historyRow.style.display = visible ? '' : 'none';
+    }
+}
+
+function updateTabCounts() {
+    const el = id => document.getElementById(id);
+    const visible = selector =>
+        Array.from(document.querySelectorAll(selector)).filter(r => r.style.display !== 'none').length;
+
+    // Matched tab label — counts all matches passing the search filter, ignoring sub-filter
+    const searchTerm = (document.getElementById('search-field')?.value || '').toLowerCase();
+    const allMatchRows = Array.from(document.querySelectorAll('#prices-table-body [data-match-type]'));
+    const matchedN = allMatchRows.filter(r => !searchTerm || r.textContent.toLowerCase().includes(searchTerm)).length;
+    if (el('count-matched')) el('count-matched').textContent = matchedN;
+
+
+    if (el('count-unmatched')) el('count-unmatched').textContent = visible('#all-products-table tbody tr[id^="urow-"]');
+    if (el('count-rejected')) el('count-rejected').textContent = visible('tr[id^="rejected-"]');
+    if (el('count-removed')) el('count-removed').textContent = visible('tr[id^="hidden-"]');
+    if (el('count-unavailable')) el('count-unavailable').textContent = visible('tr[id^="unavailable-"]');
+}
+
+// Reapply filters when the page is restored from back-forward cache
+window.addEventListener('pageshow', function(e) {
+    if (e.persisted) reapplyFilters();
+});
+
+// Update counts whenever any tab panel's DOM changes (rows added/removed)
+const _tabObserver = new MutationObserver(updateTabCounts);
+['prices-table-body', 'all-products-table', 'panel-rejected', 'panel-removed', 'panel-unavailable'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) _tabObserver.observe(el, { childList: true, subtree: true });
+});
+
+document.getElementById('search-field').addEventListener('keyup', function() {
+    sessionStorage.setItem('prices_search', this.value);
+    const searchTerm = this.value.toLowerCase();
+
+    // Matched tab
+    applyMatchFilters();
+
+    // Unmatched tab - filter rows in pairs (data row + history row)
+    const unmatchedRows = document.querySelectorAll('#all-products-table tbody tr[id^="urow-"]');
+    unmatchedRows.forEach(row => {
+        const visible = !searchTerm || row.textContent.toLowerCase().includes(searchTerm);
+        row.style.display = visible ? '' : 'none';
+        const histRow = document.getElementById('phistory-body-' + row.id.replace('urow-', ''))?.closest('tr');
+        if (histRow) histRow.style.display = visible ? '' : 'none';
+    });
+
+    // Rejected tab
+    document.querySelectorAll('tr[id^="rejected-"]').forEach(row => {
+        row.style.display = !searchTerm || row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
+    });
+
+    // Unavailable tab
+    document.querySelectorAll('tr[id^="unavailable-"]').forEach(row => {
+        row.style.display = !searchTerm || row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
+    });
+
+    // Inactive tab - filter rows in pairs (data row + history row)
+    document.querySelectorAll('tr[id^="hidden-"]').forEach(row => {
+        const visible = !searchTerm || row.textContent.toLowerCase().includes(searchTerm);
+        row.style.display = visible ? '' : 'none';
+        const histRow = document.getElementById('phistory-body-' + row.id.replace('hidden-', ''))?.closest('tr');
+        if (histRow) histRow.style.display = visible ? '' : 'none';
+    });
+
+    updateTabCounts();
+});
+
+// Restore tab, filter, and search term from URL hash / sessionStorage on page load
+(function() {
+    const hash = location.hash.slice(1);
+    const tabs = ['matched', 'unmatched', 'unavailable', 'removed', 'rejected'];
+    if (hash.startsWith('matched-')) {
+        const filter = hash.slice('matched-'.length);
+        switchTab('matched');
+        if (['unconfirmed', 'manual'].includes(filter)) setMatchFilter(filter);
+    } else if (tabs.includes(hash)) {
+        switchTab(hash);
+    }
+
+    const saved = sessionStorage.getItem('prices_search');
+    if (saved) {
+        const field = document.getElementById('search-field');
+        field.value = saved;
+        field.dispatchEvent(new Event('keyup'));
+    } else {
+        updateTabCounts();
+    }
+})();
+
+function refreshPrices(store) {
+    const btn = document.getElementById('refresh-btn-' + store);
+    const result = document.getElementById((store === 'coles' ? 'coles' : 'ww') + '-refresh-result');
+    btn.disabled = true;
+    result.innerHTML = '<span class="text-blue-600 text-sm">Connecting…</span>';
+
+    const es = new EventSource(`/api/prices/refresh-stream/${store}`);
+
+    es.addEventListener('progress', (e) => {
+        const {done, total} = JSON.parse(e.data);
+        result.innerHTML = `<span class="text-blue-600 text-sm">${done}/${total} updated…</span>`;
+    });
+
+    es.addEventListener('done', (e) => {
+        es.close();
+        btn.disabled = false;
+        const {updated, total} = JSON.parse(e.data);
+        result.innerHTML = `<span class="text-green-600 text-sm">Done — ${updated}/${total} updated</span>`;
+        setTimeout(() => location.reload(), 1500);
+    });
+
+    es.addEventListener('error', (e) => {
+        es.close();
+        btn.disabled = false;
+        try {
+            const {message} = JSON.parse(e.data);
+            result.innerHTML = `<span class="text-red-600 text-sm">${message}</span>`;
+        } catch {
+            result.innerHTML = '<span class="text-red-600 text-sm">Refresh failed</span>';
+        }
+    });
+
+    es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        if (!result.innerHTML.includes('Done') && !result.innerHTML.includes('failed')) {
+            result.innerHTML = '<span class="text-red-600 text-sm">Connection lost</span>';
+        }
+    };
+}
+</script>
+{% endblock %}

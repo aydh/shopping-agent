@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}Settings - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
+
+    <!-- Tabs -->
+    <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-4 sm:space-x-8">
+            <button id="tab-connections" onclick="switchTab('connections')"
+                    class="border-b-2 border-blue-500 text-blue-600 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Store Connections
+            </button>
+            <button id="tab-data" onclick="switchTab('data')"
+                    class="border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 px-1 py-3 text-sm font-medium whitespace-nowrap">
+                Data Management
+            </button>
+        </nav>
+    </div>
+
+    <!-- Store Connections Panel -->
+    <div id="panel-connections" class="space-y-4">
+        <!-- Instructions -->
+        <details class="bg-blue-50 border border-blue-200 rounded-lg">
+            <summary class="px-4 py-3 cursor-pointer text-sm font-semibold text-blue-800 hover:bg-blue-100 rounded-lg">
+                Instructions
+            </summary>
+            <div class="px-4 pb-4 pt-2 space-y-3">
+                <div>
+                    <p class="text-sm font-semibold text-blue-800">Coles</p>
+                    <p class="text-sm text-blue-800">Click <strong>Login</strong> and enter your Coles credentials. A browser window will open, log you in, and save your session cookies automatically. Your password is never stored.</p>
+                </div>
+                <div>
+                    <p class="text-sm font-semibold text-blue-800">Woolworths</p>
+                    <ol class="text-sm text-blue-800 list-decimal list-inside ml-2 space-y-1">
+                        <li>Install the <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" class="underline font-medium">Cookie-Editor</a> Chrome extension</li>
+                        <li>Go to <a href="https://www.woolworths.com.au" target="_blank" class="underline">woolworths.com.au</a> and log in</li>
+                        <li>Click the Cookie-Editor icon and click <strong>Export</strong> (JSON format)</li>
+                        <li>Paste the JSON below and click Import Cookies</li>
+                    </ol>
+                </div>
+            </div>
+        </details>
+
+        <div class="bg-white rounded-lg shadow">
+            <div class="divide-y divide-gray-200">
+                <!-- Coles -->
+                <div class="px-6 py-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                            <h3 class="font-medium text-gray-900">
+                                <a href="https://www.coles.com.au" target="_blank" rel="noopener" class="hover:text-red-600 hover:underline">Coles</a>
+                            </h3>
+                            <p id="coles-auth-status" class="text-sm {% if coles_connected %}text-green-600{% else %}text-gray-500{% endif %}">
+                                {% if coles_connected %}Connected - session active{% else %}Not connected{% endif %}
+                            </p>
+                            <p class="text-sm mt-1">
+                                <span id="coles-validate-result"></span>
+                                <span id="coles-validate-spinner" class="htmx-indicator text-gray-400 text-xs">checking...</span>
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button id="coles-validate-btn" hx-get="/api/auth/validate/coles" hx-target="#coles-validate-result" hx-indicator="#coles-validate-spinner"
+                                    class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
+                                Validate
+                            </button>
+                            {% if coles_connected %}
+                            <button onclick="logoutStore('coles')"
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                                Logout
+                            </button>
+                            {% endif %}
+                            <button onclick="toggleLoginPanel('coles-login-panel')"
+                                    class="px-3 py-1.5 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200">
+                                Login
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Credential login panel -->
+                    <div id="coles-login-panel" class="mt-3 hidden">
+                        <div class="space-y-2 max-w-xs">
+                            <p class="text-xs text-gray-500">Enter your Coles account credentials. They are used once to log in and are never stored.</p>
+                            <input type="email" id="coles-login-email" placeholder="Email"
+                                   autocomplete="username"
+                                   class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-red-500 focus:border-red-500">
+                            <input type="password" id="coles-login-password" placeholder="Password"
+                                   autocomplete="current-password"
+                                   class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-red-500 focus:border-red-500">
+                            <div>
+                                <button id="coles-login-btn" onclick="submitColesLogin()"
+                                        class="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Log In
+                                </button>
+                            </div>
+                            <div id="coles-login-status" class="text-sm min-h-[1.5rem]"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Woolworths -->
+                <div class="px-6 py-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                            <h3 class="font-medium text-gray-900">
+                                <a href="https://www.woolworths.com.au" target="_blank" rel="noopener" class="hover:text-green-600 hover:underline">Woolworths</a>
+                            </h3>
+                            <p id="woolworths-auth-status" class="text-sm {% if woolworths_connected %}text-green-600{% else %}text-gray-500{% endif %}">
+                                {% if woolworths_connected %}Connected - session active{% else %}Not connected{% endif %}
+                            </p>
+                            <p class="text-sm mt-1">
+                                <span id="woolworths-validate-result"></span>
+                                <span id="woolworths-validate-spinner" class="htmx-indicator text-xs text-gray-400">checking...</span>
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            {% if woolworths_connected %}
+                            <button id="woolworths-validate-btn" hx-get="/api/auth/validate/woolworths" hx-target="#woolworths-validate-result" hx-indicator="#woolworths-validate-spinner"
+                                    class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
+                                Validate
+                            </button>
+                            {% endif %}
+                            <button onclick="toggleCookiePanel('woolworths')"
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                                Reimport Cookies
+                            </button>
+                        </div>
+                    </div>
+                    <div id="woolworths-cookie-panel" class="mt-3 space-y-2 {% if woolworths_connected %}hidden{% endif %}">
+                        <textarea id="woolworths-cookie-input" rows="4"
+                            placeholder='Paste cookie JSON here from the Cookie-Editor extension...'
+                            class="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring-green-500 focus:border-green-500"></textarea>
+                        <button onclick="importWoolworthsCookies()"
+                            class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                            Import Cookies
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div><!-- end panel-connections -->
+
+    <!-- Data Management Panel -->
+    <div id="panel-data" class="hidden">
+        <div class="bg-white rounded-lg shadow overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Table</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rows</th>
+                        <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Also clears</th>
+                        <th class="px-3 sm:px-6 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody id="data-mgmt-body" class="divide-y divide-gray-200"
+                       hx-get="/api/settings/counts"
+                       hx-trigger="countsRefresh"
+                       hx-swap="innerHTML">
+                    {{ counts_rows_html | safe }}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchTab(tab) {
+    ['connections', 'data'].forEach(t => {
+        document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById('tab-' + t);
+        if (t === tab) {
+            btn.classList.add('border-blue-500', 'text-blue-600');
+            btn.classList.remove('border-transparent', 'text-gray-500');
+        } else {
+            btn.classList.remove('border-blue-500', 'text-blue-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        }
+    });
+    location.hash = tab;
+}
+
+(function() {
+    const hash = location.hash.slice(1);
+    if (hash === 'connections' || hash === 'data') switchTab(hash);
+})();
+
+function toggleCookiePanel(store) {
+    const panel = document.getElementById(store + '-cookie-panel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        panel.querySelector('textarea').focus();
+    }
+}
+
+function importCookies(store) {
+    const textarea = document.getElementById(store + '-cookie-input');
+    const cookies = textarea.value.trim();
+    if (!cookies) return;
+
+    fetch('/api/auth/import-cookies/' + store, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: cookies
+    })
+    .then(r => r.text())
+    .then(html => {
+        document.getElementById(store + '-auth-status').innerHTML = html;
+        if (html.includes('text-green-600')) {
+            textarea.value = '';
+            document.getElementById(store + '-cookie-panel').classList.add('hidden');
+            const validateBtn = document.getElementById(store + '-validate-btn');
+            if (validateBtn) validateBtn.click();
+        }
+    });
+}
+
+function importWoolworthsCookies() { importCookies('woolworths'); }
+
+function toggleLoginPanel(id) {
+    const panel = document.getElementById(id);
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        const first = panel.querySelector('input, textarea');
+        if (first) first.focus();
+    }
+}
+
+function setColesLoginFormDisabled(disabled) {
+    ['coles-login-email', 'coles-login-password', 'coles-login-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+    });
+}
+
+async function submitColesLogin() {
+    const email = document.getElementById('coles-login-email').value.trim();
+    const password = document.getElementById('coles-login-password').value;
+    if (!email || !password) {
+        document.getElementById('coles-login-status').innerHTML =
+            '<span class="text-red-600">Enter email and password first</span>';
+        return;
+    }
+
+    const statusEl = document.getElementById('coles-login-status');
+    statusEl.innerHTML = '<span class="text-gray-400 text-sm">Starting\u2026</span>';
+    document.getElementById('coles-login-password').value = '';
+    setColesLoginFormDisabled(true);
+
+    const fd = new FormData();
+    fd.append('email', email);
+    fd.append('password', password);
+
+    try {
+        const response = await fetch('/api/auth/login-playwright/coles', { method: 'POST', body: fd });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readLoginStream(response, statusEl);
+    } catch (err) {
+        statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
+        setColesLoginFormDisabled(false);
+    }
+}
+
+async function submitColesMFA() {
+    const code = document.getElementById('coles-mfa-input').value.trim();
+    if (!code) return;
+
+    const statusEl = document.getElementById('coles-login-status');
+    statusEl.innerHTML = '<span class="text-gray-400 text-sm">Verifying\u2026</span>';
+
+    const fd = new FormData();
+    fd.append('code', code);
+
+    try {
+        const response = await fetch('/api/auth/login-playwright/coles/mfa', { method: 'POST', body: fd });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readLoginStream(response, statusEl);
+    } catch (err) {
+        statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
+    }
+}
+
+async function readLoginStream(response, statusEl) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop();
+
+        for (const block of blocks) {
+            let eventType = 'message', data = '';
+            for (const line of block.trim().split('\n')) {
+                if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                if (line.startsWith('data: '))  data  = line.slice(6).trim();
+            }
+            if (!data) continue;
+
+            try {
+                const payload = JSON.parse(data);
+                if (eventType === 'progress') {
+                    statusEl.innerHTML = '<span class="text-gray-400 text-sm">' + payload.message + '\u2026</span>';
+                } else if (eventType === 'done') {
+                    handleLoginDone(payload.result, statusEl);
+                }
+            } catch (_) {}
+        }
+    }
+}
+
+function handleLoginDone(result, statusEl) {
+    if (result === 'ok') {
+        setColesLoginFormDisabled(false);
+        statusEl.innerHTML = '<span class="text-green-600">Logged in \u2014 cookies stored</span>';
+        document.getElementById('coles-login-panel').classList.add('hidden');
+        document.getElementById('coles-auth-status').innerHTML =
+            '<span class="text-green-600">Connected \u2014 session active</span>';
+    } else if (result === 'mfa_required') {
+        // Keep form disabled — user is in the MFA flow, not the login form
+        statusEl.innerHTML = `
+            <div class="space-y-2">
+                <p class="text-sm text-amber-700 font-medium">MFA code required</p>
+                <p class="text-xs text-gray-600">Enter the code from your authenticator app or SMS.</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="coles-mfa-input" placeholder="000000" maxlength="8"
+                           inputmode="numeric" autocomplete="one-time-code"
+                           class="border border-gray-300 rounded px-3 py-1.5 text-sm w-28 tracking-widest text-center">
+                    <button onclick="submitColesMFA()"
+                            class="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700">Verify</button>
+                    <button onclick="cancelColesLogin()"
+                            class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">Cancel</button>
+                </div>
+            </div>`;
+        document.getElementById('coles-mfa-input').focus();
+    } else {
+        setColesLoginFormDisabled(false);
+        const reason = result.replace(/^failed:/, '');
+        statusEl.innerHTML = '<span class="text-red-600">Login failed: ' + reason + '</span>';
+    }
+}
+
+function cancelColesLogin() {
+    fetch('/api/auth/login-playwright/coles/cancel', { method: 'POST' });
+    document.getElementById('coles-login-status').innerHTML = '';
+    setColesLoginFormDisabled(false);
+}
+
+function logoutStore(store) {
+    fetch('/api/auth/logout/' + store, { method: 'POST' })
+        .then(() => { window.location.reload(); });
+}
+</script>
+{% endblock %}

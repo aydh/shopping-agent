@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signing in… — Shopping Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center">
+    <div class="text-gray-500 text-sm">Signing in…</div>
+
+    <script>
+        const SUPABASE_URL = "{{ supabase_url }}";
+        const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        (async () => {
+            const nextUrl = new URLSearchParams(window.location.search).get('next') || '/';
+
+            const { data, error } = await sb.auth.getSession();
+            if (error || !data.session) {
+                window.location.href = '/login?error=auth_failed&next=' + encodeURIComponent(nextUrl);
+                return;
+            }
+            const resp = await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ access_token: data.session.access_token }),
+            });
+            if (!resp.ok) {
+                window.location.href = '/login?error=session_failed&next=' + encodeURIComponent(nextUrl);
+                return;
+            }
+            window.location.href = nextUrl;
+        })();
+    </script>
+</body>
+</html>

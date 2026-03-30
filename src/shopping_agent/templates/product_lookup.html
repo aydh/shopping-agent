@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Product Lookup - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h1 class="text-2xl font-bold text-gray-900">Product Lookup</h1>
+
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-sm text-gray-600 mb-3">Search Coles and Woolworths simultaneously</p>
+        <div class="relative" hx-indicator="#search-spinner">
+            <input type="text"
+                   id="search-input"
+                   name="q"
+                   placeholder="Type to search both stores…"
+                   hx-get="/api/prices/product-lookup/search"
+                   hx-trigger="keyup changed delay:400ms"
+                   hx-target="#lookup-results"
+                   hx-include="[name='q']"
+                   autofocus
+                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm">
+            <span id="search-spinner" class="htmx-indicator absolute right-3 top-2.5 text-gray-400 text-sm">Searching…</span>
+        </div>
+    </div>
+
+    <div id="lookup-results"></div>
+</div>
+{% endblock %}

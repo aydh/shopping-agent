@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+
+    <!-- Metrics -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Orders</p>
+            <p class="text-3xl font-bold text-gray-900">{{ coles_orders + ww_orders }}</p>
+            <div class="mt-2 flex justify-between text-xs">
+                <div>
+                    <p class="text-red-600 font-medium">Coles</p>
+                    <p class="text-gray-600">{{ coles_orders }} orders</p>
+                    {% if coles_last_sync %}<p class="text-gray-400">Last {{ coles_last_sync }}</p>{% endif %}
+                </div>
+                <div class="text-right">
+                    <p class="text-green-600 font-medium">Woolworths</p>
+                    <p class="text-gray-600">{{ ww_orders }} orders</p>
+                    {% if ww_last_sync %}<p class="text-gray-400">Last {{ ww_last_sync }}</p>{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Products Tracked</p>
+            <p class="text-3xl font-bold text-gray-900">{{ coles_products + ww_products }}</p>
+            <div class="mt-2 flex justify-between text-xs">
+                <div>
+                    <p class="text-red-600 font-medium">Coles</p>
+                    <p class="text-gray-600">{{ coles_products }} products</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-green-600 font-medium">Woolworths</p>
+                    <p class="text-gray-600">{{ ww_products }} products</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Matched Products</p>
+            <p class="text-3xl font-bold text-blue-600">{{ matched_count }}</p>
+            <a href="/prices" class="mt-2 inline-block text-xs text-blue-500 hover:underline">View matches →</a>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Rejected Matches</p>
+            <p class="text-3xl font-bold text-gray-400">{{ rejected_count }}</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Removed Products</p>
+            <p class="text-3xl font-bold text-gray-400">{{ removed_count }}</p>
+            <a href="/prices" class="mt-2 inline-block text-xs text-blue-500 hover:underline">View on Prices →</a>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Predicted Products</p>
+            <p class="text-3xl font-bold text-gray-900">{{ pred_count }}</p>
+            {% if runout_count %}
+            <div class="mt-2 flex items-center gap-1">
+                <span class="inline-block w-2 h-2 rounded-full bg-orange-500"></span>
+                <span class="text-xs text-orange-600 font-medium">{{ runout_count }} running low</span>
+            </div>
+            {% else %}
+            <p class="mt-2 text-xs text-green-600">All stocked up</p>
+            {% endif %}
+            <a href="/predictions" class="mt-1 inline-block text-xs text-blue-500 hover:underline">View predictions →</a>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Shopping Lists</p>
+            <p class="text-3xl font-bold text-gray-900">{{ list_count }}</p>
+            <a href="/shopping-list" class="mt-2 inline-block text-xs text-blue-500 hover:underline">View lists →</a>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Current Shopping List</p>
+            {% if shopping_list %}
+                {% set active_items = shopping_list.items | selectattr('is_removed', 'equalto', false) | list %}
+                <p class="text-3xl font-bold text-gray-900">{{ active_items | length }} items</p>
+                <a href="/shopping-list" class="mt-1 inline-block text-xs text-blue-600 hover:underline truncate max-w-full block">
+                    {{ shopping_list.name or "Current List" }} →
+                </a>
+                <div class="mt-2 space-y-0.5 text-xs">
+                    {% if coles_total %}
+                    <div class="flex justify-between">
+                        <span class="text-red-600 font-medium">Coles</span>
+                        <span class="text-gray-700 font-semibold">${{ "%.2f" | format(coles_total) }}</span>
+                    </div>
+                    {% endif %}
+                    {% if woolworths_total %}
+                    <div class="flex justify-between">
+                        <span class="text-green-600 font-medium">Woolworths</span>
+                        <span class="text-gray-700 font-semibold">${{ "%.2f" | format(woolworths_total) }}</span>
+                    </div>
+                    {% endif %}
+                    {% if best_total and coles_total and woolworths_total %}
+                    <div class="flex justify-between border-t border-gray-100 pt-1 mt-1">
+                        <span class="text-gray-500">Split Shop Price</span>
+                        <span class="text-gray-700 font-semibold">${{ "%.2f" | format(best_total) }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            {% else %}
+                <p class="text-2xl font-bold text-gray-400">—</p>
+                <p class="mt-1 text-xs text-gray-400">No current list</p>
+                <a href="/shopping-list" class="mt-1 inline-block text-xs text-blue-500 hover:underline">Create one →</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Running Low -->
+    {% if upcoming_runouts %}
+    <style>
+        @media (min-width: 768px) {
+            .rl-header, .rl-row { display: grid; grid-template-columns: 1fr 1fr 7rem 7rem 6rem; gap: 1rem; align-items: center; }
+            .rl-products { display: contents; }
+            .rl-meta { display: contents; }
+        }
+    </style>
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h2 class="text-lg font-medium text-gray-900">Running Low (Next 7 Days)</h2>
+            <a href="/predictions" class="text-sm text-blue-500 hover:underline">All predictions →</a>
+        </div>
+        <!-- Column headers (desktop only) -->
+        <div class="rl-header hidden md:grid px-4 sm:px-6 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <div>Coles</div>
+            <div>Woolworths</div>
+            <div>Runout</div>
+            <div>Last Bought</div>
+            <div></div>
+        </div>
+        <div class="divide-y divide-gray-200">
+            {% for pred in upcoming_runouts %}
+            {% set coles_p = pred.product if pred.product.store.value == 'coles' else pred.matched_product %}
+            {% set ww_p = pred.product if pred.product.store.value == 'woolworths' else pred.matched_product %}
+            <div class="rl-row px-4 sm:px-6 py-3">
+
+                <!-- Products: side-by-side on mobile, grid cells on desktop -->
+                <div class="rl-products flex gap-3 mb-3 md:mb-0">
+                    <!-- Coles -->
+                    <div class="flex items-start gap-2 min-w-0 flex-1">
+                        {% if coles_p %}
+                        {% set url = coles_p.product_url | product_url(coles_p.store_product_id, coles_p.store.value, coles_p.name) %}
+                        {% if coles_p.image_url %}
+                        {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="flex-shrink-0"><img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover hover:opacity-80"></a>
+                        {% else %}<img src="{{ coles_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">{% endif %}
+                        {% else %}<div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>{% endif %}
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-medium text-red-600 md:hidden">Coles</p>
+                            {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline line-clamp-2 block">{{ coles_p.name }}</a>
+                            {% else %}<p class="text-sm font-medium text-gray-900 line-clamp-2">{{ coles_p.name }}</p>{% endif %}
+                            {% if coles_p.brand or coles_p.unit_size %}<p class="text-xs text-gray-400">{{ [coles_p.brand, coles_p.unit_size] | select | join(' · ') }}</p>{% endif %}
+                            {% if coles_p.current_price %}<p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(coles_p.current_price) }}</p>{% endif %}
+                        </div>
+                        {% else %}
+                        <span class="text-xs text-gray-400">—</span>
+                        {% endif %}
+                    </div>
+                    <!-- Woolworths -->
+                    <div class="flex items-start gap-2 min-w-0 flex-1">
+                        {% if ww_p %}
+                        {% set url = ww_p.product_url | product_url(ww_p.store_product_id, ww_p.store.value, ww_p.name) %}
+                        {% if ww_p.image_url %}
+                        {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="flex-shrink-0"><img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover hover:opacity-80"></a>
+                        {% else %}<img src="{{ ww_p.image_url | product_image_url }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">{% endif %}
+                        {% else %}<div class="w-10 h-10 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">N/A</div>{% endif %}
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-medium text-green-600 md:hidden">Woolworths</p>
+                            {% if url %}<a href="{{ url }}" target="_blank" rel="noopener" class="text-sm font-medium text-gray-900 hover:underline line-clamp-2 block">{{ ww_p.name }}</a>
+                            {% else %}<p class="text-sm font-medium text-gray-900 line-clamp-2">{{ ww_p.name }}</p>{% endif %}
+                            {% if ww_p.brand or ww_p.unit_size %}<p class="text-xs text-gray-400">{{ [ww_p.brand, ww_p.unit_size] | select | join(' · ') }}</p>{% endif %}
+                            {% if ww_p.current_price %}<p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(ww_p.current_price) }}</p>{% endif %}
+                        </div>
+                        {% else %}
+                        <span class="text-xs text-gray-400">—</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Stats + button: flex row on mobile, grid cells on desktop -->
+                <div class="rl-meta flex items-start gap-4">
+                    <!-- Runout -->
+                    <div class="text-xs flex-1 md:flex-none">
+                        <p class="text-gray-500 md:hidden font-medium">Runout</p>
+                        <p class="font-medium {% if pred.days_until_runout <= 2 %}text-red-600{% elif pred.days_until_runout <= 5 %}text-orange-500{% elif pred.days_until_runout <= 10 %}text-yellow-500{% else %}text-green-600{% endif %}">
+                            {% if pred.days_until_runout <= 0 %}Already out{% elif pred.days_until_runout == 1 %}Tomorrow{% else %}{{ pred.days_until_runout }} days{% endif %}
+                        </p>
+                        <p class="text-gray-400">{{ pred.predicted_runout_date }}</p>
+                    </div>
+                    <!-- Last bought -->
+                    <div class="text-xs flex-1 md:flex-none">
+                        <p class="text-gray-500 md:hidden font-medium">Last bought</p>
+                        <p class="font-medium text-gray-900">{{ pred.last_purchased_date }}</p>
+                        <p class="text-gray-500">{{ pred.last_purchase_store | title }} · {{ pred.last_purchase_quantity }}x</p>
+                    </div>
+                    <!-- Add to list -->
+                    <div class="flex-shrink-0">
+                        <button hx-post="/api/shopping-list/items/add-product"
+                                hx-vals='{"product_id": {{ pred.product_id }}}'
+                                hx-target="next .add-result"
+                                hx-swap="innerHTML"
+                                class="px-3 py-1.5 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 whitespace-nowrap">
+                            Add to List
+                        </button>
+                        <span class="add-result text-xs block min-h-[1rem] mt-1"></span>
+                    </div>
+                </div>
+
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.worktrees/
+logs/*
+!logs/.gitkeep
+.coverage
+
+# mkcert local SSL certificates
+*.pem
+
+# SSH keys generated for OCI deployment
+deploy_key
+deploy_key.pub
+shopping_agent_vm
+shopping_agent_vm.pub
+
+# Firebase
+firebase-debug.log
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/backend.tfvars
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/crash.log
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

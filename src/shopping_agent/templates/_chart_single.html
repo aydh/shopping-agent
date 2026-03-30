@@ -1,0 +1,53 @@
+{# Renders a price history chart for a single product.
+   Context: points (list of {x, y}), canvas_id, colour, label #}
+<div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
+  <div style="position:relative;max-width:100%">
+    <canvas id="{{ canvas_id }}" height="100" role="img" aria-label="Price history chart for {{ label }}">
+      Price history chart for {{ label }}.
+    </canvas>
+  </div>
+  <script>
+  (function() {
+    const ctx = document.getElementById('{{ canvas_id }}').getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: '{{ label }}',
+          data: {{ points | tojson }},
+          borderColor: '{{ colour }}',
+          borderWidth: 1,
+          pointBackgroundColor: '{{ colour }}',
+          pointBorderColor: '{{ colour }}',
+          pointRadius: 2,
+          pointHoverRadius: 3,
+          tension: 0.2,
+          parsing: { xAxisKey: 'x', yAxisKey: 'y' }
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { type: 'time', time: { tooltipFormat: 'dd MMM yyyy', displayFormats: { day: 'dd MMM' } }, title: { display: false } },
+          y: { title: { display: true, text: 'Price ($)' }, beginAtZero: false }
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              usePointStyle: true,
+              font: { size: 9 },
+              boxWidth: 6,
+              boxHeight: 6,
+              padding: 4,
+              generateLabels: () => [
+                { text: '{{ label }}', pointStyle: 'circle', fillStyle: '{{ colour }}', strokeStyle: '{{ colour }}' }
+              ]
+            }
+          }
+        }
+      }
+    });
+  })();
+  </script>
+</div>

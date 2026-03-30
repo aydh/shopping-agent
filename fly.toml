@@ -1,0 +1,38 @@
+app = "shopping-agent-jbd7ga"
+primary_region = "syd"
+
+# Non-secret config
+[env]
+  DEBUG = "false"
+  PORT = "8000"
+  ENABLE_SCHEDULER = "true"
+
+# Secrets — set once via CLI (never stored in this file):
+#   fly secrets set DATABASE_URL="postgresql+asyncpg://..."
+#   fly secrets set SUPABASE_JWT_SECRET="..."
+#   fly secrets set SUPABASE_URL="https://your-project.supabase.co"
+#   fly secrets set SUPABASE_ANON_KEY="..."
+#   fly secrets set COLES_API_KEY="..."
+#   fly secrets set WOOLWORTHS_API_KEY="..."
+#   fly secrets set MCP_OAUTH_CLIENT_ID="..."
+#   fly secrets set MCP_OAUTH_CLIENT_SECRET="..."
+#   fly secrets set MCP_DEFAULT_USER_ID="..."
+#   fly secrets set BASE_URL="https://shopping-agent-jbd7ga.fly.dev"
+
+[http_service]
+auto_start_machines = true
+auto_stop_machines = "suspend"
+force_https = true
+internal_port = 8_000
+min_machines_running = 1
+processes = [ "app" ]
+
+[[vm]]
+size = "shared-cpu-1x"
+cpu_kind = "shared"
+cpus = 1
+memory = "2gb"
+
+[mounts]                               
+source = "shopping_agent_data"                                                                                      
+destination = "/data"

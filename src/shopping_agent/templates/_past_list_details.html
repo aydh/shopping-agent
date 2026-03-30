@@ -1,0 +1,43 @@
+{# Fragment: items table for a past shopping list.
+   Context: items (list of dicts with name, quantity, coles_price, woolworths_price, product_id) #}
+<div class="bg-gray-50 rounded-lg my-2 overflow-hidden border border-gray-200">
+    <table class="min-w-full">
+        <thead>
+            <tr class="bg-gray-100 text-xs font-medium text-gray-500 uppercase">
+                <th class="px-4 py-2 text-left">Product</th>
+                <th class="px-4 py-2 text-center">Qty</th>
+                <th class="px-4 py-2 text-center">Coles</th>
+                <th class="px-4 py-2 text-center">Woolworths</th>
+                <th class="px-4 py-2"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+            {% for item in items %}
+            <tr>
+                <td class="px-4 py-2 text-sm text-gray-900">{{ item.name }}</td>
+                <td class="px-4 py-2 text-sm text-gray-500 text-center">{{ item.quantity }}</td>
+                <td class="px-4 py-2 text-sm text-red-600 text-center">
+                    {% if item.coles_price %}${{ "%.2f"|format(item.coles_price) }}{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-2 text-sm text-green-600 text-center">
+                    {% if item.woolworths_price %}${{ "%.2f"|format(item.woolworths_price) }}{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-2 text-right">
+                    <span id="add-result-{{ item.product_id }}">
+                        <button hx-post="/api/shopping-list/items/add-product"
+                                hx-vals='{"product_id": {{ item.product_id }}}'
+                                hx-target="#add-result-{{ item.product_id }}"
+                                hx-swap="innerHTML"
+                                title="Add to list"
+                                class="p-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                            </svg>
+                        </button>
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

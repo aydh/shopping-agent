@@ -1,0 +1,107 @@
+{% set total = (coles_results | length) + (woolworths_results | length) %}
+{% if total > 0 %}
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <p class="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b">{{ total }} result{{ 's' if total != 1 }} found — click a product to find its match in the other store</p>
+    <ul class="divide-y divide-gray-100">
+
+        {% for r in coles_results %}
+        <li class="flex items-start gap-3 px-4 py-3">
+            {% if r.image_url %}
+            <img src="{{ r.image_url | product_image_url }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0 mt-0.5">
+            {% else %}
+            <div class="w-12 h-12 rounded bg-gray-100 flex-shrink-0 mt-0.5"></div>
+            {% endif %}
+            <div class="flex-1 min-w-0">
+                {% if r.product_url %}
+                <a href="{{ r.product_url }}" target="_blank" rel="noopener"
+                   class="text-sm font-medium text-gray-900 hover:text-red-600 hover:underline">{{ r.name }}</a>
+                {% else %}
+                <p class="text-sm font-medium text-gray-900">{{ r.name }}</p>
+                {% endif %}
+                {% if r.brand %}<p class="text-xs text-gray-500">{{ r.brand }}</p>{% endif %}
+                {% if r.unit_size %}<p class="text-xs text-gray-400">{{ r.unit_size }}</p>{% endif %}
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span>
+                    {% if r.current_price is not none %}
+                    <span class="text-sm font-semibold text-gray-700">${{ "%.2f" | format(r.current_price) }}</span>
+                    {% endif %}
+                    {% if r.unit_price and r.unit_price_measure %}
+                    <span class="text-xs text-gray-400">${{ "%.2f" | format(r.unit_price) }}/{{ r.unit_price_measure }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <form hx-post="/api/prices/product-lookup/select"
+                  hx-target="#lookup-results"
+                  hx-swap="innerHTML"
+                  class="flex-shrink-0">
+                <input type="hidden" name="store" value="coles">
+                <input type="hidden" name="store_product_id" value="{{ r.store_product_id }}">
+                <input type="hidden" name="name" value="{{ r.name }}">
+                <input type="hidden" name="brand" value="{{ r.brand or '' }}">
+                <input type="hidden" name="unit_size" value="{{ r.unit_size or '' }}">
+                <input type="hidden" name="current_price" value="{{ r.current_price or 0 }}">
+                <input type="hidden" name="unit_price" value="{{ r.unit_price or 0 }}">
+                <input type="hidden" name="unit_price_measure" value="{{ r.unit_price_measure or '' }}">
+                <input type="hidden" name="image_url" value="{{ r.image_url or '' }}">
+                <input type="hidden" name="product_url" value="{{ r.product_url or '' }}">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 whitespace-nowrap">
+                    Select
+                </button>
+            </form>
+        </li>
+        {% endfor %}
+
+        {% for r in woolworths_results %}
+        <li class="flex items-start gap-3 px-4 py-3">
+            {% if r.image_url %}
+            <img src="{{ r.image_url | product_image_url }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0 mt-0.5">
+            {% else %}
+            <div class="w-12 h-12 rounded bg-gray-100 flex-shrink-0 mt-0.5"></div>
+            {% endif %}
+            <div class="flex-1 min-w-0">
+                {% if r.product_url %}
+                <a href="{{ r.product_url }}" target="_blank" rel="noopener"
+                   class="text-sm font-medium text-gray-900 hover:text-green-600 hover:underline">{{ r.name }}</a>
+                {% else %}
+                <p class="text-sm font-medium text-gray-900">{{ r.name }}</p>
+                {% endif %}
+                {% if r.brand %}<p class="text-xs text-gray-500">{{ r.brand }}</p>{% endif %}
+                {% if r.unit_size %}<p class="text-xs text-gray-400">{{ r.unit_size }}</p>{% endif %}
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span>
+                    {% if r.current_price is not none %}
+                    <span class="text-sm font-semibold text-gray-700">${{ "%.2f" | format(r.current_price) }}</span>
+                    {% endif %}
+                    {% if r.unit_price and r.unit_price_measure %}
+                    <span class="text-xs text-gray-400">${{ "%.2f" | format(r.unit_price) }}/{{ r.unit_price_measure }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <form hx-post="/api/prices/product-lookup/select"
+                  hx-target="#lookup-results"
+                  hx-swap="innerHTML"
+                  class="flex-shrink-0">
+                <input type="hidden" name="store" value="woolworths">
+                <input type="hidden" name="store_product_id" value="{{ r.store_product_id }}">
+                <input type="hidden" name="name" value="{{ r.name }}">
+                <input type="hidden" name="brand" value="{{ r.brand or '' }}">
+                <input type="hidden" name="unit_size" value="{{ r.unit_size or '' }}">
+                <input type="hidden" name="current_price" value="{{ r.current_price or 0 }}">
+                <input type="hidden" name="unit_price" value="{{ r.unit_price or 0 }}">
+                <input type="hidden" name="unit_price_measure" value="{{ r.unit_price_measure or '' }}">
+                <input type="hidden" name="image_url" value="{{ r.image_url or '' }}">
+                <input type="hidden" name="product_url" value="{{ r.product_url or '' }}">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 whitespace-nowrap">
+                    Select
+                </button>
+            </form>
+        </li>
+        {% endfor %}
+
+    </ul>
+</div>
+{% else %}
+<p class="text-sm text-gray-500">No results found. Try a different search term.</p>
+{% endif %}

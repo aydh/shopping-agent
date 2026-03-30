@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Predictions - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 class="text-2xl font-bold text-gray-900">Consumption Predictions</h1>
+        <div class="flex items-center gap-2">
+            <button id="show-all-ph-btn" onclick="toggleAllPriceHistories(this)"
+                    class="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                Show All Price Histories
+            </button>
+            <button hx-post="/api/predictions/refresh" hx-target="#predictions-grid" hx-indicator="#refresh-spinner"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                Refresh Predictions
+            </button>
+            <span id="refresh-spinner" class="htmx-indicator text-gray-400">refreshing...</span>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-4">
+        <input type="text" id="predictions-search" placeholder="Search predictions..."
+               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+    </div>
+
+    <div id="predictions-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% include "_predictions_grid.html" %}
+    </div>
+</div>
+
+<script>
+document.getElementById('predictions-search').addEventListener('keyup', function() {
+    const term = this.value.toLowerCase();
+    document.querySelectorAll('#predictions-grid > div').forEach(card => {
+        card.style.display = card.textContent.toLowerCase().includes(term) ? '' : 'none';
+    });
+});
+
+function _injectHtml(d, html) {
+    d.innerHTML = html;
+    d.querySelectorAll('script').forEach(s => {
+        const ns = document.createElement('script');
+        ns.textContent = s.textContent;
+        s.replaceWith(ns);
+    });
+    d.dataset.loaded = '1';
+}
+
+async function loadAllPriceHistories(btn) {
+    const cards = Array.from(document.querySelectorAll('#predictions-grid [data-ph-url]'));
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+
+    // Separate unloaded cards into match-based vs product-based
+    const matchCards = {};   // match_id -> card element
+    const productCards = {}; // product_id -> card element
+
+    for (const card of cards) {
+        const d = card.querySelector('.ph-content');
+        if (!d) continue;
+        if (d.dataset.loaded) { d.classList.remove('hidden'); continue; }
+        d.classList.remove('hidden');
+        const url = card.dataset.phUrl;
+        const matchM = url.match(/\/api\/prices\/history\/(\d+)$/);
+        const productM = url.match(/\/api\/prices\/product-history\/(\d+)$/);
+        if (matchM) matchCards[matchM[1]] = card;
+        else if (productM) productCards[productM[1]] = card;
+    }
+
+    const fetches = [];
+    if (Object.keys(matchCards).length) {
+        fetches.push(
+            fetch(`/api/prices/history/batch?ids=${Object.keys(matchCards).join(',')}`)
+                .then(r => r.json())
+                .then(data => {
+                    for (const [id, html] of Object.entries(data)) {
+                        const d = matchCards[id]?.querySelector('.ph-content');
+                        if (d) _injectHtml(d, html);
+                    }
+                })
+        );
+    }
+    if (Object.keys(productCards).length) {
+        fetches.push(
+            fetch(`/api/prices/product-history/batch?ids=${Object.keys(productCards).join(',')}`)
+                .then(r => r.json())
+                .then(data => {
+                    for (const [id, html] of Object.entries(data)) {
+                        const d = productCards[id]?.querySelector('.ph-content');
+                        if (d) _injectHtml(d, html);
+                    }
+                })
+        );
+    }
+    await Promise.all(fetches);
+
+    btn.disabled = false;
+    btn.textContent = 'Hide All Price Histories';
+}
+
+function toggleAllPriceHistories(btn) {
+    const anyVisible = !!document.querySelector('#predictions-grid .ph-content:not(.hidden)');
+    if (anyVisible) {
+        document.querySelectorAll('#predictions-grid .ph-content').forEach(d => d.classList.add('hidden'));
+        btn.textContent = 'Show All Price Histories';
+    } else {
+        loadAllPriceHistories(btn);
+    }
+}
+</script>
+{% endblock %}

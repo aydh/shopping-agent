@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Shopping List - Shopping Agent{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div id="list-header" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 class="text-2xl font-bold text-gray-900">
+            {% if shopping_list %}{{ shopping_list.name }}{% else %}Shopping List{% endif %}
+        </h1>
+        <div class="flex flex-wrap gap-2 items-center">
+            <form hx-post="/api/shopping-list/new" hx-target="#list-content" hx-swap="innerHTML"
+                  class="flex items-center gap-2">
+                <input type="date" name="target_date" value="{{ today }}"
+                       {% if shopping_list %}disabled{% endif %}
+                       class="border border-gray-300 rounded px-2 py-1.5 text-sm {% if shopping_list %}bg-gray-100 text-gray-400 cursor-not-allowed{% endif %}">
+                <button type="submit"
+                        {% if shopping_list %}disabled{% endif %}
+                        class="px-4 py-2 text-sm rounded {% if shopping_list %}bg-gray-200 text-gray-400 cursor-not-allowed{% else %}bg-blue-600 text-white hover:bg-blue-700{% endif %}">
+                    New List
+                </button>
+            </form>
+            <button hx-post="/api/shopping-list/add-predictions"
+                    hx-target="#list-content" hx-swap="innerHTML"
+                    hx-indicator="#pred-spinner"
+                    {% if not shopping_list %}disabled{% endif %}
+                    class="px-4 py-2 text-sm rounded {% if not shopping_list %}bg-gray-200 text-gray-400 cursor-not-allowed{% else %}bg-green-600 text-white hover:bg-green-700{% endif %}">
+                Add Predicted Items
+            </button>
+            <span id="pred-spinner" class="htmx-indicator text-gray-400 self-center text-sm">adding...</span>
+            {% if shopping_list %}
+            <button hx-delete="/api/shopping-list/current"
+                    hx-target="#list-content" hx-swap="innerHTML"
+                    class="px-4 py-2 text-sm rounded bg-red-100 text-red-600 hover:bg-red-200">
+                Delete List
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <div id="list-content">
+        {% include "_shopping_list_content.html" %}
+    </div>
+
+    {% include "_past_lists_section.html" %}
+</div>
+{% endblock %}
