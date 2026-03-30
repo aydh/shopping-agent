@@ -112,3 +112,36 @@ The Prices page, Shopping List confirm page, and several HTMX partials each buil
 
 ### Review and tighten error handling in scraper methods `P3`
 Scraper methods (`get_product_price`, `add_to_cart`, `search_product`) catch broad `Exception` and log a warning, which makes it hard to distinguish network timeouts, authentication failures, rate-limit responses, and API contract changes. Introduce a `ScraperError` hierarchy (`AuthenticationError`, `RateLimitError`, `NotFoundError`) so callers can handle each case appropriately — e.g. surfacing an "authentication expired" message to the user rather than a generic failure.
+
+---
+
+## API Design
+
+### Redesign routes to be resource-centric `P2`
+The API URLs are action-oriented rather than resource-oriented, which makes the surface area harder to understand, document, and extend. Examples of the current pattern: `POST /api/shopping-list/generate`, `POST /api/shopping-list/confirm/{id}`, `POST /api/shopping-list/close/{id}`, `POST /api/prices/match-products`, `POST /api/prices/confirm-match/{id}`, `POST /api/shopping-list/submit-split`. A resource-centric design would model state transitions as `PATCH` on the resource with a `status` or `action` field (e.g. `PATCH /api/shopping-lists/{id}` with `{"status": "confirmed"}`), use `POST` only to create a resource, and use `DELETE` only to destroy one. The shopping list sub-router alone has `new`, `generate`, `add-predictions`, `confirm`, `close`, `set-store`, `submit-store`, `submit-split` as separate POST endpoints where most are transitions on the same list resource. A full redesign would also consolidate the prices sub-router (`match-products`, `confirm-match`, `manual-match`, `search-match`, `search-match/confirm`) into a consistent `/api/product-matches` resource. Note: this is a breaking change for any MCP tool or external caller, so the MCP tool surface should be reviewed and updated in the same pass.
+
+---
+
+## Logging
+
+### Fix noisy / incorrect log entries when fetching Supabase JWKS `P2`
+In `auth.py`, the RS256/ES256 verification path fetches JWKS from Supabase, then falls back to `/auth/v1/user` if local verification fails. The fallback is triggered by a bare `except Exception:` (line 125) with only a `debug`-level log — which means any misconfiguration, key ID mismatch, or transient network error silently swallows the root cause and issues a synchronous HTTP call to Supabase on every non-cached request. In practice, if the JWKS keys endpoint is accessible but the `kid` in the token doesn't match any key in the response (a common misconfiguration), the code raises a 401 `"No matching JWT key found"` that is immediately caught and retried via `/auth/v1/user`, with nothing in the logs to explain why. Fix: distinguish between "JWKS endpoint unavailable" (acceptable fallback) and "JWKS returned keys but none matched" (likely a configuration error that should log at `WARNING` with the mismatched kid). Also make the fallback path log at `WARNING` rather than `DEBUG` when it is invoked so auth issues are visible in the INFO-level console output.
+
+### Standardise logging levels and context across the codebase `P3`
+Log coverage is uneven: services and scrapers have loggers and use them reasonably, but most route handlers (13 `logger.` calls across all of `routes/`) emit nothing — success, failure, and unexpected conditions are all silent from the route layer. The MCP tools use an ad-hoc `[MCP]` prefix string rather than a child logger. Some places log at `WARNING` for expected recoverable conditions, others use `DEBUG` for genuine errors. Define a logging convention: `DEBUG` for per-item trace data (individual price fetches, single row upserts), `INFO` for operation boundaries (sync started/finished, list confirmed), `WARNING` for recoverable external failures (store API returned unexpected status, JWKS fetch failed), `ERROR` for unexpected internal failures. Apply consistently across routes, services, and scrapers, and replace `[MCP]` string prefixes with a `logging.getLogger("shopping_agent.mcp")` child logger.
+
+---
+
+## Testing
+
+### Establish integration tests against a real (test) database `P1`
+All existing tests mock the SQLAlchemy session with hand-rolled `FakeResult` / `FakeSession` objects. This means database constraints, ORM relationship loading, RLS behaviour, and multi-step transactions are never exercised. A single `pytest` fixture that spins up a local PostgreSQL instance (via `pytest-docker` or a pre-existing test DB URL from env) and runs `alembic upgrade head` would unlock proper integration testing for services and route handlers. The `conftest.py` already has good patterns for fixtures; extending it with a real async session fixture scoped to each test function (with rollback teardown) would let existing service tests run against actual SQL with minimal changes.
+
+### Route handlers have no HTTP-level tests `P2`
+`test_api_routes.py` calls route handler functions directly with mock sessions — it does not use FastAPI's `TestClient` or `AsyncClient`. This means request parsing, dependency injection, response status codes, headers, and redirect behaviour are never tested. Add a test module using `httpx.AsyncClient(app=app, base_url="http://test")` to exercise at least the most critical paths end-to-end: cookie import → validate, order sync SSE output, list generate → confirm → cart stream, and the auth redirect behaviour (unauthenticated requests redirecting to `/login`).
+
+### No tests for scrapers, auth, or MCP tools `P2`
+Three significant areas have zero test coverage: (1) `ColesScraper` and `WoolworthsScraper` — even the non-network parts (response parsing, cookie normalisation, JWT extraction) could be unit tested against fixture JSON; (2) `auth.py` — the JWKS/fallback logic, token caching, and cookie-vs-Bearer dispatch are untested despite being security-critical; (3) `routes/mcp.py` — none of the 19 MCP tools have tests. Start with the easiest wins: scraper response-parsing methods with recorded API response fixtures, auth token decode with known HS256 test tokens, and a handful of MCP tools using mocked sessions.
+
+### Measure and track test coverage `P3`
+There is no coverage configuration in `pyproject.toml` and no CI enforcement of a minimum threshold. Add `pytest-cov` to dev dependencies, configure `[tool.pytest.ini_options]` with `--cov=shopping_agent --cov-report=term-missing`, and establish a baseline. Even knowing the current coverage percentage helps prioritise where new tests will have the most impact.
