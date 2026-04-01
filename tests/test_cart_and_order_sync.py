@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,6 +10,8 @@ from shopping_agent.models import ListStatus, Order, OrderItem, PriceHistory, Pr
 from shopping_agent.scrapers.base import ScrapedOrder, ScrapedOrderItem
 from shopping_agent.services.cart import _resolve_store_product_id, add_to_cart
 from shopping_agent.services.order_sync import sync_orders
+
+_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _product(product_id: int, store: Store, store_product_id: str, name: str, price: float | None = None) -> Product:
@@ -52,7 +55,8 @@ async def test_add_to_cart_returns_error_when_no_confirmed_list(fake_result):
     session = AsyncMock()
     session.execute = AsyncMock(return_value=fake_result(scalars=[]))
 
-    result = await add_to_cart(session, Store.COLES)
+    mock_scraper = AsyncMock()
+    result = await add_to_cart(session, Store.COLES, mock_scraper, mock_scraper)
 
     assert result == {"success": False, "error": "No confirmed shopping list found"}
 
@@ -71,8 +75,9 @@ async def test_add_to_cart_reports_skipped_items_when_no_matches(fake_result, mo
     session = AsyncMock()
     session.execute = AsyncMock(return_value=fake_result(scalars=[shopping_list]))
     monkeypatch.setattr("shopping_agent.services.cart._resolve_store_product_id", AsyncMock(return_value=None))
+    mock_scraper = AsyncMock()
 
-    result = await add_to_cart(session, Store.COLES)
+    result = await add_to_cart(session, Store.COLES, mock_scraper, mock_scraper)
 
     assert result["success"] is True
     assert result["count"] == 0
@@ -103,9 +108,7 @@ async def test_add_to_cart_marks_successes_and_collects_failures(fake_result, mo
     scraper = MagicMock()
     scraper.add_to_cart = AsyncMock(return_value={"c-1": True, "c-2": False})
     scraper.get_cart_url = AsyncMock(return_value="https://example.test/cart")
-    monkeypatch.setattr("shopping_agent.services.cart.coles_scraper", scraper)
-
-    result = await add_to_cart(session, Store.COLES)
+    result = await add_to_cart(session, Store.COLES, scraper, AsyncMock())
 
     assert result == {
         "success": False,
@@ -123,7 +126,7 @@ async def test_add_to_cart_marks_successes_and_collects_failures(fake_result, mo
 async def test_sync_orders_returns_zero_for_empty_input():
     session = AsyncMock()
 
-    count = await sync_orders(session, [], Store.COLES)
+    count = await sync_orders(session, [], Store.COLES, _USER_ID)
 
     assert count == 0
     session.commit.assert_not_called()
@@ -153,7 +156,7 @@ async def test_sync_orders_updates_existing_order_metadata(fake_result):
         ]
     )
 
-    count = await sync_orders(session, [scraped], Store.COLES)
+    count = await sync_orders(session, [scraped], Store.COLES, _USER_ID)
 
     assert count == 0
     assert existing_order.store_name == "Coles Local"
@@ -208,7 +211,7 @@ async def test_sync_orders_inserts_orders_products_items_and_price_history(fake_
     session.add = MagicMock(side_effect=add)
     session.flush.side_effect = flush
 
-    count = await sync_orders(session, [scraped], Store.COLES)
+    count = await sync_orders(session, [scraped], Store.COLES, _USER_ID)
 
     assert count == 1
     assert any(isinstance(obj, Order) and obj.store_order_id == "ord-2" for obj in added)
