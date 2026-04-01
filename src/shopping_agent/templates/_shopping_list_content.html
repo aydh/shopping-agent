@@ -98,8 +98,8 @@
 {% endif %}
 
 <script>
-if (typeof window._slFilter === 'undefined') window._slFilter = '';
-if (typeof window._slSort === 'undefined') window._slSort = '';
+if (typeof window._slFilter === 'undefined') window._slFilter = sessionStorage.getItem('sl_filter') || '';
+if (typeof window._slSort === 'undefined') window._slSort = sessionStorage.getItem('sl_sort') || '';
 if (typeof window._slRestoreScrollY === 'undefined') window._slRestoreScrollY = null;
 
 function toggleSLItemHistory(btn, containerId, ids) {
@@ -140,6 +140,7 @@ function clearSLSearch() {
 
 function filterShoppingList(query) {
     window._slFilter = query;
+    sessionStorage.setItem('sl_filter', query);
     const clearBtn = document.getElementById('sl-search-clear');
     if (clearBtn) clearBtn.classList.toggle('hidden', !query);
     const q = query.toLowerCase().trim();
@@ -159,6 +160,7 @@ function toggleSLSort(field) {
     } else {
         window._slSort = field + '-asc';
     }
+    sessionStorage.setItem('sl_sort', window._slSort);
     _updateSortHeaders();
     _applySort();
 }

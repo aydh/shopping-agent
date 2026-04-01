@@ -59,17 +59,29 @@
 function clearPredictionsSearch() {
     const field = document.getElementById('predictions-search');
     field.value = '';
+    sessionStorage.setItem('predictions_search', '');
     document.getElementById('predictions-search-clear').classList.add('hidden');
     field.dispatchEvent(new Event('keyup'));
 }
 
 document.getElementById('predictions-search').addEventListener('keyup', function() {
+    sessionStorage.setItem('predictions_search', this.value);
     document.getElementById('predictions-search-clear').classList.toggle('hidden', !this.value);
     const term = this.value.toLowerCase();
     document.querySelectorAll('#predictions-grid > [data-pred-id]').forEach(row => {
         row.style.display = row.textContent.toLowerCase().includes(term) ? '' : 'none';
     });
 });
+
+(function() {
+    const saved = sessionStorage.getItem('predictions_search');
+    if (saved) {
+        const field = document.getElementById('predictions-search');
+        field.value = saved;
+        document.getElementById('predictions-search-clear').classList.toggle('hidden', !saved);
+        field.dispatchEvent(new Event('keyup'));
+    }
+})();
 
 function execScripts(container) {
     container.querySelectorAll('script').forEach(old => {
