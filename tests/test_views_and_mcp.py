@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections import namedtuple
 from datetime import date
 from types import SimpleNamespace
@@ -11,6 +12,9 @@ from shopping_agent.models import ListStatus, Product, ProductMatch, ShoppingLis
 from shopping_agent.routes import mcp as mcp_routes
 from shopping_agent.routes.views import dashboard, health, orders, predictions, prices, product_lookup, settings, shopping_list
 from shopping_agent.services.prediction import PredictionView
+
+_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+_USER = SimpleNamespace(user_id=_USER_ID)
 
 
 def _product(product_id: int, store: Store, name: str, price: float | None = None) -> Product:
@@ -72,7 +76,7 @@ async def test_dashboard_view_builds_summary_context(monkeypatch, fake_result, d
     monkeypatch.setattr(dashboard, "get_predictions_with_match_info", AsyncMock(return_value=[high, low]))
     monkeypatch.setattr(dashboard, "get_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
 
-    response = await dashboard.dashboard(make_request("/"), session)
+    response = await dashboard.dashboard(make_request("/"), user=_USER, session=session)
 
     assert response.body.decode() == "template:dashboard.html"
     _, context = dummy_templates.template_calls[-1]
@@ -89,11 +93,11 @@ async def test_orders_predictions_and_product_lookup_views(monkeypatch, fake_res
 
     session = AsyncMock()
     session.execute = AsyncMock(return_value=fake_result(scalars=[SimpleNamespace(id=1)]))
-    orders_response = await orders.orders_page(make_request("/orders"), "coles", session)
+    orders_response = await orders.orders_page(make_request("/orders"), "coles", user=_USER, session=session)
     assert orders_response.body.decode() == "template:orders.html"
 
     monkeypatch.setattr(predictions, "get_predictions_with_match_info", AsyncMock(return_value=["pred"]))
-    predictions_response = await predictions.predictions_page(make_request("/predictions"), AsyncMock())
+    predictions_response = await predictions.predictions_page(make_request("/predictions"), user=_USER, session=AsyncMock())
     assert predictions_response.body.decode() == "template:predictions.html"
 
     lookup_response = await product_lookup.product_lookup_page(make_request("/product-lookup"))
@@ -145,14 +149,14 @@ async def test_prices_view_search_match_page_and_settings_views(monkeypatch, fak
         ]
     )
 
-    prices_response = await prices.prices_page(make_request("/prices"), page_session)
+    prices_response = await prices.prices_page(make_request("/prices"), user=_USER, session=page_session)
     assert prices_response.body.decode() == "template:prices.html"
 
     product = _product(1, Store.COLES, "Milk", 4.0)
     session = AsyncMock()
     session.get = AsyncMock(return_value=product)
 
-    search_page = await prices.search_match_page(1, make_request("/prices/search"), session)
+    search_page = await prices.search_match_page(1, make_request("/prices/search"), user=_USER, session=session)
     assert search_page.body.decode() == "template:search_match.html"
 
     monkeypatch.setattr(settings, "get_db_counts", AsyncMock(return_value={
@@ -168,11 +172,15 @@ async def test_prices_view_search_match_page_and_settings_views(monkeypatch, fak
         "shopping_lists": 10,
         "shopping_list_items": 11,
     }))
-    monkeypatch.setattr(settings, "coles_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=True)))
-    monkeypatch.setattr(settings, "woolworths_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=False)))
+    coles_scraper_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=True))
+    ww_scraper_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=False))
+    def _settings_get_scraper(user_id, store):
+        from shopping_agent.models import Store as S
+        return coles_scraper_mock if store == S.COLES else ww_scraper_mock
+    monkeypatch.setattr(settings, "get_scraper", _settings_get_scraper)
 
-    counts_response = await settings.settings_counts(AsyncMock())
-    page_response = await settings.settings_page(make_request("/settings"), AsyncMock())
+    counts_response = await settings.settings_counts(user=_USER, session=AsyncMock())
+    page_response = await settings.settings_page(make_request("/settings"), user=_USER, session=AsyncMock())
 
     assert counts_response.body.decode() == "rendered:_settings_counts.html"
     assert page_response.body.decode() == "template:settings.html"
@@ -184,12 +192,12 @@ async def test_shopping_list_views_render_page_redirect_and_confirm(monkeypatch,
     monkeypatch.setattr(shopping_list, "get_shopping_list_context", AsyncMock(return_value={"shopping_list": None}))
     monkeypatch.setattr(shopping_list, "get_list_history", AsyncMock(return_value=[]))
 
-    page = await shopping_list.shopping_list_page(make_request("/shopping-list"), AsyncMock())
+    page = await shopping_list.shopping_list_page(make_request("/shopping-list"), user=_USER, session=AsyncMock())
     assert page.body.decode() == "template:shopping_list.html"
 
     session = AsyncMock()
     session.get = AsyncMock(return_value=None)
-    missing = await shopping_list.find_match_page(1, make_request("/shopping-list/find-match"), session)
+    missing = await shopping_list.find_match_page(1, make_request("/shopping-list/find-match"), user=_USER, session=session)
     assert missing.headers["location"] == "/shopping-list"
 
     product = _product(1, Store.COLES, "Milk", 4.0)
@@ -200,13 +208,15 @@ async def test_shopping_list_views_render_page_redirect_and_confirm(monkeypatch,
     session.execute = AsyncMock(return_value=fake_result(scalars=[confirmed_list]))
     monkeypatch.setattr(shopping_list, "resolve_display_names", AsyncMock(return_value=({1: "Milk"}, {}, {})))
 
-    confirm = await shopping_list.confirm_page(make_request("/confirm"), session)
+    confirm = await shopping_list.confirm_page(make_request("/confirm"), user=_USER, session=session)
     assert confirm.body.decode() == "template:confirm.html"
 
 
 @pytest.mark.asyncio
 async def test_mcp_read_only_tools(monkeypatch, async_cm):
+    monkeypatch.setattr(mcp_routes, "_get_mcp_user_id", lambda: _USER_ID)
     session = AsyncMock()
+    session.begin = MagicMock(return_value=async_cm(None))
     prediction_product = _product(1, Store.COLES, "Milk", 4.0)
     prediction = PredictionView(
         product_id=1,
@@ -223,12 +233,18 @@ async def test_mcp_read_only_tools(monkeypatch, async_cm):
         match_id=None,
     )
     active_item = ShoppingListItem(id=2, shopping_list_id=1, product_id=1, quantity=2, chosen_store=Store.COLES, is_user_added=True)
+    active_item.product = prediction_product
     active_list = ShoppingList(id=1, name="Active", target_date=date.today(), status=ListStatus.DRAFT, items=[active_item])
-    monkeypatch.setattr(mcp_routes, "coles_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=True), search_product=AsyncMock(return_value=[SimpleNamespace(store_product_id="c-1", name="Milk", brand=None, current_price=4.0, unit_size="2L", is_available=True)])))
-    monkeypatch.setattr(mcp_routes, "woolworths_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=False)))
+    coles_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=True), search_product=AsyncMock(return_value=[SimpleNamespace(store_product_id="c-1", name="Milk", brand=None, current_price=4.0, unit_size="2L", is_available=True)]))
+    ww_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=False), search_product=AsyncMock(return_value=[]))
+    def _mock_get_scraper(user_id, store):
+        from shopping_agent.models import Store as S
+        return coles_mock if store == S.COLES else ww_mock
+    monkeypatch.setattr(mcp_routes, "get_scraper", _mock_get_scraper)
     monkeypatch.setattr(mcp_routes, "async_session", MagicMock(return_value=async_cm(session)))
     monkeypatch.setattr(mcp_routes, "get_predictions_with_match_info", AsyncMock(return_value=[prediction]))
     monkeypatch.setattr(mcp_routes, "get_active_list", AsyncMock(return_value=active_list))
+    monkeypatch.setattr(mcp_routes, "resolve_display_names", AsyncMock(return_value=({2: "Milk"}, {2: {"coles": "Milk", "woolworths": None}}, {2: {"coles": prediction_product, "woolworths": None}})))
     monkeypatch.setattr(mcp_routes, "get_list_history", AsyncMock(return_value=[{"id": 5, "name": "Past", "created_at": date.today(), "status": ListStatus.ORDERED, "store": Store.COLES, "item_count": 1, "total": 7.5}]))
     monkeypatch.setattr(mcp_routes, "compare_product_prices", AsyncMock(return_value=[SimpleNamespace(product_name="Milk", unit_size="2L", coles_price=4.0, woolworths_price=5.0, cheaper_store=Store.COLES, savings=1.0, match_confidence=0.9, is_confirmed=True)]))
 
@@ -249,10 +265,12 @@ async def test_mcp_read_only_tools(monkeypatch, async_cm):
 
 @pytest.mark.asyncio
 async def test_mcp_shopping_list_workflow_tools(monkeypatch, async_cm):
+    monkeypatch.setattr(mcp_routes, "_get_mcp_user_id", lambda: _USER_ID)
     session = AsyncMock()
+    session.begin = MagicMock(return_value=async_cm(None))
     monkeypatch.setattr(mcp_routes, "async_session", MagicMock(return_value=async_cm(session)))
     monkeypatch.setattr(mcp_routes, "get_active_list", AsyncMock(side_effect=[None, SimpleNamespace(id=1, status=ListStatus.DRAFT), SimpleNamespace(id=1, status=ListStatus.CONFIRMED)]))
-    monkeypatch.setattr(mcp_routes, "generate_shopping_list", AsyncMock(return_value=SimpleNamespace(id=11, items=[], status=ListStatus.DRAFT)))
+    monkeypatch.setattr(mcp_routes, "generate_shopping_list", AsyncMock(return_value=SimpleNamespace(id=11, items=[], status=ListStatus.DRAFT, target_date=date.today())))
     monkeypatch.setattr(mcp_routes, "add_item_to_list", AsyncMock(return_value=SimpleNamespace(id=7, product_id=2, quantity=3, chosen_store=Store.COLES)))
     monkeypatch.setattr(mcp_routes, "update_item_quantity", AsyncMock())
     monkeypatch.setattr(mcp_routes, "remove_item", AsyncMock(return_value=True))
@@ -312,16 +330,21 @@ async def test_register_page_renders_with_supabase_config(monkeypatch, dummy_tem
 
 @pytest.mark.asyncio
 async def test_mcp_sync_refresh_and_matching_tools(monkeypatch, async_cm):
+    monkeypatch.setattr(mcp_routes, "_get_mcp_user_id", lambda: _USER_ID)
     product = _product(1, Store.COLES, "Milk", 4.0)
     partner = _product(2, Store.WOOLWORTHS, "Milk", 4.5)
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[product, partner, ProductMatch(id=9, product_a_id=1, product_b_id=2, confidence=0.9, match_method="manual"), ProductMatch(id=9, product_a_id=1, product_b_id=2, confidence=0.9, match_method="manual")])
+    session.begin = MagicMock(return_value=async_cm(None))
     monkeypatch.setattr(mcp_routes, "async_session", MagicMock(return_value=async_cm(session)))
-    monkeypatch.setattr(mcp_routes, "coles_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=True), stream_order_history=AsyncMock(return_value=None)))
     async def _stream_orders(limit):
         yield SimpleNamespace(store_order_id="ord-1")
-    monkeypatch.setattr(mcp_routes, "coles_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=True), stream_order_history=_stream_orders))
-    monkeypatch.setattr(mcp_routes, "woolworths_scraper", SimpleNamespace(is_authenticated=AsyncMock(return_value=True)))
+    coles_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=True), stream_order_history=_stream_orders)
+    ww_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=True))
+    def _mock_get_scraper(user_id, store):
+        from shopping_agent.models import Store as S
+        return coles_mock if store == S.COLES else ww_mock
+    monkeypatch.setattr(mcp_routes, "get_scraper", _mock_get_scraper)
     monkeypatch.setattr(mcp_routes, "_sync_orders", AsyncMock(return_value=1))
     monkeypatch.setattr(mcp_routes, "do_price_refresh", AsyncMock(return_value=(3, 4)))
     monkeypatch.setattr(mcp_routes, "_refresh_predictions", AsyncMock(return_value=5))

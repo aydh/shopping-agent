@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, timedelta
 from unittest.mock import AsyncMock
 
@@ -7,6 +8,8 @@ import pytest
 
 from shopping_agent.models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch, Store
 from shopping_agent.services.prediction import get_predictions_with_match_info, refresh_predictions
+
+_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _prediction(product_id: int, runout: date) -> ConsumptionPrediction:
@@ -64,7 +67,7 @@ async def test_refresh_predictions_updates_canonical_prediction_and_deletes_memb
         ]
     )
 
-    count = await refresh_predictions(session)
+    count = await refresh_predictions(session, _USER_ID)
 
     assert count == 1
     assert canonical.product_id == 1
@@ -87,7 +90,7 @@ async def test_refresh_predictions_deletes_old_predictions_for_stale_products(fa
         ]
     )
 
-    count = await refresh_predictions(session)
+    count = await refresh_predictions(session, _USER_ID)
 
     assert count == 0
     session.delete.assert_awaited_once_with(existing)
@@ -119,7 +122,7 @@ async def test_get_predictions_with_match_info_includes_partner_metadata(fake_re
         ]
     )
 
-    views = await get_predictions_with_match_info(session, max_runout_date=runout)
+    views = await get_predictions_with_match_info(session, _USER_ID, max_runout_date=runout)
 
     assert len(views) == 1
     view = views[0]

@@ -76,7 +76,9 @@ class TestAssignCheapestStores:
         ])
         session.commit = AsyncMock()
 
-        result = await assign_cheapest_stores(session)
+        import uuid
+        user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        result = await assign_cheapest_stores(session, user_id)
 
         assert result == 2
         assert item_coles_cheaper.chosen_store == Store.COLES
@@ -93,7 +95,9 @@ class TestAssignCheapestStores:
             scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=None)))
         ))
 
-        result = await assign_cheapest_stores(session)
+        import uuid
+        user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        result = await assign_cheapest_stores(session, user_id)
         assert result == 0
 
 
@@ -110,7 +114,9 @@ class TestAddItemToList:
             scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=None)))
         ))
 
-        result = await add_item_to_list(session, product_id=1)
+        import uuid
+        user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        result = await add_item_to_list(session, user_id, product_id=1)
         assert result is None
 
     @pytest.mark.asyncio
@@ -129,5 +135,7 @@ class TestAddItemToList:
         ))
         session.get = AsyncMock(return_value=None)  # product not found
 
-        result = await add_item_to_list(session, product_id=999)
+        import uuid
+        user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        result = await add_item_to_list(session, user_id, product_id=999)
         assert result is None

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.exc import IntegrityError
+
+_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 from shopping_agent.models import ConsumptionPrediction, ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from shopping_agent.services.prediction import ShoppingListCandidate
@@ -75,7 +78,7 @@ async def test_generate_shopping_list_creates_new_draft_from_candidates(fake_res
 
     session.flush.side_effect = flush
 
-    shopping_list = await generate_shopping_list(session, target_date=date(2025, 1, 20))
+    shopping_list = await generate_shopping_list(session, _USER_ID, target_date=date(2025, 1, 20))
 
     assert shopping_list.id == 50
     items = [obj for obj in added if isinstance(obj, ShoppingListItem)]
@@ -120,7 +123,7 @@ async def test_generate_shopping_list_reuses_existing_draft_and_deletes_auto_ite
         lambda predictions, target_date, lookahead_days: [],
     )
 
-    shopping_list = await generate_shopping_list(session, target_date=date(2025, 2, 1))
+    shopping_list = await generate_shopping_list(session, _USER_ID, target_date=date(2025, 2, 1))
 
     assert shopping_list is existing_list
     assert existing_list.name == "Week of 2025-02-01"
@@ -167,7 +170,7 @@ async def test_add_item_to_list_increments_existing_item(fake_result, monkeypatc
         AsyncMock(return_value=None),
     )
 
-    item = await add_item_to_list(session, product_id=1, quantity=3)
+    item = await add_item_to_list(session, _USER_ID, product_id=1, quantity=3)
 
     assert item is existing
     assert existing.quantity == 5
@@ -194,7 +197,7 @@ async def test_add_item_to_list_uses_partner_prices_when_creating(fake_result, m
         AsyncMock(return_value=partner),
     )
 
-    item = await add_item_to_list(session, product_id=1, quantity=1)
+    item = await add_item_to_list(session, _USER_ID, product_id=1, quantity=1)
 
     assert item.product_id == 1
     assert item.coles_price == 5.0
@@ -224,7 +227,7 @@ async def test_add_item_to_list_recovers_from_integrity_error(fake_result, monke
         AsyncMock(return_value=None),
     )
 
-    item = await add_item_to_list(session, product_id=1, quantity=2)
+    item = await add_item_to_list(session, _USER_ID, product_id=1, quantity=2)
 
     assert item is existing
     assert existing.quantity == 3
@@ -281,7 +284,7 @@ async def test_get_shopping_list_context_computes_totals_and_recommendation(fake
         AsyncMock(return_value=({3: "Milk"}, {3: {"coles": "Milk", "woolworths": "Milk"}}, {3: {"coles": coles_product, "woolworths": ww_product}})),
     )
 
-    ctx = await get_shopping_list_context(session)
+    ctx = await get_shopping_list_context(session, _USER_ID)
 
     assert ctx["shopping_list"] is shopping_list
     assert ctx["single_store"] == Store.COLES
@@ -368,7 +371,7 @@ async def test_get_shopping_list_context_builds_store_availability_metrics(fake_
         ),
     )
 
-    ctx = await get_shopping_list_context(session)
+    ctx = await get_shopping_list_context(session, _USER_ID)
 
     assert ctx["store_metrics"]["coles"] == {
         "available_count": 1,
@@ -409,7 +412,7 @@ async def test_get_list_history_summarizes_completed_lists(fake_result):
     session = AsyncMock()
     session.execute = AsyncMock(return_value=fake_result(scalars=[shopping_list]))
 
-    history = await get_list_history(session)
+    history = await get_list_history(session, _USER_ID)
 
     assert history == [
         {
