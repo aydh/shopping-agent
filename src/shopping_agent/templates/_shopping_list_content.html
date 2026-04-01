@@ -52,17 +52,29 @@
     }
 </style>
 <div class="bg-white rounded-lg shadow overflow-hidden">
+    <!-- Column headers (mobile) -->
+    <div class="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide md:hidden">
+        <button onclick="toggleSLSort('name')" class="flex items-center gap-1 hover:text-gray-700 select-none">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span>
+            <span data-sort-icon="name" class="text-gray-400 leading-none">↕</span>
+        </button>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span>
+        <button onclick="toggleSLSort('total')" class="flex items-center gap-1 ml-auto hover:text-gray-700 select-none">
+            <span>Total</span>
+            <span data-sort-icon="total" class="text-gray-400 leading-none">↕</span>
+        </button>
+    </div>
     <!-- Column headers (desktop only) -->
     <div class="sl-header hidden md:grid px-4 sm:px-6 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
         <button onclick="toggleSLSort('name')" class="flex items-center gap-1.5 text-left hover:text-gray-700 select-none">
             <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Coles</span>
-            <span id="sl-sort-name-icon" class="text-gray-400 leading-none">↕</span>
+            <span data-sort-icon="name" class="text-gray-400 leading-none">↕</span>
         </button>
         <div><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Woolworths</span></div>
         <div class="text-center">Qty</div>
         <button onclick="toggleSLSort('total')" class="flex items-center gap-1.5 justify-end hover:text-gray-700 select-none">
             <span>Total</span>
-            <span id="sl-sort-total-icon" class="text-gray-400 leading-none">↕</span>
+            <span data-sort-icon="total" class="text-gray-400 leading-none">↕</span>
         </button>
         <div></div>
     </div>
@@ -153,9 +165,8 @@ function toggleSLSort(field) {
 
 function _updateSortHeaders() {
     const key = window._slSort || '';
-    ['name', 'total'].forEach(field => {
-        const icon = document.getElementById('sl-sort-' + field + '-icon');
-        if (!icon) return;
+    document.querySelectorAll('[data-sort-icon]').forEach(icon => {
+        const field = icon.dataset.sortIcon;
         if (key === field + '-asc') {
             icon.textContent = '↑';
             icon.classList.remove('text-gray-400');
