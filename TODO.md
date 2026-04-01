@@ -54,9 +54,6 @@ The only way to change which store an item is bought from is a small store-selec
 ### Switching from a "Coles-first" to a "Woolworths-first" preferred shop `P2`
 The "Submit to single store" flow (assign all items to one store and confirm) works, but there is no persistent concept of a preferred store. Each list generation defaults to cheapest-split, and switching to a Coles-only or Woolworths-only shop requires manually clicking "Assign all to Coles/Woolworths" every time. Add a per-user preferred store setting that pre-assigns items when a list is generated and makes it the default submit action on the confirm page.
 
-### Filter and sort state is lost on page refresh `P3`
-The current filter text and sort order are stored in `window._slFilter` / `window._slSort` and restored after HTMX swaps, but they are cleared on a full page load (e.g. browser refresh or navigating away and back). Persist them to `sessionStorage` keyed to the list ID so the user returns to the same view state.
-
 ---
 
 ## Navigation & Background Task State
@@ -70,9 +67,6 @@ The scheduler runs price refreshes every 4 hours but there is no way to tell fro
 ---
 
 ## Search & Navigation UX
-
-### Search terms are cleared on navigation and page refresh `P3`
-Search inputs on the Prices page (product search, match search), the Orders page, and the Shopping List page all reset to empty when the user navigates away or refreshes. Since these pages are frequently revisited during a shopping session this is disruptive. Persist search input values to `sessionStorage` per-page and restore them on load, including after HTMX partial swaps.
 
 ---
 
