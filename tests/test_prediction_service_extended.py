@@ -63,6 +63,7 @@ async def test_refresh_predictions_updates_canonical_prediction_and_deletes_memb
         side_effect=[
             fake_result(scalars=[product_a, product_b]),
             fake_result(scalars=[ProductMatch(product_a_id=1, product_b_id=2, confidence=0.9, match_method="manual")]),
+            fake_result(rows=[]),  # excluded_product_ids — none excluded
             fake_result(scalars=[canonical, stale_member]),
         ]
     )
@@ -86,6 +87,29 @@ async def test_refresh_predictions_deletes_old_predictions_for_stale_products(fa
         side_effect=[
             fake_result(scalars=[product]),
             fake_result(scalars=[]),
+            fake_result(rows=[]),  # excluded_product_ids — none excluded
+            fake_result(scalars=[existing]),
+        ]
+    )
+
+    count = await refresh_predictions(session, _USER_ID)
+
+    assert count == 0
+    session.delete.assert_awaited_once_with(existing)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_predictions_skips_excluded_products(fake_result):
+    today = date.today()
+    product = _ordered_product(1, Store.COLES, "c-1", [today - timedelta(days=20), today - timedelta(days=13)])
+    existing = _prediction(1, today + timedelta(days=5))
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        side_effect=[
+            fake_result(scalars=[product]),
+            fake_result(scalars=[]),       # no matches
+            fake_result(rows=[(1,)]),      # product 1 is excluded from predictions
             fake_result(scalars=[existing]),
         ]
     )

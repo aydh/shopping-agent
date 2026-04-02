@@ -6,14 +6,11 @@ Improvements and known issues, roughly ordered by impact/priority within each se
 
 ## Bugs / Correctness
 
-### Product hide/restore is not user-scoped `P1`
-`is_hidden` lives on the `Product` table, which has no `user_id` column. When any user hides a product it disappears for all users, and when any user restores it, it reappears for everyone. The hide/restore API routes receive a `CurrentUser` but never use it to scope the operation. Fix: introduce a `user_product_preferences` table (or add `user_id` to a visibility join table) to record per-user hide state, keeping the shared `Product` row neutral.
-
 ### MCP OAuth consent page does not advance when consent was previously granted `P1`
 When an MCP client re-authorises and Supabase has already stored the user's approval, it returns `auto_approved: true` along with a `redirect_url` in the initial `getAuthorizationDetails()` call. The consent page template correctly detects this and redirects without calling `approveAuthorization()` (which would return HTTP 400 on an already-approved request), but in practice the redirect stalls or the wrong URL is used, leaving the user on a blank consent page. Investigate the exact Supabase SDK response shape for the `auto_approved` path and ensure the redirect happens unconditionally. Also consider whether stale consent records in Supabase need to be cleared, and expose a way to do that from the Settings page.
 
 ### Shopping list predictions scoping — per-user visibility needed `P2`
-`ConsumptionPrediction` rows already carry a `user_id`, but the logic that decides which products get predictions (and at what confidence threshold) is shared config, not per-user. There is no way for one user to exclude a product from predictions without globally hiding it (see above). Add per-user opt-out for both predictions and the "always include in list" / "never include" flags.
+`ConsumptionPrediction` rows already carry a `user_id`, and `user_product_preferences` has `exclude_from_predictions` which `refresh_predictions()` now honours. Remaining: add UI to toggle `exclude_from_predictions` per product, and add "always include" / "never include" list inclusion flags to `user_product_preferences`.
 
 ---
 
