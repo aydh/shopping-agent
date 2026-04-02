@@ -16,7 +16,7 @@ from ..config import (
     PREDICTION_PURCHASE_COUNT_MIN,
     PRODUCT_RECENCY_DAYS,
 )
-from ..models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch
+from ..models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch, UserProductPreferences
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +234,16 @@ async def refresh_predictions(session: AsyncSession, user_id: uuid.UUID) -> int:
         if pid not in groups[canon]:
             groups[canon].append(pid)
 
+    # Load product IDs this user has opted out of predictions for
+    excluded_result = await session.execute(
+        select(UserProductPreferences.product_id)
+        .where(
+            UserProductPreferences.user_id == user_id,
+            UserProductPreferences.exclude_from_predictions.is_(True),
+        )
+    )
+    excluded_product_ids = {row[0] for row in excluded_result.all()}
+
     # Bulk-fetch all existing predictions upfront — keyed by product_id
     existing_preds: dict[int, ConsumptionPrediction] = {
         p.product_id: p
@@ -259,6 +269,13 @@ async def refresh_predictions(session: AsyncSession, user_id: uuid.UUID) -> int:
                 )
 
         if not purchases:
+            continue
+
+        # Skip and remove prediction if the user has opted out for any member
+        if excluded_product_ids.intersection(member_ids):
+            for pid in member_ids:
+                if pid in existing_preds:
+                    await session.delete(existing_preds.pop(pid))
             continue
 
         # Skip and remove prediction if not purchased in the last 4 months
