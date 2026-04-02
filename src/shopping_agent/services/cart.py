@@ -1,12 +1,11 @@
 import logging
 from typing import TypedDict
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import ListStatus, Product, ShoppingList, ShoppingListItem, Store
-from .product_resolution import get_partner_product
+from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 
 
 class CartResult(TypedDict, total=False):
@@ -27,18 +26,18 @@ class CartResult(TypedDict, total=False):
 logger = logging.getLogger(__name__)
 
 
-async def _resolve_store_product_id(
-    session: AsyncSession, canonical_product: Product, store: Store
+def _resolve_store_product_id(
+    canonical_product: Product, store: Store, partner_map: dict[int, Product]
 ) -> str | None:
     """Return the store_product_id for the given store.
 
     If the canonical product belongs to the target store, return it directly.
-    Otherwise look up the ProductMatch to find the partner product.
+    Otherwise look up the partner product from the pre-loaded partner_map.
     """
     if canonical_product.store == store:
         return canonical_product.store_product_id
 
-    partner = await get_partner_product(session, canonical_product.id, store.value)
+    partner = partner_map.get(canonical_product.id)
     if partner and partner.store == store:
         return partner.store_product_id
 
@@ -83,6 +82,27 @@ async def add_to_cart(session: AsyncSession, store: Store, coles_scraper, woolwo
     if not shopping_list:
         return {"success": False, "error": "No confirmed shopping list found"}
 
+    # Bulk-load all ProductMatch records to avoid N+1 queries
+    product_ids = [item.product.id for item in shopping_list.items]
+    match_rows = await session.execute(
+        select(ProductMatch)
+        .options(selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b))
+        .where(
+            or_(
+                ProductMatch.product_a_id.in_(product_ids),
+                ProductMatch.product_b_id.in_(product_ids),
+            ),
+            ProductMatch.is_rejected == False,  # noqa: E712
+        )
+    )
+    # Build map of product_id -> partner_product for O(1) lookups
+    partner_map: dict[int, Product] = {}
+    for m in match_rows.scalars():
+        if m.product_a_id in product_ids:
+            partner_map[m.product_a_id] = m.product_b
+        if m.product_b_id in product_ids:
+            partner_map[m.product_b_id] = m.product_a
+
     # Collect items for this store, resolving the correct store_product_id for each
     items_to_add: list[tuple[str, int]] = []
     spid_to_item_id: dict[str, int] = {}
@@ -91,7 +111,7 @@ async def add_to_cart(session: AsyncSession, store: Store, coles_scraper, woolwo
     for item in shopping_list.items:
         if item.is_removed or item.is_ordered or item.chosen_store != store:
             continue
-        store_product_id = await _resolve_store_product_id(session, item.product, store)
+        store_product_id = _resolve_store_product_id(item.product, store, partner_map)
         logger.info(
             "Cart resolve: item=%s canonical=%s(%s/%s) -> %s_pid=%s",
             item.id,
