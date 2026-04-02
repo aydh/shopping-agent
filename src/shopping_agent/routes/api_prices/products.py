@@ -4,14 +4,15 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...cache import image_cache
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
-from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, Store
+from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, Store, UserProductPreferences
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -87,18 +88,20 @@ async def image_proxy(url: str) -> Response:
 @router.post("/product/{product_id}/hide")
 async def hide_product(product_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
     session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
-    """Mark a product as hidden (no longer buying). Removes its prediction."""
+    """Mark a product as hidden for this user (no longer buying). Removes their prediction."""
     product = await session.get(Product, product_id)
     if not product:
         return HTMLResponse("")
 
     connected_ids = await _matched_product_ids(session, product_id)
-    matched_products = (
-        await session.execute(select(Product).where(Product.id.in_(connected_ids)))
-    ).scalars().all()
-    for matched_product in matched_products:
-        matched_product.is_hidden = True
-
+    await session.execute(
+        pg_insert(UserProductPreferences)
+        .values([{"user_id": user.user_id, "product_id": pid, "is_hidden": True} for pid in connected_ids])
+        .on_conflict_do_update(
+            index_elements=["user_id", "product_id"],
+            set_={"is_hidden": True},
+        )
+    )
     await session.execute(
         delete(ConsumptionPrediction).where(ConsumptionPrediction.product_id.in_(connected_ids))
     )
@@ -109,18 +112,20 @@ async def hide_product(product_id: int, user: CurrentUser = Depends(get_current_
 @router.post("/product/{product_id}/restore")
 async def restore_product(product_id: int, user: CurrentUser = Depends(get_current_user_from_cookie),
     session: AsyncSession = Depends(get_user_session_from_cookie)) -> HTMLResponse:
-    """Restore a hidden product."""
+    """Restore a hidden product for this user."""
     product = await session.get(Product, product_id)
     if not product:
         return HTMLResponse("")
 
     connected_ids = await _matched_product_ids(session, product_id)
-    matched_products = (
-        await session.execute(select(Product).where(Product.id.in_(connected_ids)))
-    ).scalars().all()
-    for matched_product in matched_products:
-        matched_product.is_hidden = False
-
+    await session.execute(
+        update(UserProductPreferences)
+        .where(
+            UserProductPreferences.user_id == user.user_id,
+            UserProductPreferences.product_id.in_(connected_ids),
+        )
+        .values(is_hidden=False)
+    )
     await session.commit()
     return HTMLResponse("")
 

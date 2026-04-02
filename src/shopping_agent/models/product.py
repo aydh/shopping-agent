@@ -1,7 +1,9 @@
 import enum
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -29,10 +31,22 @@ class Product(TimestampMixin, Base):
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     product_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     order_items: Mapped[list["OrderItem"]] = relationship(back_populates="product")  # noqa: F821
     shopping_list_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="product")  # noqa: F821
+
+
+class UserProductPreferences(TimestampMixin, Base):
+    __tablename__ = "user_product_preferences"
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_user_product_pref"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    exclude_from_predictions: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    product: Mapped["Product"] = relationship()
 
 
 class ProductMatch(TimestampMixin, Base):

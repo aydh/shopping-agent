@@ -16,7 +16,6 @@ from ..config import (
     PREDICTION_PURCHASE_COUNT_MIN,
     PRODUCT_RECENCY_DAYS,
 )
-from ..db_helpers import visible_products_query
 from ..models import ConsumptionPrediction, Order, OrderItem, Product, ProductMatch
 
 logger = logging.getLogger(__name__)
@@ -184,9 +183,9 @@ async def refresh_predictions(session: AsyncSession, user_id: uuid.UUID) -> int:
     Returns:
         Number of ConsumptionPrediction rows created or updated.
     """
-    # Load all visible products with order history
+    # Load all products with order history (hiding is per-user, not global)
     query = (
-        visible_products_query()
+        select(Product)
         .join(OrderItem)
         .join(Order)
         .options(selectinload(Product.order_items).selectinload(OrderItem.order))
