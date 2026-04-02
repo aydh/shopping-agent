@@ -129,7 +129,6 @@ async def test_prices_view_search_match_page_and_settings_views(monkeypatch, fak
     visible_ww = _product(2, Store.WOOLWORTHS, "Milk", 5.0)
     unavailable = _product(3, Store.COLES, "Bread", None)
     hidden = _product(4, Store.WOOLWORTHS, "Hidden", 6.0)
-    hidden.is_hidden = True
     match = ProductMatch(id=7, product_a_id=1, product_b_id=2, confidence=0.9, match_method="manual")
     match.product_a = visible_coles
     match.product_b = visible_ww

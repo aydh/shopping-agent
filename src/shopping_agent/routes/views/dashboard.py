@@ -17,6 +17,7 @@ from ...models import (
     ProductMatch,
     ShoppingList,
     Store,
+    UserProductPreferences,
 )
 from ...services.prediction import get_predictions_with_match_info
 from ...services.shopping_list import get_shopping_list_context
@@ -48,20 +49,32 @@ async def dashboard(
     coles_last_sync = order_stats.get(Store.COLES, (None, 0, None))[2]
     ww_last_sync = order_stats.get(Store.WOOLWORTHS, (None, 0, None))[2]
 
-    # Products per store — single grouped query
+    # Products per store — single grouped query, excluding this user's hidden products
+    hidden_product_ids_subq = (
+        select(UserProductPreferences.product_id)
+        .where(
+            UserProductPreferences.user_id == user.user_id,
+            UserProductPreferences.is_hidden.is_(True),
+        )
+        .scalar_subquery()
+    )
     product_stats = {
         row.store: row[1] for row in (await session.execute(
             select(Product.store, func.count(Product.id))
-            .where(Product.is_hidden == False)  # noqa: E712
+            .where(Product.id.notin_(hidden_product_ids_subq))
             .group_by(Product.store)
         )).all()
     }
     coles_products = product_stats.get(Store.COLES, 0)
     ww_products = product_stats.get(Store.WOOLWORTHS, 0)
 
-    # Hidden products
+    # Hidden products (per this user)
     removed_count = (await session.execute(
-        select(func.count(Product.id)).where(Product.is_hidden == True)  # noqa: E712
+        select(func.count(UserProductPreferences.product_id))
+        .where(
+            UserProductPreferences.user_id == user.user_id,
+            UserProductPreferences.is_hidden.is_(True),
+        )
     )).scalar() or 0
 
     # Matches — single grouped query

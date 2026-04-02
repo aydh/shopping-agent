@@ -266,17 +266,19 @@ async def test_product_image_proxy_turns_404_into_http_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_products_hide_restore_and_purge(fake_result):
     product = _product(1, Store.COLES, "Milk", 4.0)
-    partner = _product(2, Store.WOOLWORTHS, "Milk", 4.2)
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[product, product])
+    # hide: 2 BFS traversal calls + upsert prefs + delete predictions
+    # restore: 2 BFS traversal calls + update prefs
+    # purge: delete matches + delete price_history + delete predictions + delete products
     session.execute = AsyncMock(side_effect=[
         fake_result(rows=[(1, 2)]),
         fake_result(rows=[(1, 2)]),
-        fake_result(scalars=[product, partner]),
+        fake_result(),
         fake_result(),
         fake_result(rows=[(1, 2)]),
         fake_result(rows=[(1, 2)]),
-        fake_result(scalars=[product, partner]),
+        fake_result(),
         fake_result(),
         fake_result(),
         fake_result(),
@@ -284,12 +286,8 @@ async def test_products_hide_restore_and_purge(fake_result):
     ])
 
     await products.hide_product(1, user=_USER, session=session)
-    assert product.is_hidden is True
-    assert partner.is_hidden is True
-
     await products.restore_product(1, user=_USER, session=session)
-    assert product.is_hidden is False
-    assert partner.is_hidden is False
+    assert session.commit.call_count == 2
 
     purge_response = await products.purge_products("coles", user=_USER, session=session)
     assert "Purged 4 coles products" in purge_response.body.decode()
@@ -298,31 +296,25 @@ async def test_products_hide_restore_and_purge(fake_result):
 @pytest.mark.asyncio
 async def test_products_hide_restore_cascade_across_match_chain(fake_result):
     first = _product(1, Store.COLES, "Milk", 4.0)
-    second = _product(2, Store.WOOLWORTHS, "Milk", 4.2)
-    third = _product(3, Store.COLES, "Milk Alt", 4.1)
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[first, first])
+    # hide: 3 BFS traversal calls + upsert prefs + delete predictions
+    # restore: 3 BFS traversal calls + update prefs
     session.execute = AsyncMock(side_effect=[
         fake_result(rows=[(1, 2)]),
         fake_result(rows=[(1, 2), (2, 3)]),
         fake_result(rows=[(2, 3)]),
-        fake_result(scalars=[first, second, third]),
+        fake_result(),
         fake_result(),
         fake_result(rows=[(1, 2)]),
         fake_result(rows=[(1, 2), (2, 3)]),
         fake_result(rows=[(2, 3)]),
-        fake_result(scalars=[first, second, third]),
+        fake_result(),
     ])
 
     await products.hide_product(1, user=_USER, session=session)
-    assert first.is_hidden is True
-    assert second.is_hidden is True
-    assert third.is_hidden is True
-
     await products.restore_product(1, user=_USER, session=session)
-    assert first.is_hidden is False
-    assert second.is_hidden is False
-    assert third.is_hidden is False
+    assert session.commit.call_count == 2
 
 
 @pytest.mark.asyncio

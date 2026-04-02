@@ -10,7 +10,6 @@ from sqlalchemy.orm import selectinload
 
 from ..config import COLES_PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_PRICE_REFRESH_CONCURRENCY
 from ..database import async_session
-from ..db_helpers import visible_products_query
 from ..models import ListStatus, PriceHistory, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from ..scrapers.registry import coles_scraper as _coles_scraper
 from ..scrapers.registry import woolworths_scraper as _ww_scraper
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 async def do_price_refresh(
     store_enum: Store,
     progress_callback: Callable[[int, int], Awaitable[None] | None] | None = None,
-    all_products: bool = False,
 ) -> tuple[int, int]:
     """Refresh current prices for products of a given store.
 
@@ -32,8 +30,6 @@ async def do_price_refresh(
     Args:
         store_enum: The store to refresh prices for.
         progress_callback: Optional callback invoked with (done, total) after each product.
-        all_products: If True, refresh all products regardless of visibility/availability.
-                      If False (default), only refresh visible (non-hidden) products.
 
     Returns:
         Tuple of (updated_count, total_count) — number of products whose price
@@ -51,9 +47,7 @@ async def do_price_refresh(
 
     async with async_session() as session:
         result = await session.execute(
-            visible_products_query().where(Product.store == store_enum)
-            if not all_products
-            else select(Product).where(Product.store == store_enum)
+            select(Product).where(Product.store == store_enum)
         )
         products = list(result.scalars().all())
         product_ids = [p.id for p in products]

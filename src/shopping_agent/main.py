@@ -64,7 +64,7 @@ async def _scheduled_price_refresh() -> None:
     """Run a full price refresh for both stores (all products, no filters)."""
     for store in (Store.COLES, Store.WOOLWORTHS):
         try:
-            updated, total = await do_price_refresh(store, all_products=True)
+            updated, total = await do_price_refresh(store)
             logger.info("[Scheduler] %s price refresh complete: %d/%d updated", store.value, updated, total)
         except Exception:
             logger.exception("[Scheduler] Price refresh failed for %s", store.value)

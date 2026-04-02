@@ -22,7 +22,8 @@ def test_store_from_string_invalid_raises():
 
 
 def test_visible_products_query_is_select():
+    import uuid
     from shopping_agent.db_helpers import visible_products_query
     from sqlalchemy import Select
-    stmt = visible_products_query()
+    stmt = visible_products_query(uuid.uuid4())
     assert isinstance(stmt, Select)

@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import get_user_session_from_cookie
 from ...db_helpers import visible_products_query
-from ...models import Order, OrderItem, Product, ProductMatch, Store
+from ...models import Order, OrderItem, Product, ProductMatch, Store, UserProductPreferences
 from ...services.price_comparison import matches_to_comparisons
 from ...templating import templates
 
@@ -26,7 +26,7 @@ async def prices_page(
     """Render the price comparison page."""
     # Fetch all visible products
     result = await session.execute(
-        visible_products_query()
+        visible_products_query(user.user_id)
         .order_by(Product.store, Product.name)
     )
     all_products = list(result.scalars().all())
@@ -71,10 +71,15 @@ async def prices_page(
     )
     rejected_matches = rejected_result.scalars().all()
 
-    # Fetch hidden products
+    # Fetch hidden products (per this user)
     hidden_result = await session.execute(
         select(Product)
-        .where(Product.is_hidden == True)  # noqa: E712
+        .join(
+            UserProductPreferences,
+            (UserProductPreferences.product_id == Product.id)
+            & (UserProductPreferences.user_id == user.user_id)
+            & UserProductPreferences.is_hidden.is_(True),
+        )
         .order_by(Product.store, Product.name)
     )
     hidden_products = list(hidden_result.scalars().all())
@@ -94,9 +99,9 @@ async def prices_page(
     for p in hidden_products:
         p.last_ordered_date = hidden_last_ordered.get(p.id)
 
-    # Fetch unavailable products (is_available=False, not hidden)
+    # Fetch unavailable products (is_available=False, not hidden by this user)
     unavailable_result = await session.execute(
-        visible_products_query()
+        visible_products_query(user.user_id)
         .where(Product.is_available == False)  # noqa: E712
         .order_by(Product.store, Product.name)
     )
