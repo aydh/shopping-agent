@@ -141,11 +141,18 @@ async def do_price_refresh(
                             if scraped.image_url:
                                 db_product.image_url = scraped.image_url
 
-                            ph_id = today_ph_ids.get(product.id)
-                            if ph_id:
-                                existing_ph = await session.get(PriceHistory, ph_id)
-                                if existing_ph:
-                                    existing_ph.price = scraped.current_price
+                            # Check for existing price history for today (handles race condition
+                            # where another concurrent task may have inserted first)
+                            existing_ph = await session.execute(
+                                select(PriceHistory).where(
+                                    PriceHistory.product_id == product.id,
+                                    PriceHistory.recorded_at >= today_start_utc,
+                                    PriceHistory.recorded_at < tomorrow_start_utc,
+                                )
+                            )
+                            existing_ph_obj = existing_ph.scalars().first()
+                            if existing_ph_obj:
+                                existing_ph_obj.price = scraped.current_price
                             else:
                                 session.add(PriceHistory(
                                     product_id=product.id, store=store_enum, price=scraped.current_price
@@ -189,7 +196,8 @@ async def do_price_refresh(
                     await _notify_progress(completed, total_products)
             return False
 
-    results = await asyncio.gather(*[fetch_one(p) for p in products])
-    updated = sum(results)
+    results = await asyncio.gather(*[fetch_one(p) for p in products], return_exceptions=True)
+    # Filter out exceptions; count only successful (bool) results
+    updated = sum(r for r in results if isinstance(r, bool) and r)
     logger.info("[PriceRefresh] %s done: %d/%d updated", store_enum.value, updated, len(products))
     return updated, len(products)

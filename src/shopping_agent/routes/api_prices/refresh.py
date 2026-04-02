@@ -42,15 +42,19 @@ async def refresh_prices_stream(
 
         task = asyncio.create_task(run_and_sentinel())
 
-        while True:
-            item = await queue.get()
-            if item is None:
-                break
-            done, total = item
-            yield f"event: progress\ndata: {json.dumps({'done': done, 'total': total})}\n\n"
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                done, total = item
+                yield f"event: progress\ndata: {json.dumps({'done': done, 'total': total})}\n\n"
 
-        updated, total = await task
-        yield f"event: done\ndata: {json.dumps({'updated': updated, 'total': total})}\n\n"
+            updated, total = await task
+            yield f"event: done\ndata: {json.dumps({'updated': updated, 'total': total})}\n\n"
+        except Exception as e:
+            logger.exception("Unexpected error during price refresh stream for %s", store_enum.value)
+            yield f"event: error\ndata: {json.dumps({'message': 'Price refresh failed — see server logs'})}\n\n"
 
     return StreamingResponse(
         generate(), media_type="text/event-stream",

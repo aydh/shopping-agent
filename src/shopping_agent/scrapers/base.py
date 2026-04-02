@@ -188,23 +188,39 @@ class BaseScraper(ABC):
             row = result.scalar_one_or_none()
             if row:
                 try:
-                    raw_cookies = json.loads(row.cookies_json)
-                    raw_cookies = validate_cookie_list(raw_cookies)
-                    for c in raw_cookies:
-                        jar.set(
-                            c["name"],
-                            c["value"],
-                            domain=c.get("domain", self._cookie_domain),
-                            path=c.get("path", "/"),
+                    if not row.cookies_json:
+                        logger.warning(
+                            "No cookies stored for %s", self.store.value
                         )
-                    logger.info(
-                        "Loaded %d cookies for %s",
-                        len(raw_cookies),
-                        self.store.value,
+                    else:
+                        raw_cookies = json.loads(row.cookies_json)
+                        raw_cookies = validate_cookie_list(raw_cookies)
+                        for c in raw_cookies:
+                            jar.set(
+                                c["name"],
+                                c["value"],
+                                domain=c.get("domain", self._cookie_domain),
+                                path=c.get("path", "/"),
+                            )
+                        logger.info(
+                            "Loaded %d cookies for %s",
+                            len(raw_cookies),
+                            self.store.value,
+                        )
+                except json.JSONDecodeError as e:
+                    logger.error(
+                        "Corrupted cookie JSON for %s: %s", self.store.value, e
                     )
-                except Exception:
-                    logger.warning(
-                        "Failed to load %s cookies", self.store.value, exc_info=True
+                except ValueError as e:
+                    logger.error(
+                        "Invalid cookie structure for %s: %s", self.store.value, e
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Unexpected error loading cookies for %s: %s",
+                        self.store.value,
+                        e,
+                        exc_info=True,
                     )
         return jar
 

@@ -89,6 +89,23 @@ async def import_cookies(
         chunks.append(chunk)
     body = b"".join(chunks).decode("utf-8")
 
+    # Validate JSON structure before passing to scraper
+    try:
+        cookie_data = json.loads(body)
+        if not isinstance(cookie_data, list):
+            return HTMLResponse(
+                '<span class="text-red-600">Cookie data must be a JSON array</span>'
+            )
+        if not cookie_data:
+            return HTMLResponse(
+                '<span class="text-red-600">Cookie array cannot be empty</span>'
+            )
+    except json.JSONDecodeError as e:
+        logger.warning("Invalid JSON in cookie import: %s", e)
+        return HTMLResponse(
+            '<span class="text-red-600">Invalid JSON format - paste the JSON array from Cookie-Editor</span>'
+        )
+
     scraper = get_scraper(user.user_id, store_enum)
 
     if store_enum in (Store.WOOLWORTHS, Store.COLES):
@@ -98,7 +115,7 @@ async def import_cookies(
                 '<span class="text-green-600">Connected - cookies imported</span>'
             )
         return HTMLResponse(
-            '<span class="text-red-600">Invalid cookie data - paste the JSON array from Cookie-Editor</span>'
+            '<span class="text-red-600">Invalid cookie data - missing required fields (name, value, domain, path)</span>'
         )
 
     return HTMLResponse(

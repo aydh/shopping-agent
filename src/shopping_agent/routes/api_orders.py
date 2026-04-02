@@ -39,6 +39,7 @@ async def sync_orders_stream(
 
         new_count = 0
         fetched = 0
+        stream_failed = False
         try:
             async for scraped_order in scraper.stream_order_history(limit=100):
                 fetched += 1
@@ -72,10 +73,11 @@ async def sync_orders_stream(
                     continue
         except Exception:
             logger.exception("Unexpected error during order stream for %s", store)
+            stream_failed = True
             yield f"event: error\ndata: {json.dumps({'message': 'Sync failed — see server logs'})}\n\n"
-            return
 
-        yield f"event: done\ndata: {json.dumps({'new_count': new_count})}\n\n"
+        # Always send final status, even if stream failed
+        yield f"event: done\ndata: {json.dumps({'new_count': new_count, 'failed': stream_failed})}\n\n"
 
     return StreamingResponse(
         generate(), media_type="text/event-stream",

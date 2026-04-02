@@ -1,5 +1,6 @@
 import logging
 import time
+from collections import OrderedDict
 from uuid import UUID
 
 import httpx
@@ -12,10 +13,44 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
+
+
+class _TTLCache:
+    """Simple bounded TTL cache with automatic cleanup of expired entries."""
+
+    def __init__(self, ttl_seconds: int, max_size: int = 1000):
+        self.ttl_seconds = ttl_seconds
+        self.max_size = max_size
+        self.cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
+
+    def get(self, key: str) -> object | None:
+        """Get value if it exists and hasn't expired; otherwise return None."""
+        if key not in self.cache:
+            return None
+        timestamp, value = self.cache[key]
+        if time.time() - timestamp >= self.ttl_seconds:
+            # Entry expired; remove it
+            del self.cache[key]
+            return None
+        return value
+
+    def set(self, key: str, value: object) -> None:
+        """Set a value in the cache. Removes oldest entry if cache is full."""
+        # Remove key if already exists (to maintain LRU ordering)
+        if key in self.cache:
+            del self.cache[key]
+        # If cache is full, remove oldest entry (first in OrderedDict)
+        if len(self.cache) >= self.max_size:
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+        # Add new entry
+        self.cache[key] = (time.time(), value)
+
+
 _JWKS_CACHE_TTL_S = 3600
-_JWKS_CACHE: dict[str, tuple[float, dict]] = {}
+_JWKS_CACHE = _TTLCache(ttl_seconds=_JWKS_CACHE_TTL_S, max_size=10)  # Small limit: typically 1 URL
 _TOKEN_CACHE_TTL_S = 300
-_TOKEN_CACHE: dict[str, tuple[float, dict]] = {}
+_TOKEN_CACHE = _TTLCache(ttl_seconds=_TOKEN_CACHE_TTL_S, max_size=10000)  # Larger limit for concurrent users
 
 
 class CurrentUser:
@@ -43,10 +78,9 @@ def _decode_token(token: str) -> dict:
         )
 
     try:
-        cached = _TOKEN_CACHE.get(token)
-        now = time.time()
-        if cached and (now - cached[0]) < _TOKEN_CACHE_TTL_S:
-            return cached[1]
+        cached_claims = _TOKEN_CACHE.get(token)
+        if cached_claims:
+            return cached_claims
 
         if alg == "HS256":
             if not settings.supabase_jwt_secret:
@@ -60,7 +94,7 @@ def _decode_token(token: str) -> dict:
                 algorithms=["HS256"],
                 audience="authenticated",
             )
-            _TOKEN_CACHE[token] = (now, claims)
+            _TOKEN_CACHE.set(token, claims)
             return claims
 
         if alg in ("RS256", "ES256"):
@@ -80,10 +114,8 @@ def _decode_token(token: str) -> dict:
             # configurations block JWKS access.
             try:
                 cache_key = settings.supabase_url
-                jwks_cached = _JWKS_CACHE.get(cache_key)
-                if jwks_cached and (now - jwks_cached[0]) < _JWKS_CACHE_TTL_S:
-                    jwks = jwks_cached[1]
-                else:
+                jwks = _JWKS_CACHE.get(cache_key)
+                if jwks is None:
                     keys_url = f"{settings.supabase_url}/auth/v1/keys"
                     with httpx.Client(timeout=5.0) as client:
                         resp = client.get(
@@ -97,7 +129,7 @@ def _decode_token(token: str) -> dict:
                         # don't retry on every request; fallback path handles auth.
                         logger.debug("JWKS endpoint returned %d; will use fallback", resp.status_code)
                         jwks = {}
-                    _JWKS_CACHE[cache_key] = (now, jwks)
+                    _JWKS_CACHE.set(cache_key, jwks)
 
                 keys = jwks.get("keys", [])
                 jwk_key = next((k for k in keys if k.get("kid") == kid), None) if kid else None
@@ -120,7 +152,7 @@ def _decode_token(token: str) -> dict:
                     audience="authenticated",
                     issuer=issuer,
                 )
-                _TOKEN_CACHE[token] = (now, claims)
+                _TOKEN_CACHE.set(token, claims)
                 return claims
             except Exception:
                 logger.debug("JWKS verification failed; falling back to /auth/v1/user validation")
@@ -148,7 +180,7 @@ def _decode_token(token: str) -> dict:
                         detail="Token did not return a user id",
                         headers={"WWW-Authenticate": "Bearer"},
                     )
-                _TOKEN_CACHE[token] = (now, claims)
+                _TOKEN_CACHE.set(token, claims)
                 return claims
 
         raise HTTPException(
