@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...config import MIN_PREDICTION_CONFIDENCE
 from ...database import get_user_session_from_cookie
+from ...db_helpers import hidden_product_ids_subquery
 from ...models import (
     ConsumptionPrediction,
     Order,
@@ -50,25 +51,18 @@ async def dashboard(
     ww_last_sync = order_stats.get(Store.WOOLWORTHS, (None, 0, None))[2]
 
     # Products per store — single grouped query, excluding this user's hidden products
-    hidden_product_ids_subq = (
-        select(UserProductPreferences.product_id)
-        .where(
-            UserProductPreferences.user_id == user.user_id,
-            UserProductPreferences.is_hidden.is_(True),
-        )
-        .scalar_subquery()
-    )
+    hidden_subq = hidden_product_ids_subquery(user.user_id)
     product_stats = {
         row.store: row[1] for row in (await session.execute(
             select(Product.store, func.count(Product.id))
-            .where(Product.id.notin_(hidden_product_ids_subq))
+            .where(Product.id.notin_(hidden_subq))
             .group_by(Product.store)
         )).all()
     }
     coles_products = product_stats.get(Store.COLES, 0)
     ww_products = product_stats.get(Store.WOOLWORTHS, 0)
 
-    # Hidden products (per this user)
+    # Hidden products count (per this user)
     removed_count = (await session.execute(
         select(func.count(UserProductPreferences.product_id))
         .where(

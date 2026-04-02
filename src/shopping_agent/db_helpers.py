@@ -4,7 +4,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import Select, select
+from sqlalchemy import ScalarSelect, Select, select
 
 from .models.product import Product, Store, UserProductPreferences
 
@@ -28,6 +28,18 @@ def store_from_string(value: str) -> Store:
         raise HTTPException(status_code=422, detail=f"Unknown store '{value}'. Valid values: {valid}")
 
 
+def hidden_product_ids_subquery(user_id: UUID) -> ScalarSelect:
+    """Scalar subquery returning product IDs hidden by the given user."""
+    return (
+        select(UserProductPreferences.product_id)
+        .where(
+            UserProductPreferences.user_id == user_id,
+            UserProductPreferences.is_hidden.is_(True),
+        )
+        .scalar_subquery()
+    )
+
+
 def visible_products_query(user_id: UUID) -> Select:
     """Return a base SELECT for products that are not hidden by the given user.
 
@@ -37,12 +49,5 @@ def visible_products_query(user_id: UUID) -> Select:
     Returns:
         SQLAlchemy Select statement filtered to products not hidden by this user.
     """
-    hidden_subq = (
-        select(UserProductPreferences.product_id)
-        .where(
-            UserProductPreferences.user_id == user_id,
-            UserProductPreferences.is_hidden.is_(True),
-        )
-        .scalar_subquery()
-    )
-    return select(Product).where(Product.id.notin_(hidden_subq))
+    return select(Product).where(Product.id.notin_(hidden_product_ids_subquery(user_id)))
+
