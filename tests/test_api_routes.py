@@ -268,9 +268,6 @@ async def test_products_hide_restore_and_purge(fake_result):
     product = _product(1, Store.COLES, "Milk", 4.0)
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[product, product])
-    # hide: 2 BFS traversal calls + upsert prefs + delete predictions
-    # restore: 2 BFS traversal calls + update prefs
-    # purge: delete matches + delete price_history + delete predictions + delete products
     session.execute = AsyncMock(side_effect=[
         fake_result(rows=[(1, 2)]),
         fake_result(rows=[(1, 2)]),
@@ -298,8 +295,6 @@ async def test_products_hide_restore_cascade_across_match_chain(fake_result):
     first = _product(1, Store.COLES, "Milk", 4.0)
     session = AsyncMock()
     session.get = AsyncMock(side_effect=[first, first])
-    # hide: 3 BFS traversal calls + upsert prefs + delete predictions
-    # restore: 3 BFS traversal calls + update prefs
     session.execute = AsyncMock(side_effect=[
         fake_result(rows=[(1, 2)]),
         fake_result(rows=[(1, 2), (2, 3)]),
