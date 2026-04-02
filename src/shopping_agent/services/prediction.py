@@ -234,12 +234,12 @@ async def refresh_predictions(session: AsyncSession, user_id: uuid.UUID) -> int:
         if pid not in groups[canon]:
             groups[canon].append(pid)
 
-    # Load product IDs this user has opted out of predictions for
+    # Load product IDs this user has opted out of predictions for, or hidden
     excluded_result = await session.execute(
         select(UserProductPreferences.product_id)
         .where(
             UserProductPreferences.user_id == user_id,
-            UserProductPreferences.exclude_from_predictions.is_(True),
+            (UserProductPreferences.exclude_from_predictions.is_(True) | UserProductPreferences.is_hidden.is_(True)),
         )
     )
     excluded_product_ids = {row[0] for row in excluded_result.all()}

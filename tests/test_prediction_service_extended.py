@@ -122,6 +122,29 @@ async def test_refresh_predictions_skips_excluded_products(fake_result):
 
 
 @pytest.mark.asyncio
+async def test_refresh_predictions_skips_hidden_products(fake_result):
+    """Products hidden by the user are excluded from predictions and any existing prediction is deleted."""
+    today = date.today()
+    product = _ordered_product(1, Store.COLES, "c-1", [today - timedelta(days=20), today - timedelta(days=13)])
+    existing = _prediction(1, today + timedelta(days=5))
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        side_effect=[
+            fake_result(scalars=[product]),
+            fake_result(scalars=[]),    # no matches
+            fake_result(rows=[(1,)]),   # product 1 is hidden
+            fake_result(scalars=[existing]),
+        ]
+    )
+
+    count = await refresh_predictions(session, _USER_ID)
+
+    assert count == 0
+    session.delete.assert_awaited_once_with(existing)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_get_predictions_with_match_info_includes_partner_metadata(fake_result):
     runout = date.today() + timedelta(days=3)
     product = Product(id=1, store=Store.COLES, store_product_id="c-1", name="Milk")
