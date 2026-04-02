@@ -127,21 +127,34 @@ async def add_to_cart(session: AsyncSession, store: Store, coles_scraper, woolwo
     # Mark individual items as ordered based on per-item results
     failed_item_ids: list[int] = []
     succeeded = 0
-    for spid, success in results.items():
-        item_id = spid_to_item_id.get(spid)
-        if item_id:
-            item = await session.get(ShoppingListItem, item_id)
-            if item:
-                if success:
-                    item.is_ordered = True
-                    succeeded += 1
-                else:
-                    failed_item_ids.append(item_id)
+    try:
+        for spid, success in results.items():
+            item_id = spid_to_item_id.get(spid)
+            if item_id:
+                item = await session.get(ShoppingListItem, item_id)
+                if item:
+                    if success:
+                        item.is_ordered = True
+                        succeeded += 1
+                    else:
+                        failed_item_ids.append(item_id)
+
+        await session.commit()
+    except Exception as e:
+        logger.error(
+            "Failed to mark items as ordered after cart add for store %s: %s",
+            store.value,
+            e,
+            exc_info=True,
+        )
+        await session.rollback()
+        return {
+            "success": False,
+            "error": "Items were added to cart but failed to update order status in database",
+        }
 
     # Also count items skipped due to no product match as failed
     # (they won't be in results, but we should report them)
-
-    await session.commit()
 
     overall_success = len(failed_item_ids) == 0 and not skipped_names
     msg = f"Added {succeeded}/{len(items_to_add)} items to {store.value} cart"
