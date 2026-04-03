@@ -28,10 +28,10 @@ def validate_cookie_list(data: object) -> list[dict]:
     if not isinstance(data, list):
         raise ValueError(f"expected a list of cookies, got {type(data).__name__}")
     for i, cookie in enumerate(data):
-        for field in REQUIRED_COOKIE_FIELDS:
-            if field not in cookie:
+        for required_field in REQUIRED_COOKIE_FIELDS:
+            if required_field not in cookie:
                 raise ValueError(
-                    f"cookie at index {i} missing required field '{field}'"
+                    f"cookie at index {i} missing required field '{required_field}'"
                 )
     return data
 

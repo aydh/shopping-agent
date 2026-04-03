@@ -1,8 +1,9 @@
 """Tests for shopping_agent.services.shopping_list and price_comparison utilities."""
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from shopping_agent.models import Store
 from shopping_agent.services.shopping_list import choose_best_store
 
 
@@ -37,11 +38,6 @@ class TestChooseBestStore:
     def test_uses_fallback_when_no_prices(self):
         store = choose_best_store(None, None, self._store("coles"))
         assert store.value == "coles"
-
-
-from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
-from shopping_agent.models import Store
 
 
 class TestAssignCheapestStores:

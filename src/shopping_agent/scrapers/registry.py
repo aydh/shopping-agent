@@ -37,8 +37,8 @@ _REGISTRY: dict[tuple[uuid.UUID | None, Store], BaseScraper] = {
 
 _registry_lock_available = False
 try:
-    import asyncio
-    _registry_lock_available = True
+    import importlib.util
+    _registry_lock_available = importlib.util.find_spec("asyncio") is not None
 except ImportError:
     pass
 

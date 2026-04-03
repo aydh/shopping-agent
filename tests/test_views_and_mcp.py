@@ -303,7 +303,7 @@ async def test_auth_callback_page_renders_with_supabase_config(monkeypatch, dumm
         supabase_anon_key="test-anon-key",
     ))
     request = make_request("/auth/callback")
-    response = await auth_callback_view.auth_callback_page(request)
+    await auth_callback_view.auth_callback_page(request)
     assert len(dummy_templates.template_calls) == 1
     name, ctx = dummy_templates.template_calls[0]
     assert name == "auth_callback.html"
@@ -320,7 +320,7 @@ async def test_register_page_renders_with_supabase_config(monkeypatch, dummy_tem
         supabase_anon_key="test-anon-key",
     ))
     request = make_request("/register")
-    response = await register_view.register_page(request)
+    await register_view.register_page(request)
     assert len(dummy_templates.template_calls) == 1
     name, ctx = dummy_templates.template_calls[0]
     assert name == "register.html"
@@ -501,7 +501,7 @@ async def test_oauth_consent_page_renders_with_authorization_id(monkeypatch, dum
         receive=_receive,
     )
 
-    response = await oauth_consent_view.oauth_consent_page(request)
+    await oauth_consent_view.oauth_consent_page(request)
 
     assert len(dummy_templates.template_calls) == 1
     name, ctx = dummy_templates.template_calls[0]
@@ -536,7 +536,7 @@ async def test_oauth_consent_page_handles_missing_authorization_id(monkeypatch, 
         receive=_receive,
     )
 
-    response = await oauth_consent_view.oauth_consent_page(request)
+    await oauth_consent_view.oauth_consent_page(request)
 
     name, ctx = dummy_templates.template_calls[0]
     assert name == "oauth_consent.html"

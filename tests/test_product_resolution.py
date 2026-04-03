@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from sqlalchemy.engine import Result
 
 
 @pytest.mark.asyncio
@@ -23,7 +22,6 @@ async def test_get_partner_product_returns_none_when_no_match():
 async def test_get_partner_product_returns_none_when_match_partner_missing():
     """Returns None when ProductMatch exists but the partner product is not in DB."""
     from shopping_agent.services.product_resolution import get_partner_product
-    from shopping_agent.models import Store
 
     mock_match = MagicMock()
     mock_match.product_a_id = 1

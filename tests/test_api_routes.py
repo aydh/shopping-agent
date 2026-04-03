@@ -378,15 +378,15 @@ async def test_refresh_prices_stream_emits_progress_and_done(monkeypatch, fake_r
 
     status = await refresh.get_refresh_status(user=_USER)
 
-    assert status["coles"]["is_running"] == False
+    assert not status["coles"]["is_running"]
     assert status["coles"]["updated_count"] == 95
-    assert status["woolworths"]["is_running"] == True
+    assert status["woolworths"]["is_running"]
     assert status["woolworths"]["updated_count"] == 50
 
 
 @pytest.mark.asyncio
 async def test_search_match_handles_errors_and_confirms_manual_match(monkeypatch, fake_result, make_request):
-    monkeypatch.setattr(search, "templates", dummy_templates := SimpleNamespace(
+    monkeypatch.setattr(search, "templates", SimpleNamespace(
         TemplateResponse=lambda name, context: None,
     ))
     product = _product(1, Store.COLES, "Milk", 4.0)

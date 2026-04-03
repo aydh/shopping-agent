@@ -1,7 +1,6 @@
 """Tests for shopping_agent.services.price_comparison."""
 from unittest.mock import MagicMock
 
-import pytest
 
 from shopping_agent.services.price_comparison import (
     find_best_match,

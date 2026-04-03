@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-
 from shopping_agent.models import ConsumptionPrediction, ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from shopping_agent.services.prediction import ShoppingListCandidate
 from shopping_agent.services.shopping_list import (
@@ -22,6 +20,8 @@ from shopping_agent.services.shopping_list import (
     update_item_quantity,
     update_item_store,
 )
+
+_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _product(product_id: int, store: Store, name: str, price: float | None) -> Product:

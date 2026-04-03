@@ -1,12 +1,10 @@
 """Tests for shopping_agent.services.prediction."""
-import math
 from datetime import date
 
 import pytest
 
 from shopping_agent.services.prediction import (
     PurchaseRecord,
-    ShoppingListCandidate,
     compute_prediction,
     generate_candidates,
 )

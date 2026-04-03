@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
-from ...models import Order, Store
+from ...models import Order
 from ...templating import templates
 
 router = APIRouter()

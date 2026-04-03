@@ -10,7 +10,7 @@ from sqlalchemy import func as sqlfunc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...config import COLES_COLOUR, PRICE_LINE_COLOUR, WOOLWORTHS_COLOUR
+from ...config import COLES_COLOUR, WOOLWORTHS_COLOUR
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import get_user_session_from_cookie
 from ...models import PriceHistory, Product, ProductMatch, Store

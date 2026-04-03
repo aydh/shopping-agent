@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import async_session, get_user_session_from_cookie, set_rls_claims
 from ...db_helpers import store_from_string
-from ...models import ListStatus, ShoppingList, ShoppingListItem, Store
+from ...models import ListStatus, ShoppingList, ShoppingListItem
 from ...services.shopping_list import (
     assign_cheapest_stores,
     get_shopping_list_context as _shopping_list_context,

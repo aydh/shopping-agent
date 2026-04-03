@@ -74,14 +74,6 @@ async def do_price_refresh(
         now_utc = datetime.now(timezone.utc)
         today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start_utc = today_start_utc + timedelta(days=1)
-        ph_rows = await session.execute(
-            select(PriceHistory).where(
-                PriceHistory.product_id.in_(product_ids),
-                PriceHistory.recorded_at >= today_start_utc,
-                PriceHistory.recorded_at < tomorrow_start_utc,
-            )
-        )
-        today_ph_ids: dict[int, int] = {ph.product_id: ph.id for ph in ph_rows.scalars()}
 
         match_rows = await session.execute(
             select(ProductMatch)

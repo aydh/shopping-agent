@@ -52,7 +52,7 @@ async def refresh_prices_stream(
                 # Broadcast contains event data (progress, done, etc.)
                 event_type = event.pop("event_type", "progress")
                 yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
-        except Exception as e:
+        except Exception:
             logger.exception("Unexpected error during price refresh stream for %s", store_enum.value)
             yield f"event: error\ndata: {json.dumps({'message': 'Stream error — see server logs'})}\n\n"
 

@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from ..auth import CurrentUser, get_current_user_from_cookie
 from ..database import async_session, get_user_session_from_cookie, set_rls_claims
 from ..db_helpers import store_from_string
-from ..models import Order, OrderItem, PriceHistory, Product, Store
+from ..models import Order, OrderItem, PriceHistory, Product
 from ..scrapers.registry import get_scraper
 from ..services.order_sync import sync_orders
 from ..templating import templates
@@ -35,7 +35,7 @@ async def sync_orders_stream(
             yield f"event: error\ndata: {json.dumps({'message': f'Not connected to {store_enum.value.title()}'})}\n\n"
             return
 
-        yield f"event: fetching\ndata: {{}}\n\n"
+        yield "event: fetching\ndata: {}\n\n"
 
         new_count = 0
         fetched = 0

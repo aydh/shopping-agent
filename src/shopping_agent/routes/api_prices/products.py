@@ -3,7 +3,7 @@ import logging
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from ...cache import image_cache
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
-from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, Store, UserProductPreferences
+from ...models import ConsumptionPrediction, PriceHistory, Product, ProductMatch, UserProductPreferences
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
