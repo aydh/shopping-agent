@@ -14,7 +14,7 @@ pytest                                     # All tests
 pytest tests/path/to/test_file.py::test_name  # Single test
 
 ruff check .
-mypy .
+mypy src/
 ```
 
 Copy `.env.example` to `.env` before running.

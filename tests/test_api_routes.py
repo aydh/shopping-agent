@@ -76,7 +76,7 @@ async def test_auth_import_cookies_success(monkeypatch):
     mock_scraper = SimpleNamespace(import_cookies=AsyncMock(return_value=True))
     monkeypatch.setattr(api_auth, "get_scraper", lambda user_id, store: mock_scraper)
 
-    response = await api_auth.import_cookies("coles", StreamRequest([b"[]"]), user=_USER)
+    response = await api_auth.import_cookies("coles", StreamRequest([b'[{"name":"sid","value":"x","domain":".coles.com.au","path":"/"}]']), user=_USER)
 
     assert "Connected" in response.body.decode()
 

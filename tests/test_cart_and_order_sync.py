@@ -27,25 +27,20 @@ def _product(product_id: int, store: Store, store_product_id: str, name: str, pr
 
 @pytest.mark.asyncio
 async def test_resolve_store_product_id_returns_own_store_id():
-    session = AsyncMock()
     product = _product(1, Store.COLES, "abc", "Milk")
 
-    resolved = await _resolve_store_product_id(session, product, Store.COLES)
+    resolved = _resolve_store_product_id(product, Store.COLES, {})
 
     assert resolved == "abc"
 
 
 @pytest.mark.asyncio
-async def test_resolve_store_product_id_uses_partner_product(monkeypatch):
+async def test_resolve_store_product_id_uses_partner_product():
     product = _product(1, Store.COLES, "abc", "Milk")
     partner = _product(2, Store.WOOLWORTHS, "ww-1", "Milk")
-    session = AsyncMock()
-    monkeypatch.setattr(
-        "shopping_agent.services.cart.get_partner_product",
-        AsyncMock(return_value=partner),
-    )
+    partner_map = {1: partner}
 
-    resolved = await _resolve_store_product_id(session, product, Store.WOOLWORTHS)
+    resolved = _resolve_store_product_id(product, Store.WOOLWORTHS, partner_map)
 
     assert resolved == "ww-1"
 
@@ -73,8 +68,11 @@ async def test_add_to_cart_reports_skipped_items_when_no_matches(fake_result, mo
         items=[item],
     )
     session = AsyncMock()
-    session.execute = AsyncMock(return_value=fake_result(scalars=[shopping_list]))
-    monkeypatch.setattr("shopping_agent.services.cart._resolve_store_product_id", AsyncMock(return_value=None))
+    session.execute = AsyncMock(side_effect=[
+        fake_result(scalars=[shopping_list]),
+        fake_result(scalars=[]),
+    ])
+    monkeypatch.setattr("shopping_agent.services.cart._resolve_store_product_id", MagicMock(return_value=None))
     mock_scraper = AsyncMock()
 
     result = await add_to_cart(session, Store.COLES, mock_scraper, mock_scraper)
@@ -99,11 +97,14 @@ async def test_add_to_cart_marks_successes_and_collects_failures(fake_result, mo
         items=[success_item, fail_item],
     )
     session = AsyncMock()
-    session.execute = AsyncMock(return_value=fake_result(scalars=[shopping_list]))
+    session.execute = AsyncMock(side_effect=[
+        fake_result(scalars=[shopping_list]),
+        fake_result(scalars=[]),
+    ])
     session.get = AsyncMock(side_effect=lambda model, item_id: {101: success_item, 102: fail_item}.get(item_id))
     monkeypatch.setattr(
         "shopping_agent.services.cart._resolve_store_product_id",
-        AsyncMock(side_effect=["c-1", "c-2"]),
+        MagicMock(side_effect=["c-1", "c-2"]),
     )
     scraper = MagicMock()
     scraper.add_to_cart = AsyncMock(return_value={"c-1": True, "c-2": False})
