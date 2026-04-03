@@ -58,9 +58,6 @@ The "Submit to single store" flow (assign all items to one store and confirm) wo
 ### Navigating away from an in-progress order sync loses the UI progress `P2`
 Order sync runs as a browser SSE connection. If the user navigates to another page mid-sync, the SSE stream is torn down and progress is lost — though the database writes continue server-side (since `sync_orders` runs inside the route handler, not a background task). When the user returns to the Orders page there is no indication of whether the sync finished, partially completed, or is still running. Fix: move sync execution into a proper background task (e.g. `BackgroundTasks` or APScheduler), persist a lightweight sync-status record to the DB (store, started_at, finished_at, orders_added, status: running/done/error), and show a live status banner on the Orders page that polls this record so progress is visible regardless of navigation.
 
-### Background price refresh has no visible status history `P2`
-The scheduler runs price refreshes every 4 hours but there is no way to tell from the UI when the last refresh ran, how many products were updated, or whether any failed. The `/api/prices/refresh-progress/{store}` endpoint only provides in-flight progress for a manually-triggered refresh. Add a `price_refresh_log` table (or a simple JSON record in app state) that records: store, started_at, finished_at, products_attempted, products_updated, error_count. Surface this on the Prices page and Settings page as "Last refreshed: 2 hours ago · 412/415 updated".
-
 ---
 
 ## Search & Navigation UX
