@@ -308,6 +308,7 @@ async def test_get_shopping_list_context_builds_store_availability_metrics(fake_
     ww_product = _product(2, Store.WOOLWORTHS, "Milk", 5.0)
     ww_only_product = _product(3, Store.WOOLWORTHS, "Bread", 3.0)
     coles_partner = _product(4, Store.COLES, "Eggs", None)
+    coles_partner.is_available = False
     ww_source_product = _product(5, Store.WOOLWORTHS, "Eggs", 6.0)
 
     matched_item = ShoppingListItem(

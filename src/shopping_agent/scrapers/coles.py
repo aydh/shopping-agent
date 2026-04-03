@@ -325,13 +325,13 @@ class ColesScraper(BaseScraper):
             ]
             await context.clear_cookies()
             if keep:
-                await context.add_cookies(keep)
+                await context.add_cookies(keep)  # type: ignore[arg-type]
             # Apply stealth patches to hide all Playwright/CDP automation
             # indicators (navigator.webdriver, window.cdc_*, chrome runtime
             # properties, plugin lists, etc.) that Auth0 and similar services
             # use to detect and block automated browsers.
             try:
-                from playwright_stealth import Stealth
+                from playwright_stealth import Stealth  # type: ignore[import-untyped]
                 await Stealth().apply_stealth_async(context)
             except ImportError:
                 logger.warning("[Coles] playwright-stealth not installed; browser may be detected as automated")
@@ -396,7 +396,7 @@ class ColesScraper(BaseScraper):
                 cookies = await context.cookies()
                 await context.close()
                 await pw.stop()
-                return await self._finish_playwright_login(cookies)
+                return await self._finish_playwright_login(cookies)  # type: ignore[arg-type]
 
             # Detect MFA challenge
             page_text = (await page.inner_text("body")).lower()
@@ -495,7 +495,7 @@ class ColesScraper(BaseScraper):
                 await pending.context.close()
                 await pending.playwright.stop()
                 self._pending_login = None
-                return await self._finish_playwright_login(cookies)
+                return await self._finish_playwright_login(cookies)  # type: ignore[arg-type]
 
             # Still on the auth domain — MFA code was wrong, expired, or not submitted.
             # Look for an error paragraph on the MFA page specifically; avoid picking
@@ -809,7 +809,7 @@ class ColesScraper(BaseScraper):
                         "GET", f"/api/bff/orders/{order_id}",
                         headers={"x-api-version": "2", "x-transaction-id": txn_id},
                     )
-                    items: list[ScrapedOrderItem] = []
+                    items = []
                     if detail_resp and detail_resp.status_code == 200:
                         detail = detail_resp.json()
                         for item_data in detail.get("items", []):

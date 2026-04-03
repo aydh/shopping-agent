@@ -1,5 +1,6 @@
 """Match management — confirm, reject, create, purge."""
 import logging
+from datetime import date
 
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, Response
@@ -48,7 +49,7 @@ async def confirm_match(match_id: int, user: CurrentUser = Depends(get_current_u
         .where(OrderItem.product_id.in_(product_ids))
         .group_by(OrderItem.product_id)
     )
-    last_ordered = dict(lo_rows.all())
+    last_ordered: dict[int, date] = dict(lo_rows.all())  # type: ignore[arg-type]
     await session.commit()
 
     comp = matches_to_comparisons([match])[0]
@@ -116,7 +117,7 @@ async def purge_all_matches(user: CurrentUser = Depends(get_current_user_from_co
     result = await session.execute(delete(ProductMatch))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} product matches.</span>'
+        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} product matches.</span>'  # type: ignore[attr-defined]
     )
 
 
@@ -126,7 +127,7 @@ async def purge_price_history(user: CurrentUser = Depends(get_current_user_from_
     result = await session.execute(delete(PriceHistory))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} price history records.</span>'
+        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} price history records.</span>'  # type: ignore[attr-defined]
     )
 
 
@@ -139,7 +140,7 @@ async def delete_match(match_id: int, user: CurrentUser = Depends(get_current_us
         .where(ProductMatch.id == match_id)
         .values(is_rejected=True, is_confirmed=False)
     )
-    if result.rowcount == 0:
+    if result.rowcount == 0:  # type: ignore[attr-defined]
         return HTMLResponse("", status_code=404)
     await session.commit()
     return HTMLResponse("")

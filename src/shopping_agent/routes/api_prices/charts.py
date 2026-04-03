@@ -1,6 +1,7 @@
 """Price history chart endpoints."""
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, Query
@@ -25,7 +26,7 @@ def _fmt(dt, f: str) -> str:
     return dt.strftime(f)
 
 
-def _render_single(product_id: int, store: Store, rows: list) -> str:
+def _render_single(product_id: int, store: Store, rows: Sequence) -> str:
     points = [{"x": _fmt(dt, "%Y-%m-%d"), "y": price} for dt, price in rows]
     if not points:
         return '<div class="bg-gray-50 px-6 py-3 text-xs text-gray-400">No price history recorded yet.</div>'

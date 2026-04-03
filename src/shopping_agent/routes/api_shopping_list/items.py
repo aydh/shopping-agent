@@ -1,7 +1,7 @@
 """Shopping list item operations — add, update quantity/store, remove, copy."""
 from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -123,7 +123,7 @@ async def product_search(
                 Product.brand.ilike(f"%{q}%"),
             ),
             Product.is_available == True,  # noqa: E712
-            Product.id.not_in(excluded_ids) if excluded_ids else True,
+            Product.id.not_in(excluded_ids) if excluded_ids else true(),
         )
         .order_by(Product.name)
         .limit(10)

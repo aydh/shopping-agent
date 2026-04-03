@@ -1,12 +1,13 @@
 import logging
 import time
 from collections import OrderedDict
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 import httpx
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwk, jwt
+from jose import JWTError, jwk, jwt  # type: ignore[import-untyped]
 
 from .config import settings
 
@@ -15,15 +16,18 @@ logger = logging.getLogger(__name__)
 _bearer = HTTPBearer(auto_error=False)
 
 
-class _TTLCache:
+_VT = TypeVar("_VT")
+
+
+class _TTLCache(Generic[_VT]):
     """Simple bounded TTL cache with automatic cleanup of expired entries."""
 
     def __init__(self, ttl_seconds: int, max_size: int = 1000):
         self.ttl_seconds = ttl_seconds
         self.max_size = max_size
-        self.cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
+        self.cache: OrderedDict[str, tuple[float, _VT]] = OrderedDict()
 
-    def get(self, key: str) -> object | None:
+    def get(self, key: str) -> _VT | None:
         """Get value if it exists and hasn't expired; otherwise return None."""
         if key not in self.cache:
             return None
@@ -34,7 +38,7 @@ class _TTLCache:
             return None
         return value
 
-    def set(self, key: str, value: object) -> None:
+    def set(self, key: str, value: _VT) -> None:
         """Set a value in the cache. Removes oldest entry if cache is full."""
         # Remove key if already exists (to maintain LRU ordering)
         if key in self.cache:
@@ -48,9 +52,9 @@ class _TTLCache:
 
 
 _JWKS_CACHE_TTL_S = 3600
-_JWKS_CACHE = _TTLCache(ttl_seconds=_JWKS_CACHE_TTL_S, max_size=10)  # Small limit: typically 1 URL
+_JWKS_CACHE: _TTLCache[dict[str, Any]] = _TTLCache(ttl_seconds=_JWKS_CACHE_TTL_S, max_size=10)
 _TOKEN_CACHE_TTL_S = 300
-_TOKEN_CACHE = _TTLCache(ttl_seconds=_TOKEN_CACHE_TTL_S, max_size=10000)  # Larger limit for concurrent users
+_TOKEN_CACHE: _TTLCache[dict[str, Any]] = _TTLCache(ttl_seconds=_TOKEN_CACHE_TTL_S, max_size=10000)
 
 
 class CurrentUser:

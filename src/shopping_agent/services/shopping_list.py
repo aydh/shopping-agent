@@ -537,6 +537,8 @@ async def resolve_display_names(
         partner_id = partner_id_map.get(canonical.id)
         partner = partners.get(partner_id) if partner_id else None
 
+        coles_product: Product | None
+        ww_product: Product | None
         if canonical.store == Store.COLES:
             coles_product = canonical
             ww_product = partner if partner and partner.store == Store.WOOLWORTHS else None
@@ -582,37 +584,35 @@ def _build_shopping_list_summary(
 
         for item in active_items:
             store_product_map = store_products.get(item.id, {})
-            has_match = (
-                store_product_map.get("coles") is not None
-                and store_product_map.get("woolworths") is not None
-            )
+            coles_product = store_product_map.get("coles")
+            ww_product = store_product_map.get("woolworths")
+            has_match = coles_product is not None and ww_product is not None
             matched_available_both = (
                 has_match
-                and item.coles_price is not None
-                and item.woolworths_price is not None
+                and coles_product is not None and coles_product.is_available
+                and ww_product is not None and ww_product.is_available
             )
-            for store_key, unit_price in (
-                ("coles", item.coles_price),
-                ("woolworths", item.woolworths_price),
+            for store_key, unit_price, product in (
+                ("coles", item.coles_price, coles_product),
+                ("woolworths", item.woolworths_price, ww_product),
             ):
                 metrics = store_metrics[store_key]
-                product = store_product_map.get(store_key)
                 if product is None:
                     metrics["unmatched_count"] += 1
                     continue
-                if unit_price is None:
+                if not product.is_available:
                     metrics["unavailable_count"] += 1
                     continue
 
-                line_total = unit_price * item.quantity
+                line_total = (unit_price or 0) * item.quantity
                 metrics["available_count"] += 1
                 metrics["available_total"] += line_total
                 if matched_available_both:
                     metrics["matched_available_count"] += 1
                     metrics["matched_available_total"] += line_total
 
-            cp = item.coles_price * item.quantity if item.coles_price is not None else None
-            wp = item.woolworths_price * item.quantity if item.woolworths_price is not None else None
+            cp = item.coles_price * item.quantity if (item.coles_price is not None and coles_product is not None and coles_product.is_available) else None
+            wp = item.woolworths_price * item.quantity if (item.woolworths_price is not None and ww_product is not None and ww_product.is_available) else None
             coles_total += cp if cp is not None else (wp or 0)
             woolworths_total += wp if wp is not None else (cp or 0)
             best_total += min(cp, wp) if cp is not None and wp is not None else (cp or wp or 0)

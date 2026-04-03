@@ -36,5 +36,5 @@ async def purge_predictions(
     result = await session.execute(delete(ConsumptionPrediction))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} predictions.</span>'
+        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} predictions.</span>'  # type: ignore[attr-defined]
     )

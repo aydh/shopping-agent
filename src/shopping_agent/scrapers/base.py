@@ -4,7 +4,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -75,6 +75,9 @@ class ScrapedProduct:
 
 
 class BaseScraper(ABC):
+    #: Store enum value — must be set as a class attribute by each subclass.
+    store: Any
+
     #: Default cookie domain for this store (e.g. ".coles.com.au").
     _cookie_domain: str = ""
 
@@ -152,6 +155,27 @@ class BaseScraper(ABC):
 
     async def logout(self) -> None:
         """Clear stored auth. Override in subclasses."""
+        pass
+
+    async def validate_cookies(self) -> dict[str, Any]:
+        """Validate stored cookies. Override in subclasses."""
+        return {"ok": False, "detail": "Not implemented"}
+
+    async def login_with_credentials(
+        self,
+        email: str,
+        password: str,
+        on_progress: Any = None,
+    ) -> str:
+        """Login with credentials. Override in subclasses."""
+        return "failed:Not implemented"
+
+    async def complete_mfa(self, code: str) -> str:
+        """Complete MFA challenge. Override in subclasses."""
+        return "failed:Not implemented"
+
+    async def cancel_pending_login(self) -> None:
+        """Cancel a pending login. Override in subclasses."""
         pass
 
     async def _load_cookies(self) -> httpx.Cookies:

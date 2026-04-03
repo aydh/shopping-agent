@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     data_dir: Path = Path(__file__).parent.parent.parent / "data"
-    database_url: str  # e.g. postgresql+asyncpg://postgres:password@db.<ref>.supabase.co:5432/postgres
+    database_url: str = Field(default="", description="e.g. postgresql+asyncpg://postgres:password@db.<ref>.supabase.co:5432/postgres")
     log_dir: Path = Path(__file__).parent.parent.parent / "logs"
     host: str = "127.0.0.1"
     port: int = 8000

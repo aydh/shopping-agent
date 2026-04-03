@@ -1,8 +1,10 @@
 {% set ph_ids = ([coles_p.id] if coles_p else []) + ([ww_p.id] if ww_p else []) %}
-{% set _prices = ([item.coles_price] if item.coles_price else []) + ([item.woolworths_price] if item.woolworths_price else []) %}
+{% set coles_available = coles_p and coles_p.is_available %}
+{% set ww_available = ww_p and ww_p.is_available %}
+{% set _prices = ([item.coles_price] if (item.coles_price and coles_available) else []) + ([item.woolworths_price] if (item.woolworths_price and ww_available) else []) %}
 {% set _bp = _prices | min if _prices else 0 %}
-{% set coles_cheaper = item.coles_price and (not item.woolworths_price or item.coles_price < item.woolworths_price) %}
-{% set ww_cheaper = item.woolworths_price and (not item.coles_price or item.woolworths_price < item.coles_price) %}
+{% set coles_cheaper = coles_available and item.coles_price and (not (item.woolworths_price and ww_available) or item.coles_price < item.woolworths_price) %}
+{% set ww_cheaper = ww_available and item.woolworths_price and (not (item.coles_price and coles_available) or item.woolworths_price < item.coles_price) %}
 <div id="sl-item-{{ item.id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
 <div class="sl-row px-4 sm:px-6 py-3"
      data-item-name="{{ [coles_p.name if coles_p else '', ww_p.name if ww_p else ''] | select | join(' ') | lower }}"
@@ -14,7 +16,7 @@
     <div class="sl-products flex gap-3 mb-3 md:mb-0">
 
         <!-- Coles cell -->
-        {% set coles_unavailable = not item.coles_price %}
+        {% set coles_unavailable = not coles_p or not coles_p.is_available %}
         <div class="flex-1 min-w-0 rounded-lg p-2 {% if coles_cheaper %}ring-2 ring-blue-400 bg-blue-50{% elif coles_unavailable %}ring-2 ring-yellow-400 bg-yellow-50{% endif %}">
             {% if coles_p %}
             {% set url = coles_p.product_url | product_url(coles_p.store_product_id, coles_p.store.value, coles_p.name) %}
@@ -30,8 +32,9 @@
                     {% if coles_p.brand or coles_p.unit_size %}<p class="text-xs text-gray-400">{{ [coles_p.brand, coles_p.unit_size] | select | join(' · ') }}</p>{% endif %}
                     {% if item.coles_price %}
                     <p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(item.coles_price) }}</p>
-                    {% else %}
-                    <p class="text-xs font-medium text-yellow-600">Unavailable</p>
+                    {% endif %}
+                    {% if not coles_p.is_available %}
+                    <p class="text-xs font-medium text-yellow-600">Out of stock</p>
                     {% endif %}
                 </div>
             </div>
@@ -44,7 +47,7 @@
         </div>
 
         <!-- Woolworths cell -->
-        {% set ww_unavailable = not item.woolworths_price %}
+        {% set ww_unavailable = not ww_p or not ww_p.is_available %}
         <div class="flex-1 min-w-0 rounded-lg p-2 {% if ww_cheaper %}ring-2 ring-blue-400 bg-blue-50{% elif ww_unavailable %}ring-2 ring-yellow-400 bg-yellow-50{% endif %}">
             {% if ww_p %}
             {% set url = ww_p.product_url | product_url(ww_p.store_product_id, ww_p.store.value, ww_p.name) %}
@@ -60,8 +63,9 @@
                     {% if ww_p.brand or ww_p.unit_size %}<p class="text-xs text-gray-400">{{ [ww_p.brand, ww_p.unit_size] | select | join(' · ') }}</p>{% endif %}
                     {% if item.woolworths_price %}
                     <p class="text-xs font-semibold text-gray-800">${{ "%.2f" | format(item.woolworths_price) }}</p>
-                    {% else %}
-                    <p class="text-xs font-medium text-yellow-600">Unavailable</p>
+                    {% endif %}
+                    {% if not ww_p.is_available %}
+                    <p class="text-xs font-medium text-yellow-600">Out of stock</p>
                     {% endif %}
                 </div>
             </div>

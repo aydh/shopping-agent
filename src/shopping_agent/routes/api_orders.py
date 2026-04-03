@@ -103,7 +103,7 @@ async def purge_store_orders(
     await session.commit()
     label = store_enum.value.capitalize()
     return HTMLResponse(
-        f'<div class="text-orange-600 text-sm mt-2">Purged {result.rowcount} {label} orders from the database.</div>'
+        f'<div class="text-orange-600 text-sm mt-2">Purged {result.rowcount} {label} orders from the database.</div>'  # type: ignore[attr-defined]
     )
 
 

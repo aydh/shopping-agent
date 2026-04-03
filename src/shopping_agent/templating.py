@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from fastapi.templating import Jinja2Templates
 
 from .config import APP_TIMEZONE
+
+if TYPE_CHECKING:
+    from .auth import CurrentUser
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")

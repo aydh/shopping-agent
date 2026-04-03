@@ -143,5 +143,5 @@ async def purge_products(store: str, user: CurrentUser = Depends(get_current_use
     result = await session.execute(delete(Product).where(Product.store == store_enum))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} {store} products.</span>'
+        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} {store} products.</span>'  # type: ignore[attr-defined]
     )

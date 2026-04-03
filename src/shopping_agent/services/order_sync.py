@@ -52,7 +52,7 @@ async def sync_orders(
     new_count = 0
     # Accumulate new products, order items, and price history entries to flush in bulk
     new_products: list[Product] = []
-    new_order_items: list[OrderItem] = []
+    new_order_items: list[tuple[Order, ScrapedOrderItem, str]] = []
     # (product_id_placeholder, store_product_id, store, price, recorded_at)
     pending_price_history: list[tuple[str, Store, float, datetime]] = []
 

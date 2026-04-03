@@ -151,10 +151,10 @@ async def add_to_cart(session: AsyncSession, store: Store, coles_scraper, woolwo
         for spid, success in results.items():
             item_id = spid_to_item_id.get(spid)
             if item_id:
-                item = await session.get(ShoppingListItem, item_id)
-                if item:
+                db_item: ShoppingListItem | None = await session.get(ShoppingListItem, item_id)
+                if db_item is not None:
                     if success:
-                        item.is_ordered = True
+                        db_item.is_ordered = True
                         succeeded += 1
                     else:
                         failed_item_ids.append(item_id)

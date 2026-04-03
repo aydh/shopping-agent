@@ -36,13 +36,13 @@ async def shopping_list_page(
     )
 
 
-@router.get("/shopping-list/find-match/{product_id}")
+@router.get("/shopping-list/find-match/{product_id}", response_model=None)
 async def find_match_page(
     product_id: int,
     request: Request,
     user: CurrentUser = Depends(get_current_user_from_cookie),
     session: AsyncSession = Depends(get_user_session_from_cookie),
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
     """Render the find-match page for a shopping list product."""
     product = await session.get(Product, product_id)
     if not product:

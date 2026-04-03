@@ -24,7 +24,7 @@ def _list_header_oob(shopping_list: ShoppingList | None) -> str:
     has_list = shopping_list is not None
     return templates.get_template("_list_header.html").render(
         has_list=has_list,
-        title=(shopping_list.name if has_list else None) or "Shopping List",
+        title=(shopping_list.name if shopping_list is not None else None) or "Shopping List",
         new_cls="bg-gray-200 text-gray-400 cursor-not-allowed" if has_list else "bg-blue-600 text-white hover:bg-blue-700",
         pred_cls="bg-gray-200 text-gray-400 cursor-not-allowed" if not has_list else "bg-green-600 text-white hover:bg-green-700",
         new_disabled="disabled" if has_list else "",
@@ -186,5 +186,5 @@ async def purge_shopping_lists(
     lists = await session.execute(delete(ShoppingList))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {lists.rowcount} lists and {items.rowcount} items.</span>'
+        f'<span class="text-orange-600 text-sm">Purged {lists.rowcount} lists and {items.rowcount} items.</span>'  # type: ignore[attr-defined]
     )

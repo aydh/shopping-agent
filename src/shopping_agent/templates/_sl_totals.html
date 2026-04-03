@@ -1,6 +1,6 @@
 {% set active_items_list = shopping_list.items | selectattr('is_removed', 'equalto', false) | list %}
-{% set all_have_coles = active_items_list | rejectattr('coles_price') | list | length == 0 %}
-{% set all_have_ww = active_items_list | rejectattr('woolworths_price') | list | length == 0 %}
+{% set all_have_coles = coles_metrics["unavailable_count"] == 0 and coles_metrics["unmatched_count"] == 0 %}
+{% set all_have_ww = woolworths_metrics["unavailable_count"] == 0 and woolworths_metrics["unmatched_count"] == 0 %}
 <div id="list-totals" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 
     <!-- Coles Total -->

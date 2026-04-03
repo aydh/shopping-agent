@@ -124,10 +124,17 @@ async def do_price_refresh(
                     scraped = None
                 async with async_session() as session:
                     db_product = await session.get(Product, product.id)
-                    if db_product:
-                        if scraped and scraped.current_price and scraped.is_available:
-                            db_product.current_price = scraped.current_price
-                            db_product.is_available = True
+                    if db_product and scraped is not None:
+                        db_product.is_available = scraped.is_available
+
+                        affected_ids = [product.id]
+                        partner = partner_map.get(product.id)
+                        if partner:
+                            affected_ids.append(partner.id)
+
+                        if scraped.current_price:
+                            # Always update metadata and write price history when
+                            # we have a price, regardless of availability.
                             if scraped.name:
                                 db_product.name = scraped.name
                             if scraped.brand:
@@ -141,8 +148,8 @@ async def do_price_refresh(
                             if scraped.image_url:
                                 db_product.image_url = scraped.image_url
 
-                            # Check for existing price history for today (handles race condition
-                            # where another concurrent task may have inserted first)
+                            # Upsert today's price history regardless of availability
+                            # so we retain the price trend even for out-of-stock items.
                             existing_ph = await session.execute(
                                 select(PriceHistory).where(
                                     PriceHistory.product_id == product.id,
@@ -158,10 +165,10 @@ async def do_price_refresh(
                                     product_id=product.id, store=store_enum, price=scraped.current_price
                                 ))
 
-                            affected_ids = [product.id]
-                            partner = partner_map.get(product.id)
-                            if partner:
-                                affected_ids.append(partner.id)
+                        # current_price and SLI prices always reflect the scraped price;
+                        # is_available is tracked separately.
+                        if scraped.current_price:
+                            db_product.current_price = scraped.current_price
                             for pid in affected_ids:
                                 for sli_id in sli_ids_by_product.get(pid, []):
                                     sli = await session.get(ShoppingListItem, sli_id)
@@ -170,14 +177,8 @@ async def do_price_refresh(
                                             sli.coles_price = scraped.current_price
                                         else:
                                             sli.woolworths_price = scraped.current_price
-
-                        elif scraped is not None and not scraped.is_available:
-                            db_product.is_available = False
+                        else:
                             db_product.current_price = None
-                            affected_ids = [product.id]
-                            partner = partner_map.get(product.id)
-                            if partner:
-                                affected_ids.append(partner.id)
                             for pid in affected_ids:
                                 for sli_id in sli_ids_by_product.get(pid, []):
                                     sli = await session.get(ShoppingListItem, sli_id)
@@ -186,6 +187,7 @@ async def do_price_refresh(
                                             sli.coles_price = None
                                         else:
                                             sli.woolworths_price = None
+
                         await session.commit()
                 return bool(scraped and scraped.current_price)
             except Exception as e:

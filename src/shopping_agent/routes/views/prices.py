@@ -60,7 +60,7 @@ async def prices_page(
         .where(OrderItem.product_id.in_(visible_ids))
         .group_by(OrderItem.product_id)
     )
-    last_ordered: dict[int, date] = dict(lo_rows.all())
+    last_ordered: dict[int, date] = dict(lo_rows.all())  # type: ignore[arg-type]
 
     # Fetch rejected matches
     rejected_result = await session.execute(
@@ -93,11 +93,11 @@ async def prices_page(
             .where(OrderItem.product_id.in_(hidden_ids))
             .group_by(OrderItem.product_id)
         )
-        hidden_last_ordered: dict[int, date] = dict(hidden_lo_rows.all())
+        hidden_last_ordered: dict[int, date] = dict(hidden_lo_rows.all())  # type: ignore[arg-type]
     else:
         hidden_last_ordered = {}
     for p in hidden_products:
-        p.last_ordered_date = hidden_last_ordered.get(p.id)
+        setattr(p, "last_ordered_date", hidden_last_ordered.get(p.id))
 
     # Fetch unavailable products (is_available=False, not hidden by this user)
     unavailable_result = await session.execute(
