@@ -38,6 +38,7 @@ class Product(TimestampMixin, Base):
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     product_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    not_found: Mapped[bool] = mapped_column(Boolean, default=False)
 
     order_items: Mapped[list["OrderItem"]] = relationship(back_populates="product")  # noqa: F821
     shopping_list_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="product")  # noqa: F821

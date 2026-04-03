@@ -6,20 +6,37 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 
 from ..config import COLES_PRICE_REFRESH_CONCURRENCY, WOOLWORTHS_PRICE_REFRESH_CONCURRENCY
 from ..database import async_session
-from ..models import ListStatus, PriceHistory, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
+from ..models import ListStatus, PriceHistory, Product, ProductMatch, PriceRefreshStatus, ShoppingList, ShoppingListItem, Store
 from ..scrapers.registry import coles_scraper as _coles_scraper
 from ..scrapers.registry import woolworths_scraper as _ww_scraper
 
 logger = logging.getLogger(__name__)
 
 
+async def _upsert_refresh_status(store_enum: Store, **kwargs: object) -> None:
+    """Upsert a PriceRefreshStatus row for the given store."""
+    async with async_session() as session:
+        stmt = (
+            pg_insert(PriceRefreshStatus)
+            .values(store=store_enum, **kwargs)
+            .on_conflict_do_update(
+                constraint="uq_price_refresh_status_store",
+                set_={k: v for k, v in kwargs.items()},
+            )
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
 async def do_price_refresh(
     store_enum: Store,
     progress_callback: Callable[[int, int], Awaitable[None] | None] | None = None,
+    next_run_at: datetime | None = None,
 ) -> tuple[int, int]:
     """Refresh current prices for products of a given store.
 
@@ -30,6 +47,7 @@ async def do_price_refresh(
     Args:
         store_enum: The store to refresh prices for.
         progress_callback: Optional callback invoked with (done, total) after each product.
+        next_run_at: Optional datetime of the next scheduled run, stored in status table.
 
     Returns:
         Tuple of (updated_count, total_count) — number of products whose price
@@ -101,17 +119,33 @@ async def do_price_refresh(
         await _notify_progress(0, 0)
         return 0, 0
 
-    logger.info("[PriceRefresh] Starting %s refresh for %d products", store_enum.value, len(products))
-    sem = asyncio.Semaphore(concurrency)
     total_products = len(products)
+    logger.info("[PriceRefresh] Starting %s refresh for %d products", store_enum.value, total_products)
+
+    run_started_at = datetime.now(timezone.utc)
+    await _upsert_refresh_status(
+        store_enum,
+        is_running=True,
+        total_products=total_products,
+        updated_count=0,
+        unavailable_count=0,
+        not_found_count=0,
+        error_count=0,
+        last_run_at=run_started_at,
+        **({"next_run_at": next_run_at} if next_run_at is not None else {}),
+    )
+
+    sem = asyncio.Semaphore(concurrency)
     completed = 0
     progress_lock = asyncio.Lock()
+    counters = {"updated": 0, "unavailable": 0, "not_found": 0, "errors": 0}
 
     await _notify_progress(0, total_products)
 
     async def fetch_one(product: Product) -> bool:
         nonlocal completed
         async with sem:
+            outcome: str = "error"
             try:
                 try:
                     # Pass timeout to httpx directly — asyncio.wait_for corrupts the
@@ -122,10 +156,15 @@ async def do_price_refresh(
                 except Exception as e:
                     logger.warning("[PriceRefresh] Request failed for %s: %s", product.store_product_id, e)
                     scraped = None
+
                 async with async_session() as session:
                     db_product = await session.get(Product, product.id)
+                    if db_product and scraped is None:
+                        db_product.not_found = True
+                        await session.commit()
                     if db_product and scraped is not None:
                         db_product.is_available = scraped.is_available
+                        db_product.not_found = False
 
                         affected_ids = [product.id]
                         partner = partner_map.get(product.id)
@@ -189,12 +228,40 @@ async def do_price_refresh(
                                             sli.woolworths_price = None
 
                         await session.commit()
-                return bool(scraped and scraped.current_price)
+
+                    if scraped is None:
+                        outcome = "error"
+                    elif not scraped.is_available:
+                        outcome = "unavailable"
+                    else:
+                        outcome = "updated"
+
+                return outcome == "updated"
             except Exception as e:
                 logger.error("[PriceRefresh] Error for product %s: %s", product.store_product_id, e)
+                outcome = "error"
             finally:
                 async with progress_lock:
                     completed += 1
+                    if outcome == "updated":
+                        counters["updated"] += 1
+                    elif outcome == "unavailable":
+                        counters["unavailable"] += 1
+                    elif outcome == "not_found":
+                        counters["not_found"] += 1
+                    else:
+                        counters["errors"] += 1
+
+                    await _upsert_refresh_status(
+                        store_enum,
+                        is_running=True,
+                        total_products=total_products,
+                        updated_count=counters["updated"],
+                        unavailable_count=counters["unavailable"],
+                        not_found_count=counters["not_found"],
+                        error_count=counters["errors"],
+                        last_run_at=run_started_at,
+                    )
                     await _notify_progress(completed, total_products)
             return False
 
@@ -202,4 +269,17 @@ async def do_price_refresh(
     # Filter out exceptions; count only successful (bool) results
     updated = sum(r for r in results if isinstance(r, bool) and r)
     logger.info("[PriceRefresh] %s done: %d/%d updated", store_enum.value, updated, len(products))
+
+    await _upsert_refresh_status(
+        store_enum,
+        is_running=False,
+        total_products=total_products,
+        updated_count=counters["updated"],
+        unavailable_count=counters["unavailable"],
+        not_found_count=counters["not_found"],
+        error_count=counters["errors"],
+        last_run_at=run_started_at,
+        **({"next_run_at": next_run_at} if next_run_at is not None else {}),
+    )
+
     return updated, len(products)

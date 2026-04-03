@@ -2,14 +2,14 @@ import json
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..auth import CurrentUser, get_current_user_from_cookie
 from ..database import async_session, get_user_session_from_cookie, set_rls_claims
 from ..db_helpers import store_from_string
-from ..models import ListStatus, ShoppingList, ShoppingListItem, Store
+from ..models import ListStatus, ProductMatch, ShoppingList, ShoppingListItem, Store
 from ..scrapers.registry import get_scraper
 from ..services.cart import _resolve_store_product_id, add_to_cart
 from ..templating import templates
@@ -41,11 +41,31 @@ async def add_to_cart_stream(
                     yield f"event: done\ndata: {json.dumps({'error': 'No confirmed list'})}\n\n"
                     return
 
+                # Build partner map for product resolution
+                product_ids = [item.product.id for item in shopping_list.items]
+                match_rows = await session.execute(
+                    select(ProductMatch)
+                    .options(selectinload(ProductMatch.product_a), selectinload(ProductMatch.product_b))
+                    .where(
+                        or_(
+                            ProductMatch.product_a_id.in_(product_ids),
+                            ProductMatch.product_b_id.in_(product_ids),
+                        ),
+                        ProductMatch.is_rejected == False,  # noqa: E712
+                    )
+                )
+                partner_map: dict[int, str] = {}
+                for m in match_rows.scalars():
+                    if m.product_a_id in product_ids:
+                        partner_map[m.product_a_id] = m.product_b
+                    if m.product_b_id in product_ids:
+                        partner_map[m.product_b_id] = m.product_a
+
                 items_to_process = []
                 for item in shopping_list.items:
                     if item.is_removed or item.chosen_store != store_enum:
                         continue
-                    spid = await _resolve_store_product_id(session, item.product, store_enum)
+                    spid = _resolve_store_product_id(item.product, store_enum, partner_map)
                     if spid:
                         items_to_process.append((item.id, str(spid), item.quantity))
 

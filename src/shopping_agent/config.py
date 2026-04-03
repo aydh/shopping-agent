@@ -7,9 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Display timezone — used for log messages and template date rendering
 APP_TIMEZONE = ZoneInfo("Australia/Sydney")
 
+# Resolve .env relative to the project root (3 levels up from this file:
+# src/shopping_agent/config.py → src/shopping_agent/ → src/ → project root)
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8")
 
     data_dir: Path = Path(__file__).parent.parent.parent / "data"
     database_url: str = Field(default="", description="e.g. postgresql+asyncpg://postgres:password@db.<ref>.supabase.co:5432/postgres")
@@ -115,11 +119,11 @@ PREDICTION_PURCHASE_COUNT_MIN: int = 3
 
 # Price refresh
 # KNOWNN WORKING SETTINGS FOR ~400 prods 10, 0
-COLES_PRICE_REFRESH_CONCURRENCY: int = 5
+COLES_PRICE_REFRESH_CONCURRENCY: int = 10
 COLES_PRICE_FETCH_DELAY_S: float = 0.0      # Delay between individual Coles product price requests
 # KNOWNN WORKING SETTINGS FOR ~400 prods 2, 0.15, 0.05
 WOOLWORTHS_PRICE_REFRESH_CONCURRENCY: int = 2
-WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.15  # Delay between individual Woolworths product price requests
+WOOLWORTHS_PRICE_FETCH_DELAY_S: float = 0.20  # Delay between individual Woolworths product price requests
 WOOLWORTHS_PRICE_FETCH_JITTER_S: float = 0.05  # Max random jitter added on top of delay (uniform 0–jitter)
 
 # Scheduled price refresh

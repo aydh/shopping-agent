@@ -14,6 +14,7 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from .config import APP_TIMEZONE, PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
 from .database import init_db
 from .models import Store
+from .routes.api_prices.refresh import refresh_broadcasts
 from .routes.mcp import mcp
 from .services.price_refresh import do_price_refresh
 
@@ -60,35 +61,67 @@ mcp_app = mcp.http_app(path="/")
 _scheduler = AsyncIOScheduler()
 
 
-async def _scheduled_price_refresh() -> None:
-    """Run a full price refresh for both stores (all products, no filters)."""
+async def _scheduled_price_refresh(next_run_at: datetime | None = None) -> None:
+    """Run a full price refresh for both stores (all products, no filters).
+
+    Broadcasts progress events to SSE clients via refresh_broadcasts queues.
+
+    Args:
+        next_run_at: Optional datetime of the next scheduled refresh, stored in status table.
+    """
     for store in (Store.COLES, Store.WOOLWORTHS):
         try:
-            updated, total = await do_price_refresh(store)
+            # Create a callback that broadcasts progress to SSE clients
+            async def make_progress_callback(s: Store):
+                async def callback(done: int, total: int) -> None:
+                    await refresh_broadcasts[s].put({
+                        "event_type": "progress",
+                        "done": done,
+                        "total": total,
+                    })
+                return callback
+
+            updated, total = await do_price_refresh(
+                store,
+                progress_callback=await make_progress_callback(store),
+                next_run_at=next_run_at,
+            )
             logger.info("[Scheduler] %s price refresh complete: %d/%d updated", store.value, updated, total)
+
+            # Signal completion to SSE clients
+            await refresh_broadcasts[store].put(None)
         except Exception:
             logger.exception("[Scheduler] Price refresh failed for %s", store.value)
+            # Signal completion (error state) to SSE clients
+            await refresh_broadcasts[store].put(None)
 
 
-def _schedule_next_refresh() -> None:
-    """Schedule the next price refresh with random jitter applied."""
+def _calculate_next_refresh_time() -> datetime:
+    """Calculate the next price refresh time with random jitter applied."""
     jitter_s = random.uniform(
         -PRICE_REFRESH_JITTER_MINUTES * 60,
         PRICE_REFRESH_JITTER_MINUTES * 60,
     )
-    run_at = datetime.now(timezone.utc) + timedelta(hours=PRICE_REFRESH_INTERVAL_HOURS, seconds=jitter_s)
+    return datetime.now(timezone.utc) + timedelta(hours=PRICE_REFRESH_INTERVAL_HOURS, seconds=jitter_s)
+
+
+def _schedule_next_refresh() -> None:
+    """Schedule the next price refresh."""
+    next_run_at = _calculate_next_refresh_time()
     _scheduler.add_job(
         _run_refresh_then_reschedule,
         "date",
-        run_date=run_at,
+        run_date=next_run_at,
         id="price_refresh",
         replace_existing=True,
     )
-    logger.info("[Scheduler] Next price refresh scheduled for %s", run_at.astimezone(APP_TIMEZONE).isoformat())
+    logger.info("[Scheduler] Next price refresh scheduled for %s", next_run_at.astimezone(APP_TIMEZONE).isoformat())
 
 
 async def _run_refresh_then_reschedule() -> None:
-    await _scheduled_price_refresh()
+    """Run price refresh and then reschedule the next one."""
+    next_run_at = _calculate_next_refresh_time()
+    await _scheduled_price_refresh(next_run_at=next_run_at)
     _schedule_next_refresh()
 
 

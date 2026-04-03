@@ -99,13 +99,21 @@ async def prices_page(
     for p in hidden_products:
         setattr(p, "last_ordered_date", hidden_last_ordered.get(p.id))
 
-    # Fetch unavailable products (is_available=False, not hidden by this user)
+    # Fetch unavailable products (is_available=False AND not_found=False, including hidden)
     unavailable_result = await session.execute(
-        visible_products_query(user.user_id)
-        .where(Product.is_available == False)  # noqa: E712
+        select(Product)
+        .where((Product.is_available == False) & (Product.not_found == False))  # noqa: E712
         .order_by(Product.store, Product.name)
     )
     unavailable_products = list(unavailable_result.scalars().all())
+
+    # Fetch not found products (not_found=True, including hidden)
+    not_found_result = await session.execute(
+        select(Product)
+        .where(Product.not_found == True)  # noqa: E712
+        .order_by(Product.store, Product.name)
+    )
+    not_found_products = list(not_found_result.scalars().all())
 
     return templates.TemplateResponse(
         request,
@@ -118,6 +126,7 @@ async def prices_page(
             "rejected_matches": rejected_matches,
             "hidden_products": hidden_products,
             "unavailable_products": unavailable_products,
+            "not_found_products": not_found_products,
             "last_ordered": last_ordered,
         },
     )
