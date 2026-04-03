@@ -138,13 +138,14 @@ async def test_prices_view_search_match_page_and_settings_views(monkeypatch, fak
     page_session = AsyncMock()
     page_session.execute = AsyncMock(
         side_effect=[
-            fake_result(scalars=[visible_coles, visible_ww, unavailable]),
-            fake_result(scalars=[match]),
-            fake_result(rows=[(1, date(2025, 1, 1)), (2, date(2025, 1, 2)), (3, date(2025, 1, 3))]),
-            fake_result(scalars=[rejected]),
-            fake_result(scalars=[hidden]),
-            fake_result(rows=[(4, date(2025, 1, 4))]),
-            fake_result(scalars=[unavailable]),
+            fake_result(scalars=[visible_coles, visible_ww, unavailable]),  # visible_products_query
+            fake_result(scalars=[match]),  # ProductMatch
+            fake_result(rows=[(1, date(2025, 1, 1)), (2, date(2025, 1, 2)), (3, date(2025, 1, 3))]),  # last ordered
+            fake_result(scalars=[rejected]),  # rejected matches
+            fake_result(scalars=[hidden]),  # hidden products
+            fake_result(rows=[(4, date(2025, 1, 4))]),  # hidden last ordered
+            fake_result(scalars=[unavailable]),  # unavailable products
+            fake_result(scalars=[]),  # not_found products
         ]
     )
 

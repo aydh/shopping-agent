@@ -40,7 +40,16 @@ async def test_do_price_refresh_updates_prices_and_list_items(fake_result, async
     inner_session.get = AsyncMock(side_effect=lambda model, obj_id: {Product: db_product, ShoppingListItem: list_item}.get(model))
     inner_session.execute = AsyncMock(return_value=fake_result(scalars=[]))
     inner_session.add = MagicMock()
-    sessions = iter([outer_session, inner_session])
+    inner_session.commit = AsyncMock()
+
+    # Status session for upsert_refresh_status calls
+    status_session = AsyncMock()
+    status_session.execute = AsyncMock(return_value=fake_result())
+    status_session.commit = AsyncMock()
+
+    # Provide enough sessions for all async_session() calls
+    # Order: outer_session, status (line 126), inner (line 160), status (line 255), status (line 273)
+    sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
     monkeypatch.setattr(
         "shopping_agent.services.price_refresh.async_session",
         MagicMock(side_effect=lambda: async_cm(next(sessions))),
@@ -88,7 +97,14 @@ async def test_do_price_refresh_reports_progress(fake_result, async_cm, monkeypa
     inner_session.get = AsyncMock(side_effect=lambda model, obj_id: {Product: db_product, ShoppingListItem: list_item}.get(model))
     inner_session.execute = AsyncMock(return_value=fake_result(scalars=[]))
     inner_session.add = MagicMock()
-    sessions = iter([outer_session, inner_session])
+    inner_session.commit = AsyncMock()
+
+    status_session = AsyncMock()
+    status_session.execute = AsyncMock(return_value=fake_result())
+    status_session.commit = AsyncMock()
+
+    # Order: outer_session, status (line 126), inner (line 160), status (line 255), status (line 273)
+    sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
     monkeypatch.setattr(
         "shopping_agent.services.price_refresh.async_session",
         MagicMock(side_effect=lambda: async_cm(next(sessions))),
@@ -132,7 +148,16 @@ async def test_do_price_refresh_marks_unavailable_products(fake_result, async_cm
 
     inner_session = AsyncMock()
     inner_session.get = AsyncMock(side_effect=lambda model, obj_id: {Product: db_product, ShoppingListItem: list_item}.get(model))
-    sessions = iter([outer_session, inner_session])
+    inner_session.execute = AsyncMock(return_value=fake_result(scalars=[]))
+    inner_session.add = MagicMock()
+    inner_session.commit = AsyncMock()
+
+    status_session = AsyncMock()
+    status_session.execute = AsyncMock(return_value=fake_result())
+    status_session.commit = AsyncMock()
+
+    # Order: outer_session, status (line 126), inner (line 160), status (line 255), status (line 273)
+    sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
     monkeypatch.setattr(
         "shopping_agent.services.price_refresh.async_session",
         MagicMock(side_effect=lambda: async_cm(next(sessions))),
