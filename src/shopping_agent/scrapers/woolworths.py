@@ -5,7 +5,11 @@ import logging
 import random
 import time
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -13,8 +17,25 @@ from sqlalchemy import select
 from ..database import async_session
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
-from ..config import WOOLWORTHS_PRICE_FETCH_DELAY_S, WOOLWORTHS_PRICE_FETCH_JITTER_S, settings
+from ..config import (
+    PLAYWRIGHT_DELAY_AFTER_EMAIL_MS,
+    PLAYWRIGHT_DELAY_AFTER_HOMEPAGE_MS,
+    PLAYWRIGHT_DELAY_AFTER_MFA_MS,
+    PLAYWRIGHT_DELAY_AFTER_PASSWORD_MS,
+    WOOLWORTHS_PRICE_FETCH_DELAY_S,
+    WOOLWORTHS_PRICE_FETCH_JITTER_S,
+    settings,
+)
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
+
+
+@dataclass
+class _PendingLogin:
+    """Holds live Playwright objects while waiting for an MFA code."""
+    playwright: Any
+    context: Any  # BrowserContext
+    page: Any
+    created_at: float = field(default_factory=time.time)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +69,7 @@ class WoolworthsScraper(BaseScraper):
     def __init__(self, user_id: uuid.UUID | None = None) -> None:
         self.user_id = user_id
         self._client: httpx.AsyncClient | None = None
+        self._pending_login: _PendingLogin | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the httpx client with current cookies."""
@@ -327,12 +349,319 @@ class WoolworthsScraper(BaseScraper):
         return {"ok": False, "detail": f"Unexpected response: HTTP {resp.status_code}"}
 
     async def login_interactive(self) -> bool:
-        """Not supported for httpx-based scraper. Use import_cookies instead."""
-        logger.info(
-            "Interactive login not available for Woolworths httpx scraper. "
-            "Use cookie import instead."
-        )
+        """Not supported; use login_with_credentials() instead."""
         return False
+
+    async def login_with_credentials(
+        self,
+        email: str,
+        password: str,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> str:
+        """Use Playwright to log into Woolworths with email/password.
+
+        Returns one of:
+          "ok"           – login succeeded and cookies are stored.
+          "mfa_required" – an MFA code is needed; call complete_mfa() next.
+          "failed:<msg>" – login failed with the given reason.
+        """
+        def _progress(msg: str) -> None:
+            logger.info("[Woolworths] Playwright: %s", msg)
+            if on_progress:
+                on_progress(msg)
+
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return "failed:playwright not installed — run: pip install playwright && playwright install chromium"
+
+        await self.cancel_pending_login()
+
+        pw = await async_playwright().start()
+        page = None
+        try:
+            _progress("Launching browser")
+            import tempfile
+            raw_dir = settings.woolworths_playwright_profile_dir or (
+                str(Path(settings.playwright_profile_dir) / "woolworths")
+                if settings.playwright_profile_dir
+                else None
+            )
+            if raw_dir:
+                try:
+                    Path(raw_dir).mkdir(parents=True, exist_ok=True)
+                    user_data_dir = raw_dir
+                except OSError:
+                    logger.warning(
+                        "[Woolworths] Cannot use configured profile dir %s; falling back to tempdir",
+                        raw_dir,
+                    )
+                    user_data_dir = tempfile.mkdtemp(prefix="woolworths-playwright-")
+            else:
+                user_data_dir = tempfile.mkdtemp(prefix="woolworths-playwright-")
+
+            launch_kwargs: dict = {}
+            if settings.playwright_channel:
+                launch_kwargs["channel"] = settings.playwright_channel
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=settings.playwright_headless,
+                **launch_kwargs,
+                args=["--disable-blink-features=AutomationControlled"],
+                user_agent=DEFAULT_USER_AGENT,
+                viewport={"width": 1280, "height": 800},
+            )
+
+            # Preserve Akamai bot-detection cookies across sessions so Woolworths
+            # doesn't flag the browser as a new/untrusted bot on every login.
+            all_cookies = await context.cookies()
+            keep = [c for c in all_cookies if c["name"] in ("_abck", "ak_bmsc", "bm_sz")]
+            await context.clear_cookies()
+            if keep:
+                await context.add_cookies(keep)  # type: ignore[arg-type]
+
+            try:
+                from playwright_stealth import Stealth  # type: ignore[import-untyped]
+                await Stealth().apply_stealth_async(context)
+            except ImportError:
+                logger.warning("[Woolworths] playwright-stealth not installed; browser may be detected as automated")
+                await context.add_init_script(
+                    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+                )
+
+            page = await context.new_page()
+
+            _progress("Navigating to Woolworths homepage")
+            try:
+                await page.goto("https://www.woolworths.com.au/", wait_until="load", timeout=15000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_HOMEPAGE_MS)
+
+            _progress("Navigating to login page")
+            try:
+                # Click the "Log in or Sign up" button to trigger the OAuth redirect
+                login_btn = page.locator("button").filter(has_text="Log in or Sign up")
+                await login_btn.first.click(timeout=10000)
+                await page.wait_for_url("**/auth.woolworths.com.au/**", timeout=15000)
+            except Exception:
+                # Fall back: navigate to account page which triggers redirect
+                try:
+                    await page.goto("https://www.woolworths.com.au/shop/myaccount", wait_until="load", timeout=15000)
+                    await page.wait_for_url("**/auth.woolworths.com.au/**", timeout=15000)
+                except Exception:
+                    pass
+
+            current_url = page.url
+            logger.info("[Woolworths] Playwright: auth URL: %s", current_url)
+
+            # Already logged in?
+            if "www.woolworths.com.au" in current_url and "auth." not in current_url:
+                _progress("Already logged in — saving cookies")
+                cookies = await context.cookies()
+                await context.close()
+                await pw.stop()
+                return await self._finish_playwright_login(cookies)  # type: ignore[arg-type]
+
+            if "auth.woolworths.com.au" not in current_url:
+                await context.close()
+                await pw.stop()
+                return "failed:Could not reach Woolworths login page"
+
+            # Fill email — Auth0 renders the field as name="username" / id="username"
+            email_selector = 'input[name="username"], #username'
+            await page.wait_for_selector(email_selector, timeout=10000)
+            await page.fill(email_selector, email)
+            _progress("Filled email")
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_EMAIL_MS)
+
+            await page.get_by_role("button", name="Log in", exact=True).click()
+
+            # Wait for password field (hidden on page load, shown after email submit)
+            try:
+                await page.wait_for_selector('input[type="password"]', timeout=15000)
+            except Exception:
+                error_msg = await self._extract_page_error(page)
+                await context.close()
+                await pw.stop()
+                return f"failed:{error_msg or 'Could not find password field after email step'}"
+
+            await page.fill('input[type="password"]', password)
+            _progress("Filled password — about to submit")
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_PASSWORD_MS)
+
+            await page.get_by_role("button", name="Log in", exact=True).click()
+
+            _progress("Waiting for redirect")
+            try:
+                await page.wait_for_url(
+                    lambda url: "www.woolworths.com.au" in url or self._looks_like_mfa(url, ""),
+                    timeout=20000,
+                )
+            except Exception:
+                pass
+
+            current_url = page.url
+            logger.info("[Woolworths] Playwright: post-submit URL: %s", current_url)
+
+            if "www.woolworths.com.au" in current_url:
+                _progress("Login successful — saving cookies")
+                cookies = await context.cookies()
+                await context.close()
+                await pw.stop()
+                return await self._finish_playwright_login(cookies)  # type: ignore[arg-type]
+
+            page_text = (await page.inner_text("body")).lower()
+            if self._looks_like_mfa(current_url, page_text):
+                _progress("MFA code required")
+                self._pending_login = _PendingLogin(playwright=pw, context=context, page=page)
+                return "mfa_required"
+
+            error_msg = await self._extract_page_error(page)
+            await context.close()
+            await pw.stop()
+            return f"failed:{error_msg or 'Login unsuccessful — check your credentials'}"
+
+        except Exception as exc:
+            try:
+                if page is not None:
+                    logger.error(
+                        "[Woolworths] Playwright login error — url=%s error=%s",
+                        page.url, exc,
+                    )
+                else:
+                    logger.error("[Woolworths] Playwright login error (before page created): %s", exc)
+            except Exception:
+                logger.exception("[Woolworths] Playwright login error")
+            try:
+                await pw.stop()
+            except Exception:
+                pass
+            return f"failed:{exc}"
+
+    async def complete_mfa(self, code: str) -> str:
+        """Submit the MFA code for a pending Playwright login.
+
+        Returns "ok" or "failed:<msg>".
+        """
+        if not self._pending_login:
+            return "failed:No pending login — please start the login process again"
+
+        pending = self._pending_login
+        if time.time() - pending.created_at > 600:
+            await self.cancel_pending_login()
+            return "failed:Login session expired (10 min limit) — please start again"
+
+        try:
+            page = pending.page
+            mfa_selector = (
+                'input[name="code"], '
+                'input[autocomplete="one-time-code"], '
+                'input[type="tel"], '
+                'input[inputmode="numeric"], '
+                'input[name="credentials.passcode"]'
+            )
+            await page.wait_for_selector(mfa_selector, timeout=5000)
+            await page.click(mfa_selector)
+            await page.locator(mfa_selector).press_sequentially(code, delay=50)
+            await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_MFA_MS)
+
+            # Try "Continue" first (Auth0 OTP), then fall back to submit
+            try:
+                await page.get_by_role("button", name="Continue").click()
+            except Exception:
+                try:
+                    await page.get_by_role("button", name="Log in").click()
+                except Exception:
+                    await page.locator('button[type="submit"]').first.click()
+
+            try:
+                await page.wait_for_url("**/www.woolworths.com.au/**", timeout=30000)
+            except Exception:
+                pass
+
+            current_url = page.url
+            logger.info("[Woolworths] Playwright MFA: post-submit URL: %s", current_url)
+
+            if "www.woolworths.com.au" in current_url:
+                cookies = await pending.context.cookies()
+                await pending.context.close()
+                await pending.playwright.stop()
+                self._pending_login = None
+                return await self._finish_playwright_login(cookies)  # type: ignore[arg-type]
+
+            # MFA failed — look for an error on the page
+            mfa_error: str | None = None
+            try:
+                for sel in ['[role="alert"]', 'p[class*="error"]', 'p[class*="Error"]']:
+                    el = page.locator(sel).first
+                    if await el.is_visible(timeout=500):
+                        mfa_error = (await el.inner_text()).strip()[:200]
+                        break
+            except Exception:
+                pass
+            logger.error("[Woolworths] Playwright MFA: failed at URL %s — %s", current_url, mfa_error)
+            return f"failed:{mfa_error or 'Invalid or expired MFA code — please try again'}"
+
+        except Exception as exc:
+            logger.exception("[Woolworths] Playwright MFA error")
+            return f"failed:{exc}"
+
+    async def cancel_pending_login(self) -> None:
+        """Tear down any in-progress Playwright login session."""
+        if self._pending_login:
+            try:
+                await self._pending_login.context.close()
+            except Exception:
+                pass
+            try:
+                await self._pending_login.playwright.stop()
+            except Exception:
+                pass
+            self._pending_login = None
+
+    async def _finish_playwright_login(self, cookies: list[dict]) -> str:
+        """Store Woolworths cookies captured from a Playwright session."""
+        ww_cookies = [c for c in cookies if "woolworths" in c.get("domain", "").lower()]
+        if not ww_cookies:
+            return "failed:No Woolworths cookies found after login — login may not have completed"
+        success = await self.import_cookies(json.dumps(ww_cookies))
+        return "ok" if success else "failed:Could not persist the captured cookies"
+
+    @staticmethod
+    def _looks_like_mfa(url: str, page_text: str) -> bool:
+        url_lower = url.lower()
+        mfa_url_hints = ("mfa", "otp", "challenge", "verify", "step-up", "factor", "authenticate")
+        mfa_text_hints = (
+            "verify your identity", "authentication code", "enter code",
+            "one-time", "passcode", "authenticator", "sms code",
+            "check your mobile", "mobile for a code", "verification code",
+        )
+        return (
+            any(h in url_lower for h in mfa_url_hints)
+            or any(h in page_text for h in mfa_text_hints)
+        )
+
+    @staticmethod
+    async def _extract_page_error(page: Any) -> str | None:
+        """Try to read a visible error message from the current page."""
+        selectors = [
+            '[role="alert"]',
+            '[data-testid*="error"]',
+            '[class*="error"]',
+            '[class*="alert"]',
+            'p[class*="Error"]',
+        ]
+        for sel in selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=500):
+                    text = (await el.inner_text()).strip()
+                    if text:
+                        return text[:200]
+            except Exception:
+                pass
+        return None
 
     async def logout(self) -> None:
         """Delete stored Woolworths cookies and close the HTTP client."""

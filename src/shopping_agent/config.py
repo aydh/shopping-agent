@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     mcp_jwt_algorithm: str = Field(default="ES256", description="JWT algorithm Supabase uses (ES256/RS256 use JWKS; HS256 uses SUPABASE_JWT_SECRET)")
     enable_scheduler: bool = Field(default=False, description="Enable scheduled price refresh (ENABLE_SCHEDULER)")
     playwright_profile_dir: str | None = Field(default=None, description="Persistent Chrome profile dir for Playwright login (PLAYWRIGHT_PROFILE_DIR)")
+    coles_playwright_profile_dir: str | None = Field(default=None, description="Persistent Chrome profile dir for Coles Playwright login; falls back to PLAYWRIGHT_PROFILE_DIR (COLES_PLAYWRIGHT_PROFILE_DIR)")
+    woolworths_playwright_profile_dir: str | None = Field(default=None, description="Persistent Chrome profile dir for Woolworths Playwright login; falls back to PLAYWRIGHT_PROFILE_DIR/woolworths (WOOLWORTHS_PLAYWRIGHT_PROFILE_DIR)")
     playwright_headless: bool = Field(default=True, description="Run Playwright browser in headless mode (PLAYWRIGHT_HEADLESS)")
     playwright_channel: str | None = Field(default=None, description="Playwright browser channel, e.g. 'chrome' for system Chrome (PLAYWRIGHT_CHANNEL)")
 

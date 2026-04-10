@@ -64,6 +64,9 @@ class FakeResult:
             return self._rows[0]
         return None
 
+    def one(self) -> Any:
+        return self._rows[0]
+
     def __iter__(self):
         return iter(self._rows)
 

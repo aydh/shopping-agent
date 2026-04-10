@@ -31,9 +31,13 @@ def _product(product_id: int, store: Store, name: str, price: float | None = Non
 @pytest.mark.asyncio
 async def test_dashboard_view_builds_summary_context(monkeypatch, fake_result, dummy_templates, make_request):
     monkeypatch.setattr(dashboard, "templates", dummy_templates)
-    order_row = namedtuple("OrderRow", ["store", "count", "last_sync"])
-    product_row = namedtuple("ProductRow", ["store", "count"])
+    order_row = namedtuple("OrderRow", ["store", "count", "last_date", "total_spend"])
+    last_order_row = namedtuple("LastOrderRow", ["store", "last_spend", "item_count"])
+    product_row = namedtuple("ProductRow", ["store", "total", "unavailable", "not_found", "last_updated"])
     match_row = namedtuple("MatchRow", ["is_rejected", "count"])
+    pred_row = namedtuple("PredRow", ["store", "total", "matched"])
+    inactive_row = namedtuple("InactiveRow", ["store", "unavailable", "unavailable_matched", "not_found", "not_found_matched"])
+    pair_row = namedtuple("PairRow", ["both_unavailable", "both_not_found"])
     high = PredictionView(
         product_id=1,
         product=_product(1, Store.COLES, "Milk", 4.0),
@@ -65,12 +69,24 @@ async def test_dashboard_view_builds_summary_context(monkeypatch, fake_result, d
     session = AsyncMock()
     session.execute = AsyncMock(
         side_effect=[
-            fake_result(rows=[order_row(Store.COLES, 3, date(2025, 1, 1)), order_row(Store.WOOLWORTHS, 2, date(2025, 1, 2))]),
-            fake_result(rows=[product_row(Store.COLES, 4), product_row(Store.WOOLWORTHS, 5)]),
+            # 1. order_stats
+            fake_result(rows=[order_row(Store.COLES, 3, date(2025, 1, 1), 100.0), order_row(Store.WOOLWORTHS, 2, date(2025, 1, 2), 80.0)]),
+            # 2. last_order_stats
+            fake_result(rows=[last_order_row(Store.COLES, 50.0, 5), last_order_row(Store.WOOLWORTHS, 40.0, 4)]),
+            # 3. product_detail_stats
+            fake_result(rows=[product_row(Store.COLES, 4, 0, 0, None), product_row(Store.WOOLWORTHS, 5, 0, 0, None)]),
+            # 4. removed_count
             fake_result(scalar=6),
+            # 5. match_stats
             fake_result(rows=[match_row(False, 7), match_row(True, 1)]),
+            # 6. pred_store_stats
+            fake_result(rows=[pred_row(Store.COLES, 3, 1), pred_row(Store.WOOLWORTHS, 2, 1)]),
+            # 7. inactive_store_stats
+            fake_result(rows=[inactive_row(Store.COLES, 0, 0, 0, 0), inactive_row(Store.WOOLWORTHS, 0, 0, 0, 0)]),
+            # 8. _pair_stats
+            fake_result(rows=[pair_row(0, 0)]),
+            # 9. list_count
             fake_result(scalar=8),
-            fake_result(scalar=9),
         ]
     )
     monkeypatch.setattr(dashboard, "get_predictions_with_match_info", AsyncMock(return_value=[high, low]))

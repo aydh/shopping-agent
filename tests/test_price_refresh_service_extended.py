@@ -31,7 +31,6 @@ async def test_do_price_refresh_updates_prices_and_list_items(fake_result, async
         side_effect=[
             fake_result(scalars=[product]),
             fake_result(scalars=[]),
-            fake_result(scalars=[]),
             fake_result(scalars=[list_item]),
         ]
     )
@@ -47,8 +46,7 @@ async def test_do_price_refresh_updates_prices_and_list_items(fake_result, async
     status_session.execute = AsyncMock(return_value=fake_result())
     status_session.commit = AsyncMock()
 
-    # Provide enough sessions for all async_session() calls
-    # Order: outer_session, status (line 126), inner (line 160), status (line 255), status (line 273)
+    # Order: outer_session, status, inner, status, status
     sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
     monkeypatch.setattr(
         "shopping_agent.services.price_refresh.async_session",
@@ -141,7 +139,6 @@ async def test_do_price_refresh_marks_unavailable_products(fake_result, async_cm
         side_effect=[
             fake_result(scalars=[product]),
             fake_result(scalars=[]),
-            fake_result(scalars=[]),
             fake_result(scalars=[list_item]),
         ]
     )
@@ -156,7 +153,7 @@ async def test_do_price_refresh_marks_unavailable_products(fake_result, async_cm
     status_session.execute = AsyncMock(return_value=fake_result())
     status_session.commit = AsyncMock()
 
-    # Order: outer_session, status (line 126), inner (line 160), status (line 255), status (line 273)
+    # Order: outer_session, status, inner, status, status
     sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
     monkeypatch.setattr(
         "shopping_agent.services.price_refresh.async_session",

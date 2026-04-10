@@ -113,20 +113,48 @@
                                 <span id="woolworths-validate-spinner" class="htmx-indicator text-xs text-gray-400">checking...</span>
                             </p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            {% if woolworths_connected %}
+                        <div class="flex items-center gap-2 flex-wrap">
                             <button id="woolworths-validate-btn" hx-get="/api/auth/validate/woolworths" hx-target="#woolworths-validate-result" hx-indicator="#woolworths-validate-spinner"
                                     class="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded hover:bg-blue-200">
                                 Validate
                             </button>
+                            {% if woolworths_connected %}
+                            <button onclick="logoutStore('woolworths')"
+                                    class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
+                                Logout
+                            </button>
                             {% endif %}
+                            <button onclick="toggleLoginPanel('woolworths-login-panel')"
+                                    class="px-3 py-1.5 bg-green-100 text-green-700 text-sm rounded hover:bg-green-200">
+                                Login
+                            </button>
                             <button onclick="toggleCookiePanel('woolworths')"
                                     class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200">
-                                Reimport Cookies
+                                Import Cookies
                             </button>
                         </div>
                     </div>
-                    <div id="woolworths-cookie-panel" class="mt-3 space-y-2 {% if woolworths_connected %}hidden{% endif %}">
+                    <!-- Credential login panel -->
+                    <div id="woolworths-login-panel" class="mt-3 hidden">
+                        <div class="space-y-2 max-w-xs">
+                            <p class="text-xs text-gray-500">Enter your Woolworths account credentials. They are used once to log in and are never stored.</p>
+                            <input type="email" id="woolworths-login-email" placeholder="Email"
+                                   autocomplete="username"
+                                   class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-green-500 focus:border-green-500">
+                            <input type="password" id="woolworths-login-password" placeholder="Password"
+                                   autocomplete="current-password"
+                                   class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-green-500 focus:border-green-500">
+                            <div>
+                                <button id="woolworths-login-btn" onclick="submitWoolworthsLogin()"
+                                        class="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Log In
+                                </button>
+                            </div>
+                            <div id="woolworths-login-status" class="text-sm min-h-[1.5rem]"></div>
+                        </div>
+                    </div>
+                    <!-- Cookie import panel (fallback) -->
+                    <div id="woolworths-cookie-panel" class="mt-3 space-y-2 hidden">
                         <textarea id="woolworths-cookie-input" rows="4"
                             placeholder='Paste cookie JSON here from the Cookie-Editor extension...'
                             class="w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring-green-500 focus:border-green-500"></textarea>
@@ -215,6 +243,129 @@ function importCookies(store) {
 }
 
 function importWoolworthsCookies() { importCookies('woolworths'); }
+
+function setWoolworthsLoginFormDisabled(disabled) {
+    ['woolworths-login-email', 'woolworths-login-password', 'woolworths-login-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+    });
+}
+
+async function submitWoolworthsLogin() {
+    const email = document.getElementById('woolworths-login-email').value.trim();
+    const password = document.getElementById('woolworths-login-password').value;
+    if (!email || !password) {
+        document.getElementById('woolworths-login-status').innerHTML =
+            '<span class="text-red-600">Enter email and password first</span>';
+        return;
+    }
+
+    const statusEl = document.getElementById('woolworths-login-status');
+    statusEl.innerHTML = '<span class="text-gray-400 text-sm">Starting\u2026</span>';
+    document.getElementById('woolworths-login-password').value = '';
+    setWoolworthsLoginFormDisabled(true);
+
+    const fd = new FormData();
+    fd.append('email', email);
+    fd.append('password', password);
+
+    try {
+        const response = await fetch('/api/auth/login-playwright/woolworths', { method: 'POST', body: fd });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readWoolworthsLoginStream(response, statusEl);
+    } catch (err) {
+        statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
+        setWoolworthsLoginFormDisabled(false);
+    }
+}
+
+async function submitWoolworthsMFA() {
+    const code = document.getElementById('woolworths-mfa-input').value.trim();
+    if (!code) return;
+
+    const statusEl = document.getElementById('woolworths-login-status');
+    statusEl.innerHTML = '<span class="text-gray-400 text-sm">Verifying\u2026</span>';
+
+    const fd = new FormData();
+    fd.append('code', code);
+
+    try {
+        const response = await fetch('/api/auth/login-playwright/woolworths/mfa', { method: 'POST', body: fd });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readWoolworthsLoginStream(response, statusEl);
+    } catch (err) {
+        statusEl.innerHTML = '<span class="text-red-600">Request failed: ' + err.message + '</span>';
+    }
+}
+
+async function readWoolworthsLoginStream(response, statusEl) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop();
+
+        for (const block of blocks) {
+            let eventType = 'message', data = '';
+            for (const line of block.trim().split('\n')) {
+                if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                if (line.startsWith('data: '))  data  = line.slice(6).trim();
+            }
+            if (!data) continue;
+
+            try {
+                const payload = JSON.parse(data);
+                if (eventType === 'progress') {
+                    statusEl.innerHTML = '<span class="text-gray-400 text-sm">' + payload.message + '\u2026</span>';
+                } else if (eventType === 'done') {
+                    handleWoolworthsLoginDone(payload.result, statusEl);
+                }
+            } catch (_) {}
+        }
+    }
+}
+
+function handleWoolworthsLoginDone(result, statusEl) {
+    if (result === 'ok') {
+        setWoolworthsLoginFormDisabled(false);
+        statusEl.innerHTML = '<span class="text-green-600">Logged in \u2014 cookies stored</span>';
+        document.getElementById('woolworths-login-panel').classList.add('hidden');
+        document.getElementById('woolworths-auth-status').innerHTML =
+            '<span class="text-green-600">Connected \u2014 session active</span>';
+    } else if (result === 'mfa_required') {
+        statusEl.innerHTML = `
+            <div class="space-y-2">
+                <p class="text-sm text-amber-700 font-medium">MFA code required</p>
+                <p class="text-xs text-gray-600">Enter the code from your authenticator app or SMS.</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="woolworths-mfa-input" placeholder="000000" maxlength="8"
+                           inputmode="numeric" autocomplete="one-time-code"
+                           class="border border-gray-300 rounded px-3 py-1.5 text-sm w-28 tracking-widest text-center">
+                    <button onclick="submitWoolworthsMFA()"
+                            class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Verify</button>
+                    <button onclick="cancelWoolworthsLogin()"
+                            class="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">Cancel</button>
+                </div>
+            </div>`;
+        document.getElementById('woolworths-mfa-input').focus();
+    } else {
+        setWoolworthsLoginFormDisabled(false);
+        const reason = result.replace(/^failed:/, '');
+        statusEl.innerHTML = '<span class="text-red-600">Login failed: ' + reason + '</span>';
+    }
+}
+
+function cancelWoolworthsLogin() {
+    fetch('/api/auth/login-playwright/woolworths/cancel', { method: 'POST' });
+    document.getElementById('woolworths-login-status').innerHTML = '';
+    setWoolworthsLoginFormDisabled(false);
+}
 
 function toggleLoginPanel(id) {
     const panel = document.getElementById(id);

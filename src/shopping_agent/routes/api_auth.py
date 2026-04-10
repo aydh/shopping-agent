@@ -171,9 +171,9 @@ async def login_playwright(
       done      {"result": str}         – "ok", "mfa_required", or "failed:…"
     """
     store_enum = store_from_string(store)
-    if store_enum != Store.COLES:
+    if store_enum not in (Store.COLES, Store.WOOLWORTHS):
         async def _unsupported():
-            yield f'event: done\ndata: {json.dumps({"result": "failed:Playwright login is only supported for Coles"})}\n\n'
+            yield f'event: done\ndata: {json.dumps({"result": "failed:Playwright login is not supported for this store"})}\n\n'
         return StreamingResponse(_unsupported(), media_type="text/event-stream")
 
     scraper = get_scraper(user.user_id, store_enum)

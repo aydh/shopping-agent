@@ -298,8 +298,19 @@ class ColesScraper(BaseScraper):
         try:
             _progress("Launching browser")
             import tempfile
-            user_data_dir = settings.playwright_profile_dir or tempfile.mkdtemp(prefix="coles-playwright-")
-            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+            raw_dir = settings.coles_playwright_profile_dir or settings.playwright_profile_dir
+            if raw_dir:
+                try:
+                    Path(raw_dir).mkdir(parents=True, exist_ok=True)
+                    user_data_dir = raw_dir
+                except OSError:
+                    logger.warning(
+                        "[Coles] Cannot use configured profile dir %s; falling back to tempdir",
+                        raw_dir,
+                    )
+                    user_data_dir = tempfile.mkdtemp(prefix="coles-playwright-")
+            else:
+                user_data_dir = tempfile.mkdtemp(prefix="coles-playwright-")
             launch_kwargs: dict = {}
             if settings.playwright_channel:
                 launch_kwargs["channel"] = settings.playwright_channel
