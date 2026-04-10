@@ -45,7 +45,7 @@ class PredictionView:
 
     # Forwarded from ORM columns
     product_id: int
-    product: object  # Product ORM instance
+    product: Product
     predicted_runout_date: date
     estimated_daily_consumption: float
     confidence_score: float
@@ -55,7 +55,7 @@ class PredictionView:
     # Computed fields
     days_until_runout: int
     is_matched: bool
-    matched_product: object  # Product ORM instance or None
+    matched_product: Product | None
     match_id: int | None
 
 

@@ -121,7 +121,7 @@ async def dashboard(
 
     # Prediction stats per store: total + how many have a cross-store match
     pred_store_stats: dict = {}
-    for row in (await session.execute(
+    for pred_row in (await session.execute(
         select(
             Product.store,
             func.count(ConsumptionPrediction.id).label("total"),
@@ -133,11 +133,11 @@ async def dashboard(
         .outerjoin(matched_ids_sq, matched_ids_sq.c.pid == Product.id)
         .group_by(Product.store)
     )).all():
-        pred_store_stats[row.store] = row
+        pred_store_stats[pred_row.store] = pred_row
 
     # Inactive stats per store: unavailable + not_found, each with matched count
     inactive_store_stats: dict = {}
-    for row in (await session.execute(
+    for inactive_row in (await session.execute(
         select(
             Product.store,
             func.count(Product.id).filter(Product.is_available.is_(False)).label("unavailable"),
@@ -152,7 +152,7 @@ async def dashboard(
         .outerjoin(matched_ids_sq, matched_ids_sq.c.pid == Product.id)
         .group_by(Product.store)
     )).all():
-        inactive_store_stats[row.store] = row
+        inactive_store_stats[inactive_row.store] = inactive_row
 
     pred_count = sum(r.total for r in pred_store_stats.values())
 
