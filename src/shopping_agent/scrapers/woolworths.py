@@ -513,6 +513,19 @@ class WoolworthsScraper(BaseScraper):
 
             page_text = (await page.inner_text("body")).lower()
             if self._looks_like_mfa(current_url, page_text):
+                logger.info("[Woolworths] Playwright: MFA detected at URL %s — page text: %s", current_url, page_text[:300])
+
+                # mfa-phone-challenge: user must choose SMS/Call then click Continue.
+                # Do this automatically so the SMS is sent before we ask for the code.
+                if "mfa-phone-challenge" in current_url:
+                    _progress("Sending MFA code via SMS…")
+                    try:
+                        await page.get_by_role("button", name="Continue").click()
+                        await page.wait_for_url("**/mfa-sms-challenge**", timeout=15000)
+                        logger.info("[Woolworths] Playwright: SMS sent, now on %s", page.url)
+                    except Exception as sms_exc:
+                        logger.warning("[Woolworths] Playwright: could not auto-advance past phone-challenge: %s", sms_exc)
+
                 _progress("MFA code required")
                 self._pending_login = _PendingLogin(playwright=pw, context=context, page=page)
                 return "mfa_required"
@@ -554,29 +567,97 @@ class WoolworthsScraper(BaseScraper):
 
         try:
             page = pending.page
+            logger.info("[Woolworths] Playwright MFA: current URL = %s", page.url)
+            try:
+                page_body = (await page.inner_text("body"))[:500]
+                logger.info("[Woolworths] Playwright MFA: page text = %s", page_body)
+            except Exception:
+                pass
+
+            # If the page is showing a push/Guardian screen, try to switch to OTP entry
+            try:
+                for try_another in (
+                    page.get_by_role("button", name="Try another method"),
+                    page.get_by_role("link", name="Try another method"),
+                    page.get_by_role("button", name="Use a one-time code"),
+                    page.get_by_role("link", name="Use a one-time code"),
+                    page.get_by_role("button", name="Enter a code"),
+                ):
+                    if await try_another.is_visible(timeout=500):
+                        await try_another.click()
+                        await page.wait_for_timeout(1000)
+                        break
+            except Exception:
+                pass
+
             mfa_selector = (
                 'input[name="code"], '
                 'input[autocomplete="one-time-code"], '
                 'input[type="tel"], '
                 'input[inputmode="numeric"], '
-                'input[name="credentials.passcode"]'
+                'input[name="credentials.passcode"], '
+                'input[id="code"], '
+                'input[placeholder*="code" i], '
+                'input[placeholder*="passcode" i]'
             )
-            await page.wait_for_selector(mfa_selector, timeout=5000)
-            await page.click(mfa_selector)
-            await page.locator(mfa_selector).press_sequentially(code, delay=50)
+
+            # Detect how many visible inputs the page has — Auth0 SMS pages sometimes
+            # use 6 individual single-digit boxes rather than one full-length input.
+            found_input = False
+            try:
+                await page.wait_for_selector(mfa_selector, timeout=15000)
+                all_inputs = await page.locator(mfa_selector).all()
+                logger.info("[Woolworths] Playwright MFA: matched inputs = %d", len(all_inputs))
+                for inp in all_inputs:
+                    attrs = await inp.evaluate(
+                        "el => ({name: el.name, type: el.type, id: el.id, maxlength: el.maxLength})"
+                    )
+                    logger.info("[Woolworths] Playwright MFA: input attrs = %s", attrs)
+
+                if len(all_inputs) >= 6:
+                    # Individual digit boxes — fill one character per box
+                    for i, digit in enumerate(code):
+                        if i < len(all_inputs):
+                            await all_inputs[i].click()
+                            await all_inputs[i].fill(digit)
+                            await page.wait_for_timeout(50)
+                else:
+                    # Single code input — use fill() to properly trigger React onChange
+                    inp = all_inputs[0] if all_inputs else page.locator(mfa_selector).first
+                    await inp.click()
+                    await inp.fill(code)
+
+                found_input = True
+            except Exception as e:
+                logger.error("[Woolworths] Playwright MFA: input fill failed: %s", e)
+
+            if not found_input:
+                return "failed:Could not find MFA input field — check logs for page details"
+
             await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_MFA_MS)
 
-            # Try "Continue" first (Auth0 OTP), then fall back to submit
-            try:
-                await page.get_by_role("button", name="Continue").click()
-            except Exception:
+            # Submit — try named buttons with short timeouts so we don't hang 30s on each
+            submitted = False
+            for btn_name in ("Continue", "Verify", "Submit"):
                 try:
-                    await page.get_by_role("button", name="Log in").click()
+                    btn = page.get_by_role("button", name=btn_name, exact=True)
+                    if await btn.is_visible(timeout=1500):
+                        await btn.click()
+                        submitted = True
+                        break
                 except Exception:
-                    await page.locator('button[type="submit"]').first.click()
+                    pass
+            if not submitted:
+                try:
+                    await page.locator('button[type="submit"]').first.click(timeout=3000)
+                except Exception:
+                    pass
 
             try:
-                await page.wait_for_url("**/www.woolworths.com.au/**", timeout=30000)
+                await page.wait_for_url(
+                    lambda url: "www.woolworths.com.au" in url,
+                    timeout=30000,
+                )
             except Exception:
                 pass
 

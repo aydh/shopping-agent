@@ -29,6 +29,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
     "ruff>=0.8",
     "mypy>=1.13",
 ]
@@ -46,3 +47,11 @@ line-length = 100
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = "--cov=shopping_agent --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/shopping_agent"]
+omit = ["*/migrations/*", "*/tests/*"]
+
+[tool.coverage.report]
+skip_empty = true

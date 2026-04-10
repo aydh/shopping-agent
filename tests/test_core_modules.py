@@ -9,7 +9,7 @@ import pytest
 from shopping_agent.cache import InMemoryImageCache
 from shopping_agent.config import Settings
 from shopping_agent.services.data_management import get_db_counts
-from shopping_agent.templating import _product_image_url, _product_url
+from shopping_agent.templating import _localtime, _product_image_url, _product_url
 
 
 @pytest.mark.asyncio
@@ -192,3 +192,51 @@ def test_main_app_mounts_static_and_mcp():
     assert "/mcp" in paths
     assert "/" in paths
     assert "/healthz" in paths
+
+
+# ---------------------------------------------------------------------------
+# templating._localtime
+# ---------------------------------------------------------------------------
+
+def test_localtime_naive_datetime_gets_utc_assumed():
+    from datetime import datetime
+    naive = datetime(2025, 6, 1, 10, 0, 0)
+    result = _localtime(naive)
+    # Should have timezone info after conversion
+    assert result.tzinfo is not None
+
+
+def test_localtime_aware_datetime_converts():
+    from datetime import datetime, timezone
+    aware = datetime(2025, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+    result = _localtime(aware)
+    assert result.tzinfo is not None
+
+
+def test_localtime_none_passthrough():
+    assert _localtime(None) is None  # type: ignore[arg-type]
+
+
+def test_product_image_url_none_returns_none():
+    assert _product_image_url(None) is None
+
+
+# ---------------------------------------------------------------------------
+# templating._get_nav_user
+# ---------------------------------------------------------------------------
+
+def test_get_nav_user_no_cookie_returns_none(make_request):
+    from shopping_agent.templating import _get_nav_user
+    request = make_request("/")
+    assert _get_nav_user(request) is None
+
+
+def test_get_nav_user_bad_token_returns_none(make_request):
+    from unittest.mock import patch
+    from shopping_agent.templating import _get_nav_user
+
+    request = make_request("/")
+    request._cookies = {"sb-access-token": "bad.token"}  # type: ignore[attr-defined]
+    with patch.object(type(request), "cookies", property(lambda self: self._cookies)):
+        result = _get_nav_user(request)
+    assert result is None

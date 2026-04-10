@@ -426,3 +426,145 @@ async def test_get_list_history_summarizes_completed_lists(fake_result):
             "total": 6.0,
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# remove_item — not-found returns False (line 305)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_remove_item_returns_false_when_not_found():
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=None)
+
+    result = await remove_item(session, 999)
+
+    assert result is False
+    session.commit.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# get_active_list — returns None when no list (lines 318-324)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_active_list_returns_none_when_empty(fake_result):
+    from shopping_agent.services.shopping_list import get_active_list
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=fake_result(scalars=[]))
+
+    result = await get_active_list(session, _USER_ID)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_active_list_returns_list_when_found(fake_result):
+    from shopping_agent.services.shopping_list import get_active_list
+    sl = ShoppingList(id=1, name="List", status=ListStatus.DRAFT, user_id=_USER_ID)
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=fake_result(scalars=[sl]))
+
+    result = await get_active_list(session, _USER_ID)
+
+    assert result is sl
+
+
+# ---------------------------------------------------------------------------
+# add_item_to_list — woolworths-only product (line 449 branch)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_add_item_to_list_woolworths_only_product(fake_result):
+    ww_product = _product(10, Store.WOOLWORTHS, "Eggs", 5.0)
+    shopping_list = ShoppingList(id=1, name="List", status=ListStatus.DRAFT, user_id=_USER_ID)
+
+    session = AsyncMock()
+    # 1. get_active_list, 2. get_partner_product (no match), 3. no existing item
+    session.execute = AsyncMock(side_effect=[
+        fake_result(scalars=[shopping_list]),
+        fake_result(scalars=[]),
+        fake_result(scalars=[]),
+    ])
+    session.get = AsyncMock(return_value=ww_product)
+
+    item = await add_item_to_list(session, _USER_ID, product_id=10, quantity=2)
+
+    assert item is not None
+    assert item.woolworths_price == 5.0
+    assert item.coles_price is None
+
+
+# ---------------------------------------------------------------------------
+# add_item_to_list — IntegrityError path (line 504)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_add_item_to_list_integrity_error_increments_existing(fake_result):
+    coles_product = _product(1, Store.COLES, "Milk", 3.0)
+    shopping_list = ShoppingList(id=1, name="List", status=ListStatus.DRAFT, user_id=_USER_ID)
+
+    existing_item = ShoppingListItem(
+        id=5,
+        shopping_list_id=1,
+        product_id=1,
+        quantity=1,
+        coles_price=3.0,
+        chosen_store=Store.COLES,
+        is_removed=False,
+    )
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[
+        fake_result(scalars=[shopping_list]),     # get_active_list
+        fake_result(scalars=[]),                  # get_partner_product — no match
+        fake_result(scalars=[]),                  # existing item check — none yet
+        fake_result(scalars=[existing_item]),     # existing item after IntegrityError
+    ])
+    session.get = AsyncMock(return_value=coles_product)
+    session.commit = AsyncMock(side_effect=[IntegrityError(None, None, None), None])
+
+    result = await add_item_to_list(session, _USER_ID, product_id=1, quantity=2)
+
+    assert result is existing_item
+    assert existing_item.quantity == 3
+
+
+# ---------------------------------------------------------------------------
+# get_shopping_list_summary_context — no active list (lines 646-681)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_shopping_list_summary_context_no_list(fake_result):
+    from shopping_agent.services.shopping_list import get_shopping_list_summary_context
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=fake_result(scalars=[]))
+
+    ctx = await get_shopping_list_summary_context(session, _USER_ID)
+
+    assert ctx["shopping_list"] is None
+    assert ctx["active_item_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_shopping_list_summary_context_with_list(fake_result):
+    from shopping_agent.services.shopping_list import get_shopping_list_summary_context
+    product = _product(1, Store.COLES, "Milk", 3.0)
+    item = ShoppingListItem(
+        id=1, shopping_list_id=1, product_id=1, quantity=2,
+        coles_price=3.0, chosen_store=Store.COLES, is_removed=False,
+    )
+    item.product = product
+    sl = ShoppingList(id=1, name="List", status=ListStatus.DRAFT, user_id=_USER_ID, items=[item])
+
+    MatchRow = type("R", (), {"all": lambda self: []})
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[
+        fake_result(scalars=[sl]),         # get_active_list
+        MagicMock(all=lambda: []),         # matches query
+    ])
+
+    ctx = await get_shopping_list_summary_context(session, _USER_ID)
+
+    assert ctx["shopping_list"] is sl
+    assert ctx["active_item_count"] == 1
