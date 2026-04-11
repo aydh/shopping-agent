@@ -120,7 +120,7 @@ def _decode_token(token: str) -> dict:
                 cache_key = settings.supabase_url
                 jwks = _JWKS_CACHE.get(cache_key)
                 if jwks is None:
-                    keys_url = f"{settings.supabase_url}/auth/v1/keys"
+                    keys_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
                     with httpx.Client(timeout=5.0) as client:
                         resp = client.get(
                             keys_url,
@@ -150,11 +150,7 @@ def _decode_token(token: str) -> dict:
                         )
                     jwk_key = keys[0]
                 if jwk_key is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="No matching JWT key found",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
+                    raise ValueError("No matching JWT key found in JWKS; falling back to /auth/v1/user")
 
                 public_key = jwk.construct(jwk_key)
                 issuer = f"{settings.supabase_url}/auth/v1"

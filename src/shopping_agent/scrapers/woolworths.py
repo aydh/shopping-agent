@@ -143,6 +143,10 @@ class WoolworthsScraper(BaseScraper):
                     "[Woolworths] Auth failure (%d) on %s %s — body: %s",
                     resp.status_code, method, path, body_snippet,
                 )
+                # Reset the client so the next request re-bootstraps Akamai cookies.
+                if self._client and not self._client.is_closed:
+                    await self._client.aclose()
+                self._client = None
                 return None
             return resp
         except httpx.HTTPError:
