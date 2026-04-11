@@ -131,7 +131,10 @@ def _decode_token(token: str) -> dict:
                     else:
                         # Endpoint unavailable (e.g. 404) — cache empty so we
                         # don't retry on every request; fallback path handles auth.
-                        logger.debug("JWKS endpoint returned %d; will use fallback", resp.status_code)
+                        logger.warning(
+                            "JWKS endpoint returned %d; will use /auth/v1/user fallback",
+                            resp.status_code,
+                        )
                         jwks = {}
                     _JWKS_CACHE.set(cache_key, jwks)
 
@@ -139,6 +142,12 @@ def _decode_token(token: str) -> dict:
                 jwk_key = next((k for k in keys if k.get("kid") == kid), None) if kid else None
                 if jwk_key is None and keys:
                     # Fallback: if kid is missing/unmatched, try the first key.
+                    if kid:
+                        logger.warning(
+                            "JWKS: no key matched kid=%r; falling back to first key — "
+                            "check that your JWKS is up-to-date",
+                            kid,
+                        )
                     jwk_key = keys[0]
                 if jwk_key is None:
                     raise HTTPException(
@@ -158,8 +167,14 @@ def _decode_token(token: str) -> dict:
                 )
                 _TOKEN_CACHE.set(token, claims)
                 return claims
-            except Exception:
-                logger.debug("JWKS verification failed; falling back to /auth/v1/user validation")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "JWKS verification failed (%s: %s); falling back to /auth/v1/user validation",
+                    type(exc).__name__,
+                    exc,
+                )
 
                 user_url = f"{settings.supabase_url}/auth/v1/user"
                 headers = {
