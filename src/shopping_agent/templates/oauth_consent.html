@@ -110,20 +110,40 @@
                 const { data, error } = await sb.auth.oauth.getAuthorizationDetails(AUTHORIZATION_ID);
                 if (error) throw error;
                 details = data;
+                console.log('[consent] getAuthorizationDetails:', JSON.stringify({
+                    auto_approved: details.auto_approved,
+                    has_redirect_url: !!details.redirect_url,
+                    client_id: details.client_id,
+                    client_name: details.client_name,
+                }));
             } catch (err) {
                 showError(err.message || 'Failed to load authorization details.');
                 return;
             }
 
-            // Supabase auto-approves for trusted clients (e.g. project owner).
-            // When auto_approved, redirect_url is already in the GET response — skip
-            // the consent UI and redirect immediately. Do NOT call approveAuthorization()
-            // as that POST returns 400 when the request is already auto-approved.
+            // If Supabase already issued the authorization code (redirect_url present),
+            // redirect immediately. This happens when auto_approved=true (trusted client)
+            // OR when a previously-approved client gets a code pre-issued.
+            // Do NOT call approveAuthorization() — the auth is already complete and calling
+            // it again returns "authorization request cannot be processed".
+            if (details.redirect_url) {
+                console.log('[consent] redirect_url present, redirecting immediately');
+                window.location.href = details.redirect_url;
+                return;
+            }
+
+            // auto_approved=true but no redirect_url — call approveAuthorization() to complete.
             if (details.auto_approved) {
-                if (details.redirect_url) {
-                    window.location.href = details.redirect_url;
-                } else {
-                    showError('Authorization was auto-approved but no redirect URL was received.');
+                try {
+                    const { data, error } = await sb.auth.oauth.approveAuthorization(AUTHORIZATION_ID);
+                    if (error) throw error;
+                    if (data?.redirect_url) {
+                        window.location.href = data.redirect_url;
+                    } else {
+                        showError('Authorization completed but no redirect URL received.');
+                    }
+                } catch (err) {
+                    showError(err.message || 'Failed to complete auto-approved authorization.');
                 }
                 return;
             }

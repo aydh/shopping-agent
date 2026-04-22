@@ -16,9 +16,6 @@ When an MCP client re-authorises and Supabase has already stored the user's appr
 
 ## Playwright / Browser Login
 
-### Add interactive Playwright login for Woolworths `P1`
-Woolworths login currently requires the user to manually export cookies from their browser using the Cookie-Editor extension. This is fragile — Woolworths tokens expire and the JWT refresh endpoint occasionally fails, requiring a fresh cookie import. Implement `login_interactive()` for `WoolworthsScraper` following the same Playwright pattern already used for Coles: open a persistent Chrome profile, navigate to the Woolworths login page, let the user complete sign-in (including 2FA if required), then harvest and persist the resulting cookies and JWT token. The `_bootstrap_akamai_cookies()` flow should still run beforehand to pre-seed bot-detection cookies.
-
 ### Harden and optimise the Coles Playwright login flow `P2`
 The current Coles `login_with_credentials()` implementation has several rough edges: Incapsula bot-detection can reject requests if the delays between page interactions are too short or too uniform; the MFA completion flow (`complete_mfa()`) needs robust error handling for expired codes; and the persistent Chrome profile directory can become stale after browser updates. Improvements: add human-like randomised timing on top of the existing `PLAYWRIGHT_DELAY_*` constants, detect and handle Incapsula challenge pages, validate that saved cookies are still valid immediately after login completes, and add a clear error message when the profile directory is locked by another process.
 
@@ -105,9 +102,6 @@ The API URLs are action-oriented rather than resource-oriented, which makes the 
 ---
 
 ## Logging
-
-### Fix noisy / incorrect log entries when fetching Supabase JWKS `P2`
-In `auth.py`, the RS256/ES256 verification path fetches JWKS from Supabase, then falls back to `/auth/v1/user` if local verification fails. The fallback is triggered by a bare `except Exception:` (line 125) with only a `debug`-level log — which means any misconfiguration, key ID mismatch, or transient network error silently swallows the root cause and issues a synchronous HTTP call to Supabase on every non-cached request. In practice, if the JWKS keys endpoint is accessible but the `kid` in the token doesn't match any key in the response (a common misconfiguration), the code raises a 401 `"No matching JWT key found"` that is immediately caught and retried via `/auth/v1/user`, with nothing in the logs to explain why. Fix: distinguish between "JWKS endpoint unavailable" (acceptable fallback) and "JWKS returned keys but none matched" (likely a configuration error that should log at `WARNING` with the mismatched kid). Also make the fallback path log at `WARNING` rather than `DEBUG` when it is invoked so auth issues are visible in the INFO-level console output.
 
 ### Standardise logging levels and context across the codebase `P3`
 Log coverage is uneven: services and scrapers have loggers and use them reasonably, but most route handlers (13 `logger.` calls across all of `routes/`) emit nothing — success, failure, and unexpected conditions are all silent from the route layer. The MCP tools use an ad-hoc `[MCP]` prefix string rather than a child logger. Some places log at `WARNING` for expected recoverable conditions, others use `DEBUG` for genuine errors. Define a logging convention: `DEBUG` for per-item trace data (individual price fetches, single row upserts), `INFO` for operation boundaries (sync started/finished, list confirmed), `WARNING` for recoverable external failures (store API returned unexpected status, JWKS fetch failed), `ERROR` for unexpected internal failures. Apply consistently across routes, services, and scrapers, and replace `[MCP]` string prefixes with a `logging.getLogger("shopping_agent.mcp")` child logger.
