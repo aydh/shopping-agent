@@ -170,7 +170,10 @@ class WoolworthsScraper(BaseScraper):
         try:
             async with async_session() as session:
                 result = await session.execute(
-                    select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+                    select(StoreCookies).where(
+                        StoreCookies.store == Store.WOOLWORTHS,
+                        StoreCookies.user_id == self.user_id,
+                    )
                 )
                 row = result.scalar_one_or_none()
                 if not row:
@@ -278,7 +281,10 @@ class WoolworthsScraper(BaseScraper):
         """Return True if Woolworths cookies are stored in the database."""
         async with async_session() as session:
             result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+                select(StoreCookies).where(
+                    StoreCookies.store == Store.WOOLWORTHS,
+                    StoreCookies.user_id == self.user_id,
+                )
             )
             row = result.scalar_one_or_none()
             if not row:
@@ -312,13 +318,16 @@ class WoolworthsScraper(BaseScraper):
             cookies_json = json.dumps(normalised, indent=2)
             async with async_session() as session:
                 result = await session.execute(
-                    select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+                    select(StoreCookies).where(
+                        StoreCookies.store == Store.WOOLWORTHS,
+                        StoreCookies.user_id == self.user_id,
+                    )
                 )
                 row = result.scalar_one_or_none()
                 if row:
                     row.cookies_json = cookies_json
                 else:
-                    session.add(StoreCookies(store=Store.WOOLWORTHS, cookies_json=cookies_json))
+                    session.add(StoreCookies(store=Store.WOOLWORTHS, user_id=self.user_id, cookies_json=cookies_json))
                 await session.commit()
             logger.info("Imported %d cookies for woolworths", len(normalised))
 
@@ -752,7 +761,10 @@ class WoolworthsScraper(BaseScraper):
         """Delete stored Woolworths cookies and close the HTTP client."""
         async with async_session() as session:
             result = await session.execute(
-                select(StoreCookies).where(StoreCookies.store == Store.WOOLWORTHS)
+                select(StoreCookies).where(
+                    StoreCookies.store == Store.WOOLWORTHS,
+                    StoreCookies.user_id == self.user_id,
+                )
             )
             row = result.scalar_one_or_none()
             if row:
