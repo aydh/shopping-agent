@@ -139,6 +139,7 @@ async def do_price_refresh(
         async with sem:
             outcome: str = "error"
             try:
+                transient_failure = False
                 try:
                     # Pass timeout to httpx directly — asyncio.wait_for corrupts the
                     # connection pool when it cancels a mid-flight httpx request.
@@ -148,10 +149,12 @@ async def do_price_refresh(
                 except Exception as e:
                     logger.warning("[PriceRefresh] Request failed for %s: %s", product.store_product_id, e)
                     scraped = None
+                    transient_failure = True
 
                 async with async_session() as session:
                     db_product = await session.get(Product, product.id)
-                    if db_product and scraped is None:
+                    if db_product and scraped is None and not transient_failure:
+                        # Scraper explicitly returned None = product no longer exists.
                         db_product.not_found = True
                         await session.commit()
                     if db_product and scraped is not None:

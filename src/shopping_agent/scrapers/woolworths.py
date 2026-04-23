@@ -69,10 +69,17 @@ class WoolworthsScraper(BaseScraper):
     def __init__(self, user_id: uuid.UUID | None = None) -> None:
         self.user_id = user_id
         self._client: httpx.AsyncClient | None = None
+        self._price_client: httpx.AsyncClient | None = None
         self._pending_login: _PendingLogin | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the httpx client with current cookies."""
+        """Get or create the httpx client with current cookies.
+
+        Always bootstraps Akamai session cookies (_abck etc.) on every new client
+        creation, regardless of whether user login cookies are stored.  Akamai session
+        cookies are short-lived and required for all API access; user login cookies are
+        only needed for authenticated endpoints (order history, cart).
+        """
         if self._client is None or self._client.is_closed:
             cookies = await self._load_cookies()
             self._client = httpx.AsyncClient(
@@ -85,9 +92,35 @@ class WoolworthsScraper(BaseScraper):
                 follow_redirects=True,
                 timeout=30.0,
             )
-            if not cookies:
-                await self._bootstrap_akamai_cookies()
+            await self._bootstrap_akamai_cookies()
         return self._client
+
+    async def _get_price_client(self) -> httpx.AsyncClient:
+        """Get a lightweight client for unauthenticated price fetching.
+
+        Unlike _get_client(), this client never loads stored user login cookies.
+        It only carries the basic Akamai session cookies obtained from the homepage,
+        which is sufficient for the public product-detail API.  This avoids the
+        situation where expired user cookies trigger Akamai 403s on price refreshes.
+        """
+        if self._price_client is None or self._price_client.is_closed:
+            self._price_client = httpx.AsyncClient(
+                base_url=WOOLWORTHS_BASE,
+                headers={
+                    "User-Agent": DEFAULT_USER_AGENT,
+                    **DEFAULT_HEADERS,
+                },
+                follow_redirects=True,
+                timeout=30.0,
+            )
+            # Visit homepage to pick up basic Akamai session cookies (bm_s, bm_sz, etc.)
+            try:
+                await self._price_client.get(
+                    "/", headers={"Accept": "text/html,application/xhtml+xml,*/*"}
+                )
+            except Exception:
+                logger.warning("[Woolworths] Price-client homepage seed failed", exc_info=True)
+        return self._price_client
 
     async def _bootstrap_akamai_cookies(self) -> None:
         """Visit the Woolworths homepage to obtain Akamai bot-session cookies.
@@ -143,7 +176,11 @@ class WoolworthsScraper(BaseScraper):
                     "[Woolworths] Auth failure (%d) on %s %s — body: %s",
                     resp.status_code, method, path, body_snippet,
                 )
-                # Reset the client so the next request re-bootstraps Akamai cookies.
+                # Close and discard the client so _get_client() recreates it with a
+                # fresh Akamai bootstrap on the next request.  Simply nulling the client
+                # is not enough: without the null the next call reuses the same blocked
+                # session; with the null but without always-bootstrapping, the recreated
+                # client would just reload the same stale cookies.
                 if self._client and not self._client.is_closed:
                     await self._client.aclose()
                 self._client = None
@@ -886,19 +923,39 @@ class WoolworthsScraper(BaseScraper):
             product_name: Unused; kept for interface compatibility.
 
         Returns:
-            ScrapedProduct with current price, or None if not found.
+            ScrapedProduct with current price, or None if the product no longer exists.
+
+        Raises:
+            RuntimeError: If the request fails due to auth/network issues (transient —
+                callers should not mark the product as not_found in this case).
         """
+        if WOOLWORTHS_PRICE_FETCH_DELAY_S or WOOLWORTHS_PRICE_FETCH_JITTER_S:
+            jitter = random.uniform(0.0, WOOLWORTHS_PRICE_FETCH_JITTER_S) if WOOLWORTHS_PRICE_FETCH_JITTER_S else 0.0
+            await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S + jitter)
+        # Use the unauthenticated price client — stored user login cookies are not
+        # needed for the public product-detail endpoint and cause Akamai 403s when
+        # they expire.
+        client = await self._get_price_client()
+        kwargs: dict = {}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         try:
-            if WOOLWORTHS_PRICE_FETCH_DELAY_S or WOOLWORTHS_PRICE_FETCH_JITTER_S:
-                jitter = random.uniform(0.0, WOOLWORTHS_PRICE_FETCH_JITTER_S) if WOOLWORTHS_PRICE_FETCH_JITTER_S else 0.0
-                await asyncio.sleep(WOOLWORTHS_PRICE_FETCH_DELAY_S + jitter)
-            kwargs: dict = {}
-            if timeout is not None:
-                kwargs["timeout"] = timeout
-            resp = await self._request(
-                "GET", f"/apis/ui/product/detail/{store_product_id}", **kwargs
+            resp = await client.get(f"/apis/ui/product/detail/{store_product_id}", **kwargs)
+        except httpx.HTTPError as e:
+            if self._price_client and not self._price_client.is_closed:
+                await self._price_client.aclose()
+            self._price_client = None
+            raise RuntimeError(f"Woolworths price fetch network error for {store_product_id}: {e}") from e
+        if resp.status_code in (401, 403):
+            # Session rejected — discard price client so next call re-seeds from homepage.
+            if self._price_client and not self._price_client.is_closed:
+                await self._price_client.aclose()
+            self._price_client = None
+            raise RuntimeError(
+                f"Woolworths auth failure ({resp.status_code}) for product {store_product_id}"
             )
-            if resp and resp.status_code == 200:
+        if resp.status_code == 200:
+            try:
                 result = resp.json()
                 product_data = result.get("Product") or result
                 logger.debug(
@@ -910,10 +967,10 @@ class WoolworthsScraper(BaseScraper):
                     product_data.get("Price"),
                 )
                 return self._parse_search_result(product_data)
-        except Exception:
-            logger.exception(
-                "Woolworths price fetch failed for: %s", store_product_id
-            )
+            except Exception:
+                logger.exception("Woolworths price parse failed for: %s", store_product_id)
+                raise
+        # Non-200 response (e.g. 404) means the product genuinely no longer exists.
         return None
 
     # ── Add to Cart ──────────────────────────────────────────────────
