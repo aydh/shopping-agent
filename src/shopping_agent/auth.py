@@ -7,7 +7,7 @@ from uuid import UUID
 import httpx
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwk, jwt  # type: ignore[import-untyped]
+from jose import ExpiredSignatureError, JWTError, jwk, jwt  # type: ignore[import-untyped]
 
 from .config import settings
 
@@ -165,6 +165,13 @@ def _decode_token(token: str) -> dict:
                 return claims
             except HTTPException:
                 raise
+            except ExpiredSignatureError:
+                # Token is definitively expired — no point calling Supabase.
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has expired",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
             except Exception as exc:
                 logger.warning(
                     "JWKS verification failed (%s: %s); falling back to /auth/v1/user validation",
@@ -179,8 +186,13 @@ def _decode_token(token: str) -> dict:
                 }
                 with httpx.Client(timeout=5.0) as client:
                     resp = client.get(user_url, headers=headers)
-                    resp.raise_for_status()
-                    user = resp.json()
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"Token rejected by Supabase ({resp.status_code})",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+                user = resp.json()
 
                 claims = {
                     "sub": user.get("id"),
