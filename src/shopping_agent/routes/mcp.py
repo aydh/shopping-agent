@@ -17,6 +17,8 @@ from fastmcp.server.dependencies import get_access_token
 from ..config import settings
 from ..database import async_session, set_rls_claims
 from ..db_helpers import store_from_string
+from sqlalchemy import select
+
 from ..models import ListStatus, Product, ProductMatch, ShoppingList, Store
 from ..services.cart import add_to_cart
 from ..services.order_sync import sync_orders as _sync_orders
@@ -224,7 +226,8 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
         store: Optional store filter — "coles" or "woolworths". Searches both if omitted.
 
     Returns:
-        List of matching products with name, price, store, store_product_id.
+        List of matching products with name, price, store, store_product_id, and
+        product_id (database ID, null if the product is not yet in the local DB).
         Requires valid cookies for the target store(s) — returns error entry if not authenticated.
     """
     results: list[dict] = []
@@ -244,20 +247,34 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
             results.append({"store": s.value, "error": f"Not authenticated for {s.value}"})
             continue
         try:
-            products = await scraper.search_product(query)
-            for p in products:
-                results.append({
-                    "store": s.value,
-                    "store_product_id": p.store_product_id,
-                    "name": p.name,
-                    "brand": p.brand,
-                    "current_price": p.current_price,
-                    "unit_size": p.unit_size,
-                    "is_available": p.is_available,
-                })
+            scraped = await scraper.search_product(query)
         except Exception as e:
             logger.warning("[MCP] search_products error for %s: %s", s.value, e)
             results.append({"store": s.value, "error": str(e)})
+            continue
+
+        # Look up DB product IDs for all returned store_product_ids in one query.
+        store_product_ids = [p.store_product_id for p in scraped]
+        async with async_session() as session:
+            async with session.begin():
+                await set_rls_claims(session, user_id)
+                db_rows = (await session.execute(
+                    select(Product.store_product_id, Product.id)
+                    .where(Product.store == s, Product.store_product_id.in_(store_product_ids))
+                )).all()
+        db_id_by_spid = {spid: pid for spid, pid in db_rows}
+
+        for p in scraped:
+            results.append({
+                "store": s.value,
+                "product_id": db_id_by_spid.get(p.store_product_id),
+                "store_product_id": p.store_product_id,
+                "name": p.name,
+                "brand": p.brand,
+                "current_price": p.current_price,
+                "unit_size": p.unit_size,
+                "is_available": p.is_available,
+            })
 
     return results
 
