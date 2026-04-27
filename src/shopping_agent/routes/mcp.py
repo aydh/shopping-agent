@@ -334,10 +334,13 @@ async def create_shopping_list(
                 shopping_list = ShoppingList(name=name, target_date=target, status=ListStatus.DRAFT, user_id=user_id)
                 session.add(shopping_list)
                 await session.flush()
-        list_id = shopping_list.id
-        item_count = sum(1 for item in shopping_list.items if not getattr(item, "is_removed", False))
-        status = shopping_list.status.value
-        target_date_str = shopping_list.target_date.isoformat() if shopping_list.target_date else None
+            # Extract all values inside the transaction — accessing relationships
+            # (shopping_list.items) outside async session.begin() triggers lazy
+            # loading without a greenlet, causing MissingGreenlet.
+            list_id = shopping_list.id
+            item_count = sum(1 for item in shopping_list.items if not getattr(item, "is_removed", False))
+            status = shopping_list.status.value
+            target_date_str = shopping_list.target_date.isoformat() if shopping_list.target_date else None
     return {"list_id": list_id, "item_count": item_count, "status": status, "target_date": target_date_str}
 
 
