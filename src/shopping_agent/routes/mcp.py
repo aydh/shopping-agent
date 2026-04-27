@@ -17,9 +17,9 @@ from fastmcp.server.dependencies import get_access_token
 from ..config import settings
 from ..database import async_session, set_rls_claims
 from ..db_helpers import store_from_string
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from ..models import ListStatus, Product, ProductMatch, ShoppingList, Store
+from ..models import ListStatus, Product, ProductMatch, ShoppingList, ShoppingListItem, Store
 from ..services.cart import add_to_cart
 from ..services.order_sync import sync_orders as _sync_orders
 from ..services.prediction import get_predictions_with_match_info, refresh_predictions as _refresh_predictions
@@ -351,13 +351,18 @@ async def create_shopping_list(
                 shopping_list = ShoppingList(name=name, target_date=target, status=ListStatus.DRAFT, user_id=user_id)
                 session.add(shopping_list)
                 await session.flush()
-            # Extract all values inside the transaction — accessing relationships
-            # (shopping_list.items) outside async session.begin() triggers lazy
-            # loading without a greenlet, causing MissingGreenlet.
             list_id = shopping_list.id
-            item_count = sum(1 for item in shopping_list.items if not getattr(item, "is_removed", False))
             status = shopping_list.status.value
             target_date_str = shopping_list.target_date.isoformat() if shopping_list.target_date else None
+            # Count items via explicit query — accessing .items would trigger a lazy
+            # load, which async SQLAlchemy does not support (MissingGreenlet).
+            item_count_row = await session.execute(
+                select(func.count()).select_from(ShoppingListItem).where(
+                    ShoppingListItem.shopping_list_id == list_id,
+                    ShoppingListItem.is_removed == False,  # noqa: E712
+                )
+            )
+            item_count = item_count_row.scalar() or 0
     return {"list_id": list_id, "item_count": item_count, "status": status, "target_date": target_date_str}
 
 
