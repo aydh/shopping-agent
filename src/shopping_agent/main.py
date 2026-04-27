@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
 
-from .config import APP_TIMEZONE, PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
+from .config import APP_TIMEZONE, PRICE_REFRESH_INITIAL_DELAY_MINUTES, PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
 from .database import init_db
 from .models import Store
 from .routes.api_prices.refresh import refresh_broadcasts
@@ -130,7 +130,7 @@ async def app_lifespan(app: FastAPI):
     await init_db()
     if settings.enable_scheduler:
         _scheduler.start()
-        first_run_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+        first_run_at = datetime.now(timezone.utc) + timedelta(minutes=PRICE_REFRESH_INITIAL_DELAY_MINUTES)
         _scheduler.add_job(
             _run_refresh_then_reschedule,
             "date",

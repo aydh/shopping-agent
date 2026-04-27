@@ -131,6 +131,7 @@ WOOLWORTHS_PRICE_FETCH_JITTER_S: float = 0.05  # Max random jitter added on top 
 # Scheduled price refresh
 PRICE_REFRESH_INTERVAL_HOURS: int = 4        # How often to run the scheduled refresh
 PRICE_REFRESH_JITTER_MINUTES: int = 60       # Max random offset (±minutes) applied to each scheduled run
+PRICE_REFRESH_INITIAL_DELAY_MINUTES: int = 60  # Delay before the first price refresh after startup
 
 # ── Playwright login delays ───────────────────────────────────────────────────
 #
