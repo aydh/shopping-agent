@@ -1,0 +1,80 @@
+name: Mac mini
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do on the mini
+        type: choice
+        default: deploy
+        options: [deploy, restart, logs]
+
+env:
+  SERVE_DIR: /srv/shopping-agent
+  SERVICE: shopping-agent.service
+  HEALTH_PATH: /healthz
+  # The listening port lives in deploy/shopping-agent.env (rsynced to the mini
+  # and read by shopping-agent.service). PORT_FALLBACK is only used if that
+  # file can't be read.
+  PORT_FALLBACK: 8000
+
+jobs:
+  run:
+    runs-on: [self-hosted, mini]
+    steps:
+      - name: Check out the repo
+        if: ${{ github.event_name == 'push' || inputs.action == 'deploy' }}
+        uses: actions/checkout@v4
+      - name: Deploy (sync files + build venv + restart)
+        if: ${{ github.event_name == 'push' || inputs.action == 'deploy' }}
+        run: |
+          mkdir -p "$SERVE_DIR"
+          # --exclude .venv preserves the pre-built virtualenv across deploys.
+          # --exclude logs / data preserves runtime state.
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.venv' \
+            --exclude 'logs' \
+            --exclude 'data' \
+            ./ "$SERVE_DIR/"
+          cd "$SERVE_DIR"
+          if [ ! -d .venv ]; then
+            /usr/bin/python3 -m venv .venv
+          fi
+          .venv/bin/pip install --upgrade pip >/dev/null
+          # Installs deps AND the shopping_agent package itself (editable).
+          .venv/bin/pip install -e .
+          mkdir -p logs data
+          sudo systemctl restart "$SERVICE"
+          echo "Deployed ${GITHUB_SHA::7} to $SERVE_DIR and restarted $SERVICE"
+      - name: Restart the service
+        if: ${{ inputs.action == 'restart' }}
+        run: sudo systemctl restart "$SERVICE"
+      - name: Health check
+        if: ${{ github.event_name == 'push' || inputs.action == 'deploy' || inputs.action == 'restart' }}
+        run: |
+          [ -f "$SERVE_DIR/deploy/shopping-agent.env" ] && . "$SERVE_DIR/deploy/shopping-agent.env"
+          PORT="${PORT:-$PORT_FALLBACK}"
+          URL="http://localhost:$PORT$HEALTH_PATH"
+          echo "Waiting for $SERVICE to serve HTTP 200 at $URL..."
+          for i in $(seq 1 15); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)"
+            if [ "$code" = "200" ]; then
+              echo "Health check passed: HTTP $code from $URL"
+              exit 0
+            fi
+            echo "Attempt $i/15: got '$code', retrying in 1s..."
+            sleep 1
+          done
+          echo "::error::Health check failed: $SERVICE did not return 200 at $URL"
+          echo "----- systemctl status -----"
+          systemctl status "$SERVICE" --no-pager || true
+          echo "----- last 50 journal lines -----"
+          journalctl -u "$SERVICE" -n 50 --no-pager || true
+          exit 1
+      - name: Show recent logs
+        if: ${{ inputs.action == 'logs' }}
+        run: journalctl -u "$SERVICE" -n 300 --no-pager
