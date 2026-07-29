@@ -249,6 +249,33 @@ async def get_current_user(
     return _claims_to_user(claims)
 
 
+def request_is_authenticated(request: Request) -> bool:
+    """Return True if the request carries a valid session token.
+
+    Checks the `sb-access-token` cookie (used by HTML page routes) first, then
+    a `Bearer` Authorization header (used by API/SSE routes). Used by the
+    global auth-gate middleware for defense-in-depth; the per-route
+    dependencies remain the authoritative auth check.
+    """
+    token = request.cookies.get("sb-access-token")
+    if token:
+        try:
+            _decode_token(token)
+            return True
+        except HTTPException:
+            pass
+
+    header = request.headers.get("Authorization", "")
+    if header.startswith("Bearer "):
+        try:
+            _decode_token(header[len("Bearer "):])
+            return True
+        except HTTPException:
+            pass
+
+    return False
+
+
 async def get_current_user_from_cookie(request: Request) -> CurrentUser:
     """Verify from sb-access-token cookie — for HTML page routes.
 

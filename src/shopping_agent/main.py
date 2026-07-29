@@ -7,10 +7,12 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
 from fastapi import FastAPI, Request as FastAPIRequest
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
+from starlette.requests import Request
 
+from .auth import request_is_authenticated
 from .config import APP_TIMEZONE, PRICE_REFRESH_INITIAL_DELAY_MINUTES, PRICE_REFRESH_INTERVAL_HOURS, PRICE_REFRESH_JITTER_MINUTES, settings
 from .database import init_db
 from .models import Store
@@ -149,6 +151,64 @@ async def app_lifespan(app: FastAPI):
 
 
 
+class _AuthGateMiddleware:
+    """Defense-in-depth auth gate: every path is protected unless allowlisted.
+
+    Per-route dependencies (`get_current_user*`) remain the authoritative auth
+    check and produce the correct error shape. This middleware ensures that a
+    route added without such a dependency cannot be reached unauthenticated by
+    accident — "protected by default" is enforced structurally rather than by
+    per-route discipline.
+
+    Pure ASGI (no BaseHTTPMiddleware) so SSE streams aren't buffered.
+
+    Unauthenticated requests to non-public paths get a 307 redirect to /login
+    (matching HTML page behaviour) unless the path is under /api, which returns
+    a bare 401 (matching API behaviour).
+    """
+
+    # Exact paths that never require authentication.
+    _PUBLIC_PATHS = frozenset({
+        "/login",
+        "/register",
+        "/auth/callback",
+        "/oauth/consent",
+        "/healthz",
+        "/authorize",
+    })
+    # Path prefixes that never require authentication. `/mcp` and the OAuth
+    # discovery endpoints carry their own auth; static assets are public.
+    _PUBLIC_PREFIXES = ("/static/", "/.well-known/", "/mcp/")
+
+    def __init__(self, app):
+        self.app = app
+
+    def _is_public(self, path: str) -> bool:
+        if path in self._PUBLIC_PATHS or path == "/mcp":
+            return True
+        return any(path.startswith(prefix) for prefix in self._PUBLIC_PREFIXES)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if self._is_public(path) or request_is_authenticated(Request(scope, receive)):
+            await self.app(scope, receive, send)
+            return
+
+        if path.startswith("/api/"):
+            response = JSONResponse(
+                {"detail": "Not authenticated"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            response = RedirectResponse(url="/login", status_code=307)
+        await response(scope, receive, send)
+
+
 class _MCPPathMiddleware:
     """Rewrite /mcp (no trailing slash) to /mcp/ so MCP clients don't get a 307.
 
@@ -168,6 +228,7 @@ app = FastAPI(
     lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
 )
 app.add_middleware(_MCPPathMiddleware)
+app.add_middleware(_AuthGateMiddleware)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 from .routes import api_auth, api_cart, api_orders, api_predictions, api_prices, api_shopping_list, views  # noqa: E402

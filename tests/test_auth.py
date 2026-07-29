@@ -16,6 +16,7 @@ from shopping_agent.auth import (
     _decode_token,
     get_current_user,
     get_current_user_from_cookie,
+    request_is_authenticated,
 )
 
 
@@ -231,3 +232,49 @@ async def test_get_current_user_valid_bearer(monkeypatch):
     creds.credentials = token
     user = await get_current_user(credentials=creds)
     assert isinstance(user, CurrentUser)
+
+
+# ---------------------------------------------------------------------------
+# request_is_authenticated
+# ---------------------------------------------------------------------------
+
+def _request_with(*, cookie: str | None = None, bearer: str | None = None):
+    from starlette.requests import Request
+
+    headers: list[tuple[bytes, bytes]] = []
+    if cookie is not None:
+        headers.append((b"cookie", f"sb-access-token={cookie}".encode()))
+    if bearer is not None:
+        headers.append((b"authorization", f"Bearer {bearer}".encode()))
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers, "query_string": b""})
+
+
+def test_request_is_authenticated_no_credentials():
+    assert request_is_authenticated(_request_with()) is False
+
+
+def test_request_is_authenticated_valid_cookie(monkeypatch):
+    import shopping_agent.auth as auth_mod
+    from shopping_agent.auth import _TOKEN_CACHE
+    _TOKEN_CACHE.cache.clear()
+    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+
+    assert request_is_authenticated(_request_with(cookie=_make_hs256_token())) is True
+
+
+def test_request_is_authenticated_valid_bearer(monkeypatch):
+    import shopping_agent.auth as auth_mod
+    from shopping_agent.auth import _TOKEN_CACHE
+    _TOKEN_CACHE.cache.clear()
+    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+
+    assert request_is_authenticated(_request_with(bearer=_make_hs256_token())) is True
+
+
+def test_request_is_authenticated_invalid_token(monkeypatch):
+    import shopping_agent.auth as auth_mod
+    from shopping_agent.auth import _TOKEN_CACHE
+    _TOKEN_CACHE.cache.clear()
+    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+
+    assert request_is_authenticated(_request_with(cookie="bad.token.here")) is False
