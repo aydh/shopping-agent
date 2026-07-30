@@ -64,8 +64,18 @@
         const submitBtn = document.getElementById('submit-btn');
         const githubBtn = document.getElementById('github-btn');
 
+        // Only allow same-origin relative paths as the post-login destination.
+        // Rejects absolute URLs, protocol-relative (//evil.com) and backslash
+        // tricks (/\evil.com) to prevent open redirects.
+        function sameOriginNext(raw) {
+            if (!raw || raw.charAt(0) !== '/' || raw.charAt(1) === '/' || raw.charAt(1) === '\\') {
+                return '/';
+            }
+            return raw;
+        }
+
         const params = new URLSearchParams(window.location.search);
-        const nextUrl = params.get('next') || '/';
+        const nextUrl = sameOriginNext(params.get('next'));
 
         // Show error from callback redirect if present
         const urlError = params.get('error');

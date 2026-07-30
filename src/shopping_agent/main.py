@@ -5,11 +5,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from urllib.parse import urlsplit
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
 from fastapi import FastAPI, Request as FastAPIRequest
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp.utilities.lifespan import combine_lifespans
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 
 from .auth import request_is_authenticated
@@ -223,12 +226,83 @@ class _MCPPathMiddleware:
         await self.app(scope, receive, send)
 
 
+def _build_csp() -> str:
+    """Build the Content-Security-Policy value.
+
+    The policy whitelists the CDNs the templates load (Tailwind Play CDN,
+    jsdelivr for chart.js/supabase-js, unpkg for htmx) and the Supabase origin
+    the auth pages talk to directly. `'unsafe-inline'`/`'unsafe-eval'` are
+    required by the current front end: templates rely on inline scripts and
+    event handlers, and the Tailwind Play CDN compiles styles in-browser via
+    `eval`. Tightening these (nonces, a pre-compiled Tailwind build) is a
+    front-end refactor tracked separately; the policy still meaningfully
+    constrains object/base/form/frame vectors and the set of allowed origins.
+    """
+    connect_src = "'self'"
+    if settings.supabase_url:
+        parsed = urlsplit(settings.supabase_url)
+        if parsed.scheme and parsed.netloc:
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            # Supabase auth/REST over https; realtime uses wss on the same host.
+            wss_origin = f"wss://{parsed.netloc}"
+            connect_src = f"'self' {origin} {wss_origin}"
+    return "; ".join([
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "img-src 'self' data: https:",
+        "font-src 'self' data:",
+        "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com",  # noqa: E501
+        f"connect-src {connect_src}",
+    ])
+
+
+class _SecurityHeadersMiddleware:
+    """Attach standard security headers to every HTTP response.
+
+    Pure ASGI (no BaseHTTPMiddleware) so SSE streams aren't buffered. Headers
+    are added with `setdefault` semantics so a route that sets its own value
+    (e.g. a stricter CSP) is never overridden.
+    """
+
+    def __init__(self, app):
+        self.app = app
+        self._headers = {
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+            "Content-Security-Policy": _build_csp(),
+        }
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(raw=message["headers"])
+                for key, value in self._headers.items():
+                    if key not in headers:
+                        headers[key] = value
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 app = FastAPI(
     title="Shopping Agent",
     lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
 )
 app.add_middleware(_MCPPathMiddleware)
 app.add_middleware(_AuthGateMiddleware)
+# Added last so it is the outermost middleware — security headers are attached
+# to every response, including the auth-gate's own 401/redirect responses.
+app.add_middleware(_SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 from .routes import api_auth, api_cart, api_orders, api_predictions, api_prices, api_shopping_list, views  # noqa: E402
