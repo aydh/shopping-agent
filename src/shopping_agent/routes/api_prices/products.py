@@ -1,5 +1,6 @@
 """Product visibility management and image proxy."""
 import logging
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,6 +28,26 @@ _PROXY_HEADERS = {
 
 # 7 days — product images rarely change; browser will serve from cache without a network request
 _IMAGE_CACHE_CONTROL = "public, max-age=604800, immutable"
+
+# Hosts the image proxy is permitted to fetch from. The proxy makes a
+# server-side request to whatever URL it is given, so without this allowlist it
+# is a Server-Side Request Forgery (SSRF) primitive: an authenticated user could
+# point it at cloud metadata endpoints (e.g. 169.254.169.254), internal-only
+# services, or localhost and read the response. Only the grocery image CDNs the
+# app actually links to are permitted.
+_ALLOWED_IMAGE_HOSTS = frozenset({
+    "productimages.coles.com.au",
+    "cdn.productimages.coles.com.au",
+    "cdn0.woolworths.media",
+})
+
+
+def _is_allowed_image_url(url: str) -> bool:
+    """Return True only for https URLs pointing at a trusted image CDN host."""
+    parts = urlsplit(url)
+    if parts.scheme != "https":
+        return False
+    return parts.hostname in _ALLOWED_IMAGE_HOSTS
 
 
 async def _matched_product_ids(session: AsyncSession, product_id: int) -> set[int]:
@@ -58,6 +79,9 @@ async def _matched_product_ids(session: AsyncSession, product_id: int) -> set[in
 @router.get("/image-proxy")
 async def image_proxy(url: str) -> Response:
     """Proxy product images to bypass CDN hotlink protection."""
+    if not _is_allowed_image_url(url):
+        raise HTTPException(status_code=400, detail="URL host not allowed")
+
     cached = await image_cache.get(url)
     if cached is not None:
         logger.debug("Image cache hit: %s", url)
