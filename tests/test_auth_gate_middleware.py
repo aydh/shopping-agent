@@ -92,11 +92,36 @@ def _location(sent: list[dict]) -> str | None:
         "/mcp",
         "/mcp/",
         "/mcp/messages",
+        # Auth bootstrap endpoints must be reachable before a session exists.
+        "/api/auth/session",
+        "/api/auth/logout",
     ],
 )
 def test_public_paths_are_public(path):
     mw = _AuthGateMiddleware(_InnerApp())
     assert mw._is_public(path) is True
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_session_bootstrap_reaches_route():
+    """POST /api/auth/session must pass the gate with no cookie/bearer.
+
+    Regression test: this endpoint establishes the session cookie during
+    login, so gating it behind authentication breaks login entirely
+    ("Failed to establish session").
+    """
+    inner = _InnerApp()
+    mw = _AuthGateMiddleware(inner)
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/auth/session",
+        "headers": [],
+        "query_string": b"",
+    }
+    sent = await _drive(mw, scope)
+    assert inner.called is True
+    assert _status(sent) == 200
 
 
 @pytest.mark.parametrize(

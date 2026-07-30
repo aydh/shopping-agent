@@ -178,6 +178,11 @@ class _AuthGateMiddleware:
         "/oauth/consent",
         "/healthz",
         "/authorize",
+        # Auth bootstrap endpoints: these run *before* a session cookie exists,
+        # so they cannot require one. /session verifies the posted token itself
+        # (it is self-protecting); /logout only clears the cookie.
+        "/api/auth/session",
+        "/api/auth/logout",
     })
     # Path prefixes that never require authentication. `/mcp` and the OAuth
     # discovery endpoints carry their own auth; static assets are public.
