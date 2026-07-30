@@ -2,7 +2,7 @@
    Context: points (list of {x, y}), canvas_id, colour, label #}
 <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
   <div style="position:relative;max-width:100%">
-    <canvas id="{{ canvas_id }}" height="100" role="img" aria-label="Price history chart for {{ label }}">
+    <canvas id="{{ canvas_id }}" height="150" role="img" aria-label="Price history chart for {{ label }}">
       Price history chart for {{ label }}.
     </canvas>
   </div>
@@ -19,7 +19,7 @@
           borderWidth: 2.5,
           pointBackgroundColor: '{{ colour }}80',
           pointBorderColor: '{{ colour }}80',
-          pointRadius: 2,
+          pointRadius: 0,
           pointHoverRadius: 3,
           stepped: true,
           parsing: { xAxisKey: 'x', yAxisKey: 'y' }

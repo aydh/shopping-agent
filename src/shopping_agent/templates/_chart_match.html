@@ -2,7 +2,7 @@
    Context: canvas_id, coles_points, ww_points, coles_colour, ww_colour #}
 <div class="bg-gray-50 px-3 sm:px-6 py-4 overflow-hidden">
   <div style="position:relative;max-width:100%">
-    <canvas id="{{ canvas_id }}" height="100" role="img" aria-label="Price comparison chart between Coles and Woolworths">
+    <canvas id="{{ canvas_id }}" height="150" role="img" aria-label="Price comparison chart between Coles and Woolworths">
       Price comparison chart between Coles and Woolworths.
     </canvas>
   </div>
@@ -20,7 +20,7 @@
               backgroundColor: '{{ coles_colour }}22',
               borderWidth: 2.5,
               pointBackgroundColor: '{{ coles_colour }}80',
-              pointRadius: 2,
+              pointRadius: 0,
               pointHoverRadius: 3,
               stepped: true,
               parsing: { xAxisKey: 'x', yAxisKey: 'y' }
@@ -32,7 +32,7 @@
               backgroundColor: '{{ ww_colour }}22',
               borderWidth: 2.5,
               pointBackgroundColor: '{{ ww_colour }}80',
-              pointRadius: 2,
+              pointRadius: 0,
               pointHoverRadius: 3,
               stepped: true,
               parsing: { xAxisKey: 'x', yAxisKey: 'y' }
