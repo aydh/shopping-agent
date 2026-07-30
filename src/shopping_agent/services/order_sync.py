@@ -147,6 +147,7 @@ async def sync_orders(
                     store=ph_store,
                     price=price,
                     recorded_at=recorded_at,
+                    last_seen_at=recorded_at,
                 ))
                 existing_ph.add((product.id, recorded_at))  # prevent duplicates within same sync
 

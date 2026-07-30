@@ -45,6 +45,7 @@ erDiagram
         string store "coles | woolworths"
         float price
         datetime recorded_at
+        datetime last_seen_at
     }
 
     Order {
@@ -191,7 +192,7 @@ Links a Coles product to a Woolworths product (or vice versa). Enables price com
 
 ### `price_history`
 
-Append-only log of prices recorded during price refresh jobs. No timestamps mixin — has its own `recorded_at`.
+One row per price regime: the price held from `recorded_at` until at least `last_seen_at`. Price refresh jobs insert a new row only when the price changes; an unchanged price just bumps `last_seen_at` on the latest row. Order sync backfills historical point observations (`last_seen_at = recorded_at`). No timestamps mixin — has its own `recorded_at`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -199,7 +200,8 @@ Append-only log of prices recorded during price refresh jobs. No timestamps mixi
 | `product_id` | integer FK → products | |
 | `store` | enum | `coles` or `woolworths` |
 | `price` | float | |
-| `recorded_at` | datetime | server default `now()` |
+| `recorded_at` | datetime | first observation at this price; server default `now()` |
+| `last_seen_at` | datetime | most recent observation at this price; server default `now()` |
 
 ---
 
@@ -321,7 +323,7 @@ One row per (user, store) pair. Stores the JSON cookie array used by the httpx s
 
 **Products are store-scoped.** A tin of beans at Coles and the equivalent at Woolworths are two separate `Product` rows. `ProductMatch` is the join that links them for price comparison.
 
-**Price history is append-only.** `current_price` on `Product` is the latest known price. `PriceHistory` keeps the full time series for charting.
+**Price history stores intervals, not daily samples.** `current_price` on `Product` is the latest known price. `PriceHistory` keeps one row per price regime (`recorded_at` → `last_seen_at`), so the full price trend is preserved for charting without a row per refresh run.
 
 **Predictions are one-per-(user, product).** `ConsumptionPrediction` has a unique constraint on `(user_id, product_id)` — refreshing predictions overwrites the existing row rather than appending.
 

@@ -492,10 +492,18 @@ async def test_charts_routes_return_json_and_empty_when_missing(monkeypatch, fak
     monkeypatch.setattr(charts, "templates", dummy_templates)
     product = _product(1, Store.COLES, "Milk", 4.0)
     session = AsyncMock()
-    session.execute = AsyncMock(side_effect=[fake_result(rows=[(1, date(2025, 1, 1), 4.0)]), fake_result(scalars=[product])])
+    session.execute = AsyncMock(side_effect=[
+        fake_result(rows=[(1, date(2025, 1, 1), date(2025, 1, 10), 4.0)]),
+        fake_result(scalars=[product]),
+    ])
 
     batch = await charts.product_price_history_batch("1", user=_USER, session=session)
     assert json.loads(batch.body.decode()) == {"1": "rendered:_chart_single.html"}
+    # A price regime expands to its start and last-seen boundary points
+    assert dummy_templates.render_calls[0][1]["points"] == [
+        {"x": "2025-01-01", "y": 4.0},
+        {"x": "2025-01-10", "y": 4.0},
+    ]
 
     session = AsyncMock()
     session.get = AsyncMock(return_value=None)
@@ -515,7 +523,10 @@ async def test_charts_match_history_routes_render(monkeypatch, fake_result, dumm
     session.execute = AsyncMock(
         side_effect=[
             fake_result(scalars=[match]),
-            fake_result(rows=[(1, date(2025, 1, 1), 4.0), (2, date(2025, 1, 1), 4.5)]),
+            fake_result(rows=[
+                (1, date(2025, 1, 1), date(2025, 1, 1), 4.0),
+                (2, date(2025, 1, 1), date(2025, 1, 1), 4.5),
+            ]),
         ]
     )
 
@@ -524,7 +535,10 @@ async def test_charts_match_history_routes_render(monkeypatch, fake_result, dumm
 
     session = AsyncMock()
     session.get = AsyncMock(return_value=match)
-    monkeypatch.setattr(charts, "_fetch_match_rows", AsyncMock(return_value=([(date(2025, 1, 1), 4.0)], [(date(2025, 1, 1), 4.5)])))
+    monkeypatch.setattr(charts, "_fetch_match_rows", AsyncMock(return_value=(
+        [(date(2025, 1, 1), date(2025, 1, 1), 4.0)],
+        [(date(2025, 1, 1), date(2025, 1, 1), 4.5)],
+    )))
     single = await charts.price_history(7, user=_USER, session=session)
     assert single.body.decode() == "rendered:_chart_match.html"
 

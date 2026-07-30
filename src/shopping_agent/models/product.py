@@ -74,6 +74,9 @@ class ProductMatch(TimestampMixin, Base):
 
 
 class PriceHistory(Base):
+    """One row per price regime: the price held from recorded_at until at
+    least last_seen_at. A new row is only created when the price changes."""
+
     __tablename__ = "price_history"
     __table_args__ = (
         Index("ix_price_history_product_id_recorded_at", "product_id", "recorded_at"),
@@ -84,5 +87,6 @@ class PriceHistory(Base):
     store: Mapped[Store] = mapped_column(SAEnum(Store))
     price: Mapped[float] = mapped_column(Float)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     product: Mapped["Product"] = relationship()

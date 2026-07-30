@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from shopping_agent.models import Product, ShoppingListItem, Store
+from datetime import datetime, timezone
+
+from shopping_agent.models import PriceHistory, Product, ShoppingListItem, Store
 from shopping_agent.scrapers.base import ScrapedProduct
 from shopping_agent.services.price_refresh import do_price_refresh
 
@@ -127,6 +129,116 @@ async def test_do_price_refresh_reports_progress(fake_result, async_cm, monkeypa
 
     assert (updated, total) == (1, 1)
     assert progress_events == [(0, 1), (1, 1)]
+
+
+@pytest.mark.asyncio
+async def test_do_price_refresh_extends_history_when_price_unchanged(fake_result, async_cm, monkeypatch):
+    product = _product(1, Store.COLES, "Milk", 4.5)
+    db_product = _product(1, Store.COLES, "Milk", 4.5)
+    seen_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    latest_ph = PriceHistory(
+        id=10, product_id=1, store=Store.COLES, price=4.5,
+        recorded_at=seen_at, last_seen_at=seen_at,
+    )
+    outer_session = AsyncMock()
+    outer_session.execute = AsyncMock(
+        side_effect=[
+            fake_result(scalars=[product]),
+            fake_result(scalars=[]),
+            fake_result(scalars=[]),
+        ]
+    )
+
+    inner_session = AsyncMock()
+    inner_session.get = AsyncMock(side_effect=lambda model, obj_id: {Product: db_product}.get(model))
+    inner_session.execute = AsyncMock(return_value=fake_result(scalars=[latest_ph]))
+    inner_session.add = MagicMock()
+    inner_session.commit = AsyncMock()
+
+    status_session = AsyncMock()
+    status_session.execute = AsyncMock(return_value=fake_result())
+    status_session.commit = AsyncMock()
+
+    sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
+    monkeypatch.setattr(
+        "shopping_agent.services.price_refresh.async_session",
+        MagicMock(side_effect=lambda: async_cm(next(sessions))),
+    )
+    monkeypatch.setattr(
+        "shopping_agent.services.price_refresh._coles_scraper",
+        SimpleNamespace(
+            get_product_price=AsyncMock(return_value=ScrapedProduct(
+                store_product_id=product.store_product_id,
+                name=product.name,
+                current_price=4.5,
+                is_available=True,
+            ))
+        ),
+    )
+
+    updated, total = await do_price_refresh(Store.COLES)
+
+    assert (updated, total) == (1, 1)
+    # Unchanged price: no new row, latest row's last_seen_at is bumped
+    inner_session.add.assert_not_called()
+    assert latest_ph.last_seen_at > seen_at
+    assert latest_ph.price == 4.5
+
+
+@pytest.mark.asyncio
+async def test_do_price_refresh_inserts_history_row_on_price_change(fake_result, async_cm, monkeypatch):
+    product = _product(1, Store.COLES, "Milk", 4.5)
+    db_product = _product(1, Store.COLES, "Milk", 4.5)
+    seen_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    latest_ph = PriceHistory(
+        id=10, product_id=1, store=Store.COLES, price=4.5,
+        recorded_at=seen_at, last_seen_at=seen_at,
+    )
+    outer_session = AsyncMock()
+    outer_session.execute = AsyncMock(
+        side_effect=[
+            fake_result(scalars=[product]),
+            fake_result(scalars=[]),
+            fake_result(scalars=[]),
+        ]
+    )
+
+    inner_session = AsyncMock()
+    inner_session.get = AsyncMock(side_effect=lambda model, obj_id: {Product: db_product}.get(model))
+    inner_session.execute = AsyncMock(return_value=fake_result(scalars=[latest_ph]))
+    inner_session.add = MagicMock()
+    inner_session.commit = AsyncMock()
+
+    status_session = AsyncMock()
+    status_session.execute = AsyncMock(return_value=fake_result())
+    status_session.commit = AsyncMock()
+
+    sessions = iter([outer_session, status_session, inner_session, status_session, status_session])
+    monkeypatch.setattr(
+        "shopping_agent.services.price_refresh.async_session",
+        MagicMock(side_effect=lambda: async_cm(next(sessions))),
+    )
+    monkeypatch.setattr(
+        "shopping_agent.services.price_refresh._coles_scraper",
+        SimpleNamespace(
+            get_product_price=AsyncMock(return_value=ScrapedProduct(
+                store_product_id=product.store_product_id,
+                name=product.name,
+                current_price=3.0,
+                is_available=True,
+            ))
+        ),
+    )
+
+    updated, total = await do_price_refresh(Store.COLES)
+
+    assert (updated, total) == (1, 1)
+    # Changed price: old row untouched, a new regime row is inserted
+    assert latest_ph.last_seen_at == seen_at
+    added = [c.args[0] for c in inner_session.add.call_args_list if isinstance(c.args[0], PriceHistory)]
+    assert len(added) == 1
+    assert added[0].price == 3.0
+    assert added[0].recorded_at == added[0].last_seen_at
 
 
 @pytest.mark.asyncio
