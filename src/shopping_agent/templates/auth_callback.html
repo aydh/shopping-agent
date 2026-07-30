@@ -15,8 +15,18 @@
         const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
         const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // Only allow same-origin relative paths as the post-login destination.
+        // Rejects absolute URLs, protocol-relative (//evil.com) and backslash
+        // tricks (/\evil.com) to prevent open redirects.
+        function sameOriginNext(raw) {
+            if (!raw || raw.charAt(0) !== '/' || raw.charAt(1) === '/' || raw.charAt(1) === '\\') {
+                return '/';
+            }
+            return raw;
+        }
+
         (async () => {
-            const nextUrl = new URLSearchParams(window.location.search).get('next') || '/';
+            const nextUrl = sameOriginNext(new URLSearchParams(window.location.search).get('next'));
 
             const { data, error } = await sb.auth.getSession();
             if (error || !data.session) {
