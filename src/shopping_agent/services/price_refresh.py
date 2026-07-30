@@ -3,7 +3,7 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -41,8 +41,9 @@ async def do_price_refresh(
     """Refresh current prices for products of a given store.
 
     Fetches each product's current price concurrently (respecting per-store
-    concurrency limits), updates Product.current_price, upserts today's
-    PriceHistory entry, and syncs prices on active ShoppingListItems.
+    concurrency limits), updates Product.current_price, records price changes
+    in PriceHistory (bumping last_seen_at when the price is unchanged), and
+    syncs prices on active ShoppingListItems.
 
     Args:
         store_enum: The store to refresh prices for.
@@ -70,10 +71,6 @@ async def do_price_refresh(
         products = list(result.scalars().all())
         product_ids = [p.id for p in products]
         product_map = {p.id: p for p in products}
-
-        now_utc = datetime.now(timezone.utc)
-        today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow_start_utc = today_start_utc + timedelta(days=1)
 
         match_rows = await session.execute(
             select(ProductMatch)
@@ -182,21 +179,26 @@ async def do_price_refresh(
                             if scraped.image_url:
                                 db_product.image_url = scraped.image_url
 
-                            # Upsert today's price history regardless of availability
-                            # so we retain the price trend even for out-of-stock items.
-                            existing_ph = await session.execute(
-                                select(PriceHistory).where(
-                                    PriceHistory.product_id == product.id,
-                                    PriceHistory.recorded_at >= today_start_utc,
-                                    PriceHistory.recorded_at < tomorrow_start_utc,
-                                )
-                            )
-                            existing_ph_obj = existing_ph.scalars().first()
-                            if existing_ph_obj:
-                                existing_ph_obj.price = scraped.current_price
+                            # Record price history regardless of availability so we
+                            # retain the trend even for out-of-stock items. One row
+                            # per price regime: if the price is unchanged, extend the
+                            # latest row's last_seen_at; only insert on a change.
+                            latest_ph = (await session.execute(
+                                select(PriceHistory)
+                                .where(PriceHistory.product_id == product.id)
+                                .order_by(PriceHistory.recorded_at.desc(), PriceHistory.id.desc())
+                                .limit(1)
+                            )).scalars().first()
+                            observed_at = datetime.now(timezone.utc)
+                            if latest_ph and round(latest_ph.price, 2) == round(scraped.current_price, 2):
+                                latest_ph.last_seen_at = observed_at
                             else:
                                 session.add(PriceHistory(
-                                    product_id=product.id, store=store_enum, price=scraped.current_price
+                                    product_id=product.id,
+                                    store=store_enum,
+                                    price=scraped.current_price,
+                                    recorded_at=observed_at,
+                                    last_seen_at=observed_at,
                                 ))
 
                         # current_price and SLI prices always reflect the scraped price;
