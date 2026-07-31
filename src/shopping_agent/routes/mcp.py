@@ -228,7 +228,9 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
     Returns:
         List of matching products with name, price, store, store_product_id, and
         product_id (database ID, null if the product is not yet in the local DB).
-        Requires valid cookies for the target store(s) — returns error entry if not authenticated.
+        Product search uses the stores' public catalog APIs and does NOT require a
+        logged-in session; a store only appears with an "error" entry if the search
+        request itself fails.
     """
     results: list[dict] = []
     stores_to_search = []
@@ -243,9 +245,12 @@ async def search_products(query: str, store: str | None = None) -> list[dict]:
     user_id = _get_mcp_user_id()
     for s in stores_to_search:
         scraper = _scraper_for(s.value, user_id)
-        if not await scraper.is_authenticated():
-            results.append({"store": s.value, "error": f"Not authenticated for {s.value}"})
-            continue
+        # Product search hits the stores' public catalog APIs and does not need a
+        # logged-in session (Woolworths bootstraps anonymous Akamai cookies; Coles
+        # search is public). Do NOT gate on is_authenticated() here — that only
+        # reflects whether *login* cookies are stored, which is irrelevant to search
+        # and produced spurious "not authenticated" errors while searches/price
+        # fetches were in fact succeeding.
         try:
             scraped = await scraper.search_product(query)
         except Exception as e:

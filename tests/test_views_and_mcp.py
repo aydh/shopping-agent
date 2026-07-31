@@ -229,10 +229,14 @@ async def test_shopping_list_views_render_page_redirect_and_confirm(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_mcp_read_only_tools(monkeypatch, async_cm):
+async def test_mcp_read_only_tools(monkeypatch, async_cm, fake_result):
     monkeypatch.setattr(mcp_routes, "_get_mcp_user_id", lambda: _USER_ID)
     session = AsyncMock()
     session.begin = MagicMock(return_value=async_cm(None))
+    # search_products runs an inline DB lookup to map store_product_ids to local
+    # product IDs; return an empty result so both stores' products surface with
+    # product_id=None rather than tripping the mock.
+    session.execute = AsyncMock(return_value=fake_result(rows=[]))
     prediction_product = _product(1, Store.COLES, "Milk", 4.0)
     prediction = PredictionView(
         product_id=1,
@@ -252,7 +256,7 @@ async def test_mcp_read_only_tools(monkeypatch, async_cm):
     active_item.product = prediction_product
     active_list = ShoppingList(id=1, name="Active", target_date=date.today(), status=ListStatus.DRAFT, items=[active_item])
     coles_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=True), search_product=AsyncMock(return_value=[SimpleNamespace(store_product_id="c-1", name="Milk", brand=None, current_price=4.0, unit_size="2L", is_available=True)]))
-    ww_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=False), search_product=AsyncMock(return_value=[]))
+    ww_mock = SimpleNamespace(is_authenticated=AsyncMock(return_value=False), search_product=AsyncMock(return_value=[SimpleNamespace(store_product_id="w-1", name="Milk", brand=None, current_price=5.0, unit_size="2L", is_available=True)]))
     def _mock_get_scraper(user_id, store):
         from shopping_agent.models import Store as S
         return coles_mock if store == S.COLES else ww_mock
@@ -275,7 +279,13 @@ async def test_mcp_read_only_tools(monkeypatch, async_cm):
     assert predictions_result[0]["product_name"] == "Milk"
     assert shopping_list_result["item_count"] == 1
     assert history[0]["status"] == "ordered"
-    assert any(result.get("store") == "woolworths" and "error" in result for result in search_results)
+    # Woolworths is searched even though is_authenticated() is False — product
+    # search is public and must not be gated on login. It returns a real result,
+    # not a spurious "not authenticated" error entry.
+    ww_results = [r for r in search_results if r.get("store") == "woolworths"]
+    assert ww_results and all("error" not in r for r in ww_results)
+    assert any(r["name"] == "Milk" for r in ww_results)
+    ww_mock.search_product.assert_awaited_once_with("milk")
     assert comparison["cheaper_store"] == "coles"
 
 
