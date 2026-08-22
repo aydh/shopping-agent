@@ -10,7 +10,7 @@ import shopping_agent.config as _config
 if not _config.settings.database_url:
     _config.settings.database_url = "postgresql+asyncpg://user:pass@localhost:5432/db"
 
-from shopping_agent.main import _build_csp, _SecurityHeadersMiddleware
+from shopping_agent.main import _build_csp, _SecurityHeadersMiddleware, settings
 
 
 class _InnerApp:
@@ -85,9 +85,7 @@ async def test_non_http_scope_passes_through():
 
 
 def test_csp_includes_supabase_origin(monkeypatch):
-    import shopping_agent.main as main_mod
-
-    monkeypatch.setattr(main_mod.settings, "supabase_url", "https://proj.supabase.co")
+    monkeypatch.setattr(settings, "supabase_url", "https://proj.supabase.co")
     csp = _build_csp()
     assert "connect-src 'self' https://proj.supabase.co wss://proj.supabase.co" in csp
 
@@ -98,5 +96,9 @@ def test_csp_key_directives():
     assert "object-src 'none'" in csp
     assert "base-uri 'self'" in csp
     assert "form-action 'self'" in csp
-    assert "https://cdn.tailwindcss.com" in csp
-    assert "https://unpkg.com" in csp
+    # Check exact tokens rather than a substring: a bare
+    # `"https://unpkg.com" in csp` would also match `https://unpkg.com.evil.com`.
+    # Directives are ';'-separated and sources space-separated, so split on both.
+    csp_tokens = csp.replace(";", " ").split()
+    assert "https://cdn.tailwindcss.com" in csp_tokens
+    assert "https://unpkg.com" in csp_tokens

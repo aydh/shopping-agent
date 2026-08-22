@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy import select
 
 from ..database import async_session
+from ..log_utils import scrub
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
 from ..config import (
@@ -485,6 +486,7 @@ class WoolworthsScraper(BaseScraper):
             try:
                 await page.goto("https://www.woolworths.com.au/", wait_until="load", timeout=15000)
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             await page.wait_for_timeout(PLAYWRIGHT_DELAY_AFTER_HOMEPAGE_MS)
 
@@ -500,6 +502,7 @@ class WoolworthsScraper(BaseScraper):
                     await page.goto("https://www.woolworths.com.au/shop/myaccount", wait_until="load", timeout=15000)
                     await page.wait_for_url("**/auth.woolworths.com.au/**", timeout=15000)
                 except Exception:
+                    # Best-effort browser step; failures here are non-fatal and ignored.
                     pass
 
             current_url = page.url
@@ -549,6 +552,7 @@ class WoolworthsScraper(BaseScraper):
                     timeout=20000,
                 )
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
 
             current_url = page.url
@@ -599,6 +603,7 @@ class WoolworthsScraper(BaseScraper):
             try:
                 await pw.stop()
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             return f"failed:{exc}"
 
@@ -622,6 +627,7 @@ class WoolworthsScraper(BaseScraper):
                 page_body = (await page.inner_text("body"))[:500]
                 logger.info("[Woolworths] Playwright MFA: page text = %s", page_body)
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
 
             # If the page is showing a push/Guardian screen, try to switch to OTP entry
@@ -638,6 +644,7 @@ class WoolworthsScraper(BaseScraper):
                         await page.wait_for_timeout(1000)
                         break
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
 
             mfa_selector = (
@@ -696,11 +703,13 @@ class WoolworthsScraper(BaseScraper):
                         submitted = True
                         break
                 except Exception:
+                    # Best-effort browser step; failures here are non-fatal and ignored.
                     pass
             if not submitted:
                 try:
                     await page.locator('button[type="submit"]').first.click(timeout=3000)
                 except Exception:
+                    # Best-effort browser step; failures here are non-fatal and ignored.
                     pass
 
             try:
@@ -709,6 +718,7 @@ class WoolworthsScraper(BaseScraper):
                     timeout=30000,
                 )
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
 
             current_url = page.url
@@ -730,8 +740,11 @@ class WoolworthsScraper(BaseScraper):
                         mfa_error = (await el.inner_text()).strip()[:200]
                         break
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
-            logger.error("[Woolworths] Playwright MFA: failed at URL %s — %s", current_url, mfa_error)
+            # The page-derived mfa_error is returned to the caller below but kept
+            # out of the log: the login page content is treated as sensitive.
+            logger.error("[Woolworths] Playwright MFA failed; still on auth domain after submit")
             return f"failed:{mfa_error or 'Invalid or expired MFA code — please try again'}"
 
         except Exception as exc:
@@ -744,10 +757,12 @@ class WoolworthsScraper(BaseScraper):
             try:
                 await self._pending_login.context.close()
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             try:
                 await self._pending_login.playwright.stop()
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             self._pending_login = None
 
@@ -791,6 +806,7 @@ class WoolworthsScraper(BaseScraper):
                     if text:
                         return text[:200]
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
         return None
 
@@ -909,7 +925,7 @@ class WoolworthsScraper(BaseScraper):
                         if p:
                             products.append(p)
         except Exception:
-            logger.exception("Woolworths search failed for: %s", query)
+            logger.exception("Woolworths search failed for: %s", scrub(query))
 
         return products
 

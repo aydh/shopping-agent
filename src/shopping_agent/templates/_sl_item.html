@@ -108,7 +108,8 @@
         <!-- Icon actions -->
         <div class="flex items-center gap-2 ml-auto md:ml-0">
             {% if ph_ids %}
-            <button onclick="toggleSLItemHistory(this, 'sl-hist-{{ item.id }}', '{{ ph_ids | join(',') }}')"
+            {% set ph_ids_str = ph_ids | join(',') %}
+            <button onclick="toggleSLItemHistory(this, 'sl-hist-{{ item.id }}', '{{ ph_ids_str }}')"
                     title="Price history"
                     class="p-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">

@@ -61,7 +61,6 @@ class PredictionView:
 
 def compute_prediction(
     purchases: list[PurchaseRecord],
-    today: date | None = None,
     decay_factor: float = 0.3,
     lead_time_days: int = 2,
 ) -> dict | None:
@@ -74,7 +73,6 @@ def compute_prediction(
 
     Args:
         purchases: List of PurchaseRecord objects sorted by date.
-        today: Reference date for calculations (defaults to today).
         decay_factor: Exponential decay weight; controls how strongly recent
             purchases are weighted vs. older ones. Typically 0.1-0.5; higher
             values weight recent purchases more heavily.
@@ -96,7 +94,6 @@ def compute_prediction(
     if len(purchases) < 2:
         return None
 
-    today = today or date.today()
     purchases = sorted(purchases, key=lambda p: p.order_date)
 
     # Calculate inter-purchase intervals normalized by quantity

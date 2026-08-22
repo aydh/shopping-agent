@@ -110,7 +110,7 @@ async def add_items_to_cart(
     )
 
     cart_url = result.get("cart_url", "#")
-    store_label = store.title()
+    store_label = store_enum.value.title()
 
     if result.get("count", 0) > 0 or result.get("success"):
         status_html = (

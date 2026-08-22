@@ -11,6 +11,8 @@ from jose import jwt
 
 from shopping_agent.auth import (
     CurrentUser,
+    _TOKEN_CACHE,
+    settings,
     _TTLCache,
     _claims_to_user,
     _decode_token,
@@ -79,11 +81,9 @@ def _make_hs256_token(claims: dict | None = None) -> str:
 
 
 def test_decode_token_hs256_valid(monkeypatch):
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
 
-    import shopping_agent.auth as auth_mod
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     token = _make_hs256_token()
     claims = _decode_token(token)
@@ -92,11 +92,9 @@ def test_decode_token_hs256_valid(monkeypatch):
 
 
 def test_decode_token_hs256_cached(monkeypatch):
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
 
-    import shopping_agent.auth as auth_mod
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     token = _make_hs256_token()
     c1 = _decode_token(token)
@@ -105,8 +103,7 @@ def test_decode_token_hs256_cached(monkeypatch):
 
 
 def test_decode_token_hs256_missing_secret_raises(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", None)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", None)
 
     token = _make_hs256_token()
     with pytest.raises(HTTPException) as exc_info:
@@ -122,8 +119,7 @@ def test_decode_token_invalid_header_raises():
 
 def test_decode_token_unsupported_alg(monkeypatch):
     """Token whose alg header is something unexpected triggers 401."""
-    import shopping_agent.auth as auth_mod
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     # Manually craft a token with RS256 header but HS256 body (will fail RS256 path)
     # Just test the alg-not-recognised branch by patching get_unverified_header.
@@ -135,11 +131,9 @@ def test_decode_token_unsupported_alg(monkeypatch):
 
 
 def test_decode_token_expired_jwt_raises(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
 
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
     token = _make_hs256_token({"exp": 1})  # already expired
     with pytest.raises(HTTPException) as exc_info:
         _decode_token(token)
@@ -196,10 +190,8 @@ async def test_get_current_user_from_cookie_invalid_token_redirects(make_request
 
 @pytest.mark.asyncio
 async def test_get_current_user_from_cookie_valid_token(monkeypatch, make_request):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     token = _make_hs256_token()
     request = make_request("/")
@@ -222,10 +214,8 @@ async def test_get_current_user_no_credentials_raises():
 
 @pytest.mark.asyncio
 async def test_get_current_user_valid_bearer(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     token = _make_hs256_token()
     creds = MagicMock()
@@ -254,27 +244,21 @@ def test_request_is_authenticated_no_credentials():
 
 
 def test_request_is_authenticated_valid_cookie(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     assert request_is_authenticated(_request_with(cookie=_make_hs256_token())) is True
 
 
 def test_request_is_authenticated_valid_bearer(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     assert request_is_authenticated(_request_with(bearer=_make_hs256_token())) is True
 
 
 def test_request_is_authenticated_invalid_token(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     assert request_is_authenticated(_request_with(cookie="bad.token.here")) is False

@@ -88,12 +88,10 @@ class BaseScraper(ABC):
     @abstractmethod
     async def is_authenticated(self) -> bool:
         """Return True if valid credentials/cookies are stored for this store."""
-        ...
 
     @abstractmethod
     async def login_interactive(self) -> bool:
         """Open a visible browser window for the user to log in manually."""
-        ...
 
     @abstractmethod
     async def get_order_history(self, limit: int = 10) -> list[ScrapedOrder]:
@@ -105,7 +103,6 @@ class BaseScraper(ABC):
         Returns:
             List of ScrapedOrder objects with items populated.
         """
-        ...
 
     async def stream_order_history(self, limit: int = 10) -> AsyncGenerator[ScrapedOrder, None]:
         """Yield orders one at a time. Default implementation wraps get_order_history."""
@@ -122,7 +119,6 @@ class BaseScraper(ABC):
         Returns:
             List of ScrapedProduct results ordered by store relevance.
         """
-        ...
 
     @abstractmethod
     async def get_product_price(self, store_product_id: str, product_name: str | None = None, timeout: float | None = None) -> ScrapedProduct | None:
@@ -136,18 +132,15 @@ class BaseScraper(ABC):
         Returns:
             ScrapedProduct with current price, or None if not found.
         """
-        ...
 
     @abstractmethod
     async def add_to_cart(self, items: list[tuple[str, int]]) -> dict[str, bool]:
         """Add items to cart. items = [(store_product_id, quantity), ...]
         Returns a dict of {store_product_id: success}."""
-        ...
 
     @abstractmethod
     async def get_cart_url(self) -> str:
         """Return URL for user to review/submit the cart."""
-        ...
 
     async def import_cookies(self, cookie_json: str) -> bool:
         """Import cookies from JSON string. Override in subclasses that support it."""

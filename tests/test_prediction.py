@@ -19,19 +19,19 @@ class TestComputePrediction:
         assert compute_prediction([]) is None
 
     def test_regular_weekly_purchases_produce_prediction(self, sample_purchases):
-        result = compute_prediction(sample_purchases, today=date(2025, 1, 15))
+        result = compute_prediction(sample_purchases)
         assert result is not None
         assert result["avg_purchase_interval_days"] == pytest.approx(7.0, abs=0.5)
         assert result["avg_quantity_per_purchase"] == pytest.approx(2.0, abs=0.1)
         assert result["purchase_count"] == 3
 
     def test_runout_date_is_after_last_purchase(self, sample_purchases):
-        result = compute_prediction(sample_purchases, today=date(2025, 1, 15))
+        result = compute_prediction(sample_purchases)
         assert result is not None
         assert result["predicted_runout_date"] > date(2025, 1, 15)
 
     def test_next_purchase_date_before_runout(self, sample_purchases):
-        result = compute_prediction(sample_purchases, today=date(2025, 1, 15))
+        result = compute_prediction(sample_purchases)
         assert result is not None
         assert result["next_purchase_date"] < result["predicted_runout_date"]
 

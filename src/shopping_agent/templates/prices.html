@@ -941,9 +941,8 @@ const statusPanel = {
         const es = new EventSource(`/api/prices/refresh-stream/${store}`);
         this.eventSources[store] = es;
 
-        es.addEventListener('progress', (e) => {
-            const {done, total} = JSON.parse(e.data);
-            // Fetch fresh status from DB to get actual counts
+        es.addEventListener('progress', () => {
+            // The event only signals progress; fetch fresh counts from the DB.
             this.refreshStatus();
         });
 

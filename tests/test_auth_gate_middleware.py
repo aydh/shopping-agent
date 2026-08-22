@@ -14,6 +14,7 @@ if not _config.settings.database_url:
     _config.settings.database_url = "postgresql+asyncpg://user:pass@localhost:5432/db"
 
 from shopping_agent.main import _AuthGateMiddleware
+from shopping_agent.auth import _TOKEN_CACHE, settings
 
 _JWT_SECRET = "test-secret-at-least-256-bits-long-for-jose"
 
@@ -185,11 +186,9 @@ async def test_unauthenticated_api_returns_401():
 
 @pytest.mark.asyncio
 async def test_authenticated_cookie_passes_through(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
 
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     token = _make_hs256_token()
     inner = _InnerApp()
@@ -202,11 +201,9 @@ async def test_authenticated_cookie_passes_through(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_authenticated_bearer_passes_through(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
 
     _TOKEN_CACHE.cache.clear()
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", _JWT_SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", _JWT_SECRET)
 
     token = _make_hs256_token()
     inner = _InnerApp()

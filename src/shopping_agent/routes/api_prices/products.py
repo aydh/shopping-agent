@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...cache import image_cache
+from ...log_utils import scrub
 from ...auth import CurrentUser, get_current_user_from_cookie
 from ...database import get_user_session_from_cookie
 from ...db_helpers import store_from_string
@@ -42,14 +43,6 @@ _ALLOWED_IMAGE_HOSTS = frozenset({
 })
 
 
-def _is_allowed_image_url(url: str) -> bool:
-    """Return True only for https URLs pointing at a trusted image CDN host."""
-    parts = urlsplit(url)
-    if parts.scheme != "https":
-        return False
-    return parts.hostname in _ALLOWED_IMAGE_HOSTS
-
-
 async def _matched_product_ids(session: AsyncSession, product_id: int) -> set[int]:
     """Return all products connected by active matches, including the source product."""
     connected_ids = {product_id}
@@ -78,17 +71,23 @@ async def _matched_product_ids(session: AsyncSession, product_id: int) -> set[in
 
 @router.get("/image-proxy")
 async def image_proxy(url: str) -> Response:
-    """Proxy product images to bypass CDN hotlink protection."""
-    if not _is_allowed_image_url(url):
+    """Proxy product images to bypass CDN hotlink protection.
+
+    ``url`` is user-supplied and drives a server-side request, so it is
+    validated against an https + host allowlist here, before any fetch, to
+    prevent Server-Side Request Forgery (CWE-918).
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in _ALLOWED_IMAGE_HOSTS:
         raise HTTPException(status_code=400, detail="URL host not allowed")
 
     cached = await image_cache.get(url)
     if cached is not None:
-        logger.debug("Image cache hit: %s", url)
+        logger.debug("Image cache hit: %s", scrub(url))
         content, media_type = cached
         return Response(content=content, media_type=media_type, headers={"Cache-Control": _IMAGE_CACHE_CONTROL})
 
-    logger.debug("Image cache miss: %s", url)
+    logger.debug("Image cache miss: %s", scrub(url))
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers=_PROXY_HEADERS)
@@ -167,5 +166,5 @@ async def purge_products(store: str, user: CurrentUser = Depends(get_current_use
     result = await session.execute(delete(Product).where(Product.store == store_enum))
     await session.commit()
     return HTMLResponse(
-        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} {store} products.</span>'  # type: ignore[attr-defined]
+        f'<span class="text-orange-600 text-sm">Purged {result.rowcount} {store_enum.value} products.</span>'  # type: ignore[attr-defined]
     )
