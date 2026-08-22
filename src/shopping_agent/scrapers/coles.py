@@ -21,6 +21,7 @@ from ..config import (
     settings,
 )
 from ..database import async_session
+from ..log_utils import scrub
 from ..models.product import Store
 from ..models.store_cookies import StoreCookies
 from .base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
@@ -439,6 +440,7 @@ class ColesScraper(BaseScraper):
             try:
                 await pw.stop()
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             return f"failed:{exc}"
 
@@ -492,6 +494,7 @@ class ColesScraper(BaseScraper):
                     timeout=15000,
                 )
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
 
             current_url = page.url
@@ -519,9 +522,12 @@ class ColesScraper(BaseScraper):
                         mfa_error = (await el.inner_text()).strip()[:200]
                         break
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             # Leave browser open so the failure state is visible for debugging.
-            logger.error("[Coles] Playwright MFA: failed at URL %s — %s", current_url, mfa_error)
+            # The page-derived mfa_error is returned to the caller below but kept
+            # out of the log: the login page content is treated as sensitive.
+            logger.error("[Coles] Playwright MFA failed; still on auth domain after submit")
             return f"failed:{mfa_error or 'Invalid or expired MFA code — please try again'}"
 
         except Exception as exc:
@@ -534,10 +540,12 @@ class ColesScraper(BaseScraper):
             try:
                 await self._pending_login.context.close()
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             try:
                 await self._pending_login.playwright.stop()
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
             self._pending_login = None
 
@@ -603,6 +611,7 @@ class ColesScraper(BaseScraper):
                 if text and "log in or create" not in text.lower():
                     return text[:200]
         except Exception:
+            # Best-effort browser step; failures here are non-fatal and ignored.
             pass
 
         selectors = [
@@ -619,6 +628,7 @@ class ColesScraper(BaseScraper):
                     if text:
                         return text[:200]
             except Exception:
+                # Best-effort browser step; failures here are non-fatal and ignored.
                 pass
         return None
 
@@ -985,9 +995,9 @@ class ColesScraper(BaseScraper):
                     p = self._parse_graphql_product(item)
                     if p:
                         products.append(p)
-                logger.info("[Coles] BFF search returned %d products for %r", len(products), query)
+                logger.info("[Coles] BFF search returned %d products for %r", len(products), scrub(query))
         except Exception:
-            logger.exception("Coles search failed for: %s", query)
+            logger.exception("Coles search failed for: %s", scrub(query))
 
         return products
 

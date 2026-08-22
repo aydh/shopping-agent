@@ -4,6 +4,7 @@ import logging
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..log_utils import scrub
 from ..models import Product, ProductMatch
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ async def get_partner_product(
         logger.debug(
             "get_partner_product: no match found for product_id=%s (target_store=%s)",
             product_id,
-            target_store,
+            scrub(target_store),
         )
         return None
 

@@ -72,7 +72,7 @@ async def sync_orders_stream(
                     yield f"event: error\ndata: {json.dumps({'message': 'Failed to sync order — see server logs'})}\n\n"
                     continue
         except Exception:
-            logger.exception("Unexpected error during order stream for %s", store)
+            logger.exception("Unexpected error during order stream for %s", store_enum.value)
             stream_failed = True
             yield f"event: error\ndata: {json.dumps({'message': 'Sync failed — see server logs'})}\n\n"
 

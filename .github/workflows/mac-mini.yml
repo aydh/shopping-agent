@@ -11,6 +11,11 @@ on:
         default: deploy
         options: [deploy, restart, logs]
 
+# Least privilege: this workflow only checks out the repo and deploys over SSH
+# on a self-hosted runner; it never uses GITHUB_TOKEN to write to the repo/API.
+permissions:
+  contents: read
+
 env:
   SERVE_DIR: /srv/shopping-agent
   SERVICE: shopping-agent.service

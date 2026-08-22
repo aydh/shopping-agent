@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -18,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# A compact JWT is three base64url segments separated by dots. Anything else is
+# rejected before the value reaches a Set-Cookie header, so no control characters
+# (CR/LF) can be smuggled into the response header (cookie injection, CWE-20).
+_JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+
 
 @router.post("/session")
 async def set_session(request: Request) -> JSONResponse:
@@ -34,6 +40,8 @@ async def set_session(request: Request) -> JSONResponse:
     except Exception:
         logger.exception("Unexpected error verifying JWT")
         return JSONResponse({"error": "Invalid token"}, status_code=401)
+    if not _JWT_RE.match(token):
+        return JSONResponse({"error": "Invalid token"}, status_code=400)
     response = JSONResponse({"ok": True})
     response.set_cookie(
         key="sb-access-token",

@@ -557,7 +557,6 @@ async def test_get_shopping_list_summary_context_with_list(fake_result):
     item.product = product
     sl = ShoppingList(id=1, name="List", status=ListStatus.DRAFT, user_id=_USER_ID, items=[item])
 
-    MatchRow = type("R", (), {"all": lambda self: []})
     session = AsyncMock()
     session.execute = AsyncMock(side_effect=[
         fake_result(scalars=[sl]),         # get_active_list

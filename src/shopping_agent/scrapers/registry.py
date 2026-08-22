@@ -35,13 +35,6 @@ _REGISTRY: dict[tuple[uuid.UUID | None, Store], BaseScraper] = {
     (None, Store.WOOLWORTHS): woolworths_scraper,
 }
 
-_registry_lock_available = False
-try:
-    import importlib.util
-    _registry_lock_available = importlib.util.find_spec("asyncio") is not None
-except ImportError:
-    pass
-
 
 def get_scraper(store_or_user_id: "Store | uuid.UUID", store: "Store | None" = None) -> BaseScraper:
     """Return a scraper instance for the given store (and optional user).

@@ -68,10 +68,17 @@
         // Rejects absolute URLs, protocol-relative (//evil.com) and backslash
         // tricks (/\evil.com) to prevent open redirects.
         function sameOriginNext(raw) {
-            if (!raw || raw.charAt(0) !== '/' || raw.charAt(1) === '/' || raw.charAt(1) === '\\') {
-                return '/';
-            }
-            return raw;
+            // Resolve the requested target against the current origin and only
+            // accept same-origin destinations, returning a purely relative path.
+            // This blocks open redirects (//evil.com, /\evil.com) and javascript:
+            // URLs, which resolve to a different (or null) origin.
+            try {
+                const u = new URL(raw || '/', window.location.origin);
+                if (u.origin === window.location.origin) {
+                    return u.pathname + u.search + u.hash;
+                }
+            } catch (e) { /* malformed target — fall through to default */ }
+            return '/';
         }
 
         const params = new URLSearchParams(window.location.search);

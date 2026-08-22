@@ -30,11 +30,9 @@ class ImageCache(Protocol):
 
     async def get(self, key: str) -> tuple[bytes, str] | None:
         """Return cached (content, media_type), or None if missing/expired."""
-        ...
 
     async def set(self, key: str, content: bytes, media_type: str, ttl: int = 3600) -> None:
         """Store content with the given TTL in seconds."""
-        ...
 
 
 class InMemoryImageCache:

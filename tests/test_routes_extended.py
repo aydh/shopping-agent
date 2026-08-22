@@ -6,17 +6,16 @@
 """
 from __future__ import annotations
 
-import json
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from shopping_agent.auth import _TOKEN_CACHE, settings
 from shopping_agent.models import (
     ListStatus,
     Product,
-    ProductMatch,
     ShoppingList,
     ShoppingListItem,
     Store,
@@ -90,7 +89,6 @@ async def test_session_missing_access_token_returns_400():
 
 @pytest.mark.asyncio
 async def test_session_invalid_token_returns_401(monkeypatch):
-    from shopping_agent.auth import _TOKEN_CACHE
     _TOKEN_CACHE.cache.clear()
 
     req = _make_request(body={"access_token": "bad.token.value"})
@@ -100,13 +98,11 @@ async def test_session_invalid_token_returns_401(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_session_valid_token_sets_cookie(monkeypatch):
-    import shopping_agent.auth as auth_mod
-    from shopping_agent.auth import _TOKEN_CACHE
     from jose import jwt as _jwt
 
     _TOKEN_CACHE.cache.clear()
     secret = "test-secret-at-least-256-bits-long-for-jose"
-    monkeypatch.setattr(auth_mod.settings, "supabase_jwt_secret", secret)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", secret)
 
     token = _jwt.encode(
         {"sub": str(_USER_ID), "aud": "authenticated", "email": "t@t.com"},

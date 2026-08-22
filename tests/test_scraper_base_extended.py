@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from shopping_agent.models.product import Store
-from shopping_agent.scrapers.base import BaseScraper, ScrapedOrder, ScrapedOrderItem, ScrapedProduct
+from shopping_agent.scrapers.base import BaseScraper, ScrapedOrder, ScrapedOrderItem
 
 
 # ---------------------------------------------------------------------------

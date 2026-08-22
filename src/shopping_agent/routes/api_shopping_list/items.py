@@ -83,7 +83,7 @@ async def _render_item_delete_response(session: AsyncSession, user_id, item_id: 
         parts.append(f'<div id="list-content" hx-swap-oob="innerHTML">{list_html}</div>')
         return HTMLResponse("".join(parts))
 
-    parts.append(f'<div id="sl-item-{item_id}" hx-swap-oob="delete"></div>')
+    parts.append(f'<div id="sl-item-{int(item_id)}" hx-swap-oob="delete"></div>')
     return HTMLResponse("".join(parts))
 
 

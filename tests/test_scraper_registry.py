@@ -7,7 +7,7 @@ import pytest
 
 from shopping_agent.models.product import Store
 from shopping_agent.scrapers.coles import ColesScraper
-from shopping_agent.scrapers.registry import _REGISTRY, _create_scraper, get_scraper
+from shopping_agent.scrapers.registry import _create_scraper, get_scraper
 from shopping_agent.scrapers.woolworths import WoolworthsScraper
 
 
