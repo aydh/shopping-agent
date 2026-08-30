@@ -22,7 +22,10 @@ router = APIRouter()
 # A compact JWT is three base64url segments separated by dots. Anything else is
 # rejected before the value reaches a Set-Cookie header, so no control characters
 # (CR/LF) can be smuggled into the response header (cookie injection, CWE-20).
-_JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+# The pattern is matched with ``fullmatch``: ``re.match`` combined with ``$``
+# would still accept a value ending in a trailing newline (``$`` matches just
+# before a final ``\n``), which is exactly the CR/LF smuggling we must reject.
+_JWT_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 
 
 @router.post("/session")
@@ -40,7 +43,7 @@ async def set_session(request: Request) -> JSONResponse:
     except Exception:
         logger.exception("Unexpected error verifying JWT")
         return JSONResponse({"error": "Invalid token"}, status_code=401)
-    if not _JWT_RE.match(token):
+    if not _JWT_RE.fullmatch(token):
         return JSONResponse({"error": "Invalid token"}, status_code=400)
     response = JSONResponse({"ok": True})
     response.set_cookie(
