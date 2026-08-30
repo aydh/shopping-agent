@@ -118,6 +118,24 @@ async def test_session_valid_token_sets_cookie(monkeypatch):
     assert "HttpOnly" in cookie_header
 
 
+def test_is_compact_jwt_rejects_crlf_smuggling():
+    """The compact-JWT guard must reject any value carrying CR/LF characters.
+
+    Regression for cookie injection (CWE-20): ``re.match`` with a ``$``-anchored
+    pattern accepts a trailing newline (``$`` matches just before a final
+    ``\\n``), which would let a control character reach the ``Set-Cookie``
+    header. The split + per-segment ``fullmatch`` guard closes that hole.
+    """
+    valid = "aaa.bbb.ccc"
+    assert api_auth._is_compact_jwt(valid)
+    assert not api_auth._is_compact_jwt(valid + "\n")
+    assert not api_auth._is_compact_jwt(valid + "\r\n")
+    assert not api_auth._is_compact_jwt(valid + "\nSet-Cookie: evil=1")
+    # Wrong segment count is rejected too.
+    assert not api_auth._is_compact_jwt("aaa.bbb")
+    assert not api_auth._is_compact_jwt("aaa.bbb.ccc.ddd")
+
+
 # ---------------------------------------------------------------------------
 # api_auth /logout
 # ---------------------------------------------------------------------------
