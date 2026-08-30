@@ -19,13 +19,23 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# A compact JWT is three base64url segments separated by dots. Anything else is
-# rejected before the value reaches a Set-Cookie header, so no control characters
-# (CR/LF) can be smuggled into the response header (cookie injection, CWE-20).
-# The pattern is matched with ``fullmatch``: ``re.match`` combined with ``$``
-# would still accept a value ending in a trailing newline (``$`` matches just
-# before a final ``\n``), which is exactly the CR/LF smuggling we must reject.
-_JWT_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+# A single base64url segment. Matched with ``fullmatch`` against each of the
+# three dot-separated parts of a compact JWT. A single ``[...]+`` class cannot
+# backtrack polynomially, so this avoids the ReDoS a multi-group pattern like
+# ``[...]+\.[...]+\.[...]+`` would introduce (CWE-1333). ``fullmatch`` also
+# rejects a trailing newline that ``re.match`` + ``$`` would accept (``$``
+# matches just before a final ``\n``) — the CR/LF smuggling we must reject.
+_JWT_SEGMENT_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def _is_compact_jwt(token: str) -> bool:
+    """True only for exactly three dot-separated base64url segments.
+
+    Rejects any control character (CR/LF), guaranteeing the value is safe to
+    place in a ``Set-Cookie`` header (cookie injection, CWE-20).
+    """
+    parts = token.split(".")
+    return len(parts) == 3 and all(_JWT_SEGMENT_RE.fullmatch(p) for p in parts)
 
 
 @router.post("/session")
@@ -43,7 +53,7 @@ async def set_session(request: Request) -> JSONResponse:
     except Exception:
         logger.exception("Unexpected error verifying JWT")
         return JSONResponse({"error": "Invalid token"}, status_code=401)
-    if not _JWT_RE.fullmatch(token):
+    if not _is_compact_jwt(token):
         return JSONResponse({"error": "Invalid token"}, status_code=400)
     response = JSONResponse({"ok": True})
     response.set_cookie(
