@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from jose import jwt
+import jwt
 
 # Ensure the DB engine (created at import time in database.py) gets a parseable
 # URL so `main` imports cleanly even when run in isolation.

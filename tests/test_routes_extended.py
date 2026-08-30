@@ -98,7 +98,7 @@ async def test_session_invalid_token_returns_401(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_session_valid_token_sets_cookie(monkeypatch):
-    from jose import jwt as _jwt
+    import jwt as _jwt
 
     _TOKEN_CACHE.cache.clear()
     secret = "test-secret-at-least-256-bits-long-for-jose"

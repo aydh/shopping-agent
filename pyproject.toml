@@ -20,7 +20,7 @@ dependencies = [
     "rapidfuzz>=3.10",
     "apscheduler>=3.10",
     "httpx>=0.28",
-    "python-jose[cryptography]>=3.3",
+    "PyJWT[crypto]>=2.9",
     "playwright>=1.40",
     "playwright-stealth>=2.0",
 ]
