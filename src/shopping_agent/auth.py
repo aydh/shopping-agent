@@ -7,7 +7,8 @@ from uuid import UUID
 import httpx
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import ExpiredSignatureError, JWTError, jwk, jwt  # type: ignore[import-untyped]
+import jwt
+from jwt import ExpiredSignatureError, PyJWTError
 
 from .config import settings
 
@@ -74,7 +75,7 @@ def _decode_token(token: str) -> dict:
         header = jwt.get_unverified_header(token)
         alg = header.get("alg")
         kid = header.get("kid")
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token header: {exc}",
@@ -152,7 +153,7 @@ def _decode_token(token: str) -> dict:
                 if jwk_key is None:
                     raise ValueError("No matching JWT key found in JWKS; falling back to /auth/v1/user")
 
-                public_key = jwk.construct(jwk_key)
+                public_key = jwt.PyJWK(jwk_key, algorithm=alg).key
                 issuer = f"{settings.supabase_url}/auth/v1"
                 claims = jwt.decode(
                     token,
@@ -217,7 +218,7 @@ def _decode_token(token: str) -> dict:
         )
     except HTTPException:
         raise
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {exc}",
